@@ -519,6 +519,16 @@ fn node_type_ddl() -> Vec<&'static str> {
             consumer STRING NOT NULL,
             ordinal INTEGER NOT NULL
         )",
+        // Deployment plane (rexlang #49). ONE node per `.deploy` model (the
+        // model is small and consumers always want it whole — the
+        // FunctionNode payload_json pattern): `source_path` is the upsert
+        // key and `model_json` carries the whole `DeployModelGraph`
+        // serialized (every sub-type is Serialize/Deserialize), so no node
+        // families or edge types this time.
+        "CREATE NODE TYPE IF NOT EXISTS DeployModel (
+            source_path STRING NOT NULL,
+            model_json STRING NOT NULL
+        )",
     ]
 }
 

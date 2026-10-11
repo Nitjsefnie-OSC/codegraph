@@ -3,13 +3,14 @@ use crate::types::{
     ActionNode, ActorNode, ActorPolicyNode, ApiOperationNode, ApiResourceNode,
     AtprotoNamespaceNode, CapabilityNode, CodeList, CollectionNode, CompositeColumn,
     CompositeRange, CompositionTree, ConditionNode, DataBindingResolution, DddModelGraph,
-    EnumValue, ErrorDefinitionNode, EventNode, EvtModelGraph, Extension, FunctionNode, GrantEdge,
-    HttpEndpointNode, InteractionNode, LexiconNode, MembershipNode, ModuleDefinitionNode,
-    MoxDerivedFeatureNode, MoxOperationNode, MoxVocabularyNode, NamespaceImport, NamespaceNode,
-    NavigationFlowRecord, ParameterDefinitionNode, ParentCandidate, PermissionNode, Permit,
-    PipelineNode, PolicyNode, PropertyNode, RegulatoryNode, RegulatoryRefRecord, RelationshipNode,
-    RepositoryNode, RuleNode, RuleRefRecord, SchemaClassificationData, SchemaNode,
-    SecurityIdentityNode, StructuredSubField, TenantNode, ViewComponentNode, ViewContainerNode,
+    DeployModelGraph, EnumValue, ErrorDefinitionNode, EventNode, EvtModelGraph, Extension,
+    FunctionNode, GrantEdge, HttpEndpointNode, InteractionNode, LexiconNode, MembershipNode,
+    ModuleDefinitionNode, MoxDerivedFeatureNode, MoxOperationNode, MoxVocabularyNode,
+    NamespaceImport, NamespaceNode, NavigationFlowRecord, ParameterDefinitionNode, ParentCandidate,
+    PermissionNode, Permit, PipelineNode, PolicyNode, PropertyNode, RegulatoryNode,
+    RegulatoryRefRecord, RelationshipNode, RepositoryNode, RuleNode, RuleRefRecord,
+    SchemaClassificationData, SchemaNode, SecurityIdentityNode, StructuredSubField, TenantNode,
+    ViewComponentNode, ViewContainerNode,
 };
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -496,6 +497,25 @@ pub trait GraphQuerier: Send + Sync {
     /// by their `ordinal`.
     async fn get_evt_models(&self) -> Result<Vec<EvtModelGraph>, GraphError> {
         Ok(Vec::new())
+    }
+
+    // ── Deployment plane query methods (rexlang #49) ─────────────────
+
+    /// Every ingested `.deploy` deployment model, reassembled to the exact
+    /// ingest shape: models grouped by `source_path` (sorted
+    /// lexicographically), applications/profiles/deployments within each
+    /// model by their declaration order.
+    async fn get_deploy_models(&self) -> Result<Vec<DeployModelGraph>, GraphError> {
+        Ok(Vec::new())
+    }
+
+    /// Whether `schema_title` is a composition child: some other schema
+    /// carries a `contains` (ValueObject-classified) property referencing
+    /// it. The DDL plane emits those from the PARENT as child tables; a
+    /// standalone table would double-create under `IF NOT EXISTS` with a
+    /// shape missing the parent FK.
+    async fn is_composition_child(&self, _schema_title: &str) -> Result<bool, GraphError> {
+        Ok(false)
     }
 
     // ── mox domain query methods (default: no mox data) ──────────────

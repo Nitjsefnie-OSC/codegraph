@@ -353,6 +353,7 @@ async fn init_scaffold_runs_mox_first() {
         rosetta_files: &[],
         ddd_files: &[],
         evt_files: &[],
+        deploy_files: &[],
         ifml_framework: &[],
         ifml_components: None,
         ifml_design_system: None,
@@ -516,6 +517,7 @@ fn doctor_fresh_scaffold_has_zero_model_warnings() {
         rosetta_files: vec![],
         ddd_files: vec![],
         evt_files: vec![],
+        deploy_files: vec![],
     })
     .unwrap();
     assert_eq!(
@@ -548,6 +550,7 @@ fn doctor_empty_schemas_dir_in_mox_mode_still_warns() {
         rosetta_files: vec![],
         ddd_files: vec![],
         evt_files: vec![],
+        deploy_files: vec![],
     })
     .unwrap();
     assert_eq!(
@@ -579,6 +582,7 @@ fn doctor_classifier_missing_with_json_schemas_is_hard_failure() {
         rosetta_files: vec![],
         ddd_files: vec![],
         evt_files: vec![],
+        deploy_files: vec![],
     })
     .unwrap_err();
     assert!(
@@ -608,6 +612,7 @@ fn doctor_validates_multiple_mox_files() {
         rosetta_files: vec![],
         ddd_files: vec![],
         evt_files: vec![],
+        deploy_files: vec![],
     })
     .unwrap();
     assert_eq!(summary.hard_failures, 0);
@@ -632,6 +637,7 @@ fn doctor_fails_on_missing_schemas() {
         rosetta_files: vec![],
         ddd_files: vec![],
         evt_files: vec![],
+        deploy_files: vec![],
     })
     .unwrap_err();
     assert!(
@@ -678,6 +684,7 @@ fn doctor_mox_mode_validates_packages_and_allows_missing_schemas() {
         rosetta_files: vec![],
         ddd_files: vec![],
         evt_files: vec![],
+        deploy_files: vec![],
     })
     .unwrap();
     assert_eq!(summary.hard_failures, 0);
@@ -703,6 +710,7 @@ fn doctor_mox_package_without_domain_entry_is_a_hard_failure() {
         rosetta_files: vec![],
         ddd_files: vec![],
         evt_files: vec![],
+        deploy_files: vec![],
     })
     .unwrap_err();
     assert!(
@@ -731,6 +739,7 @@ fn doctor_broken_mox_file_is_a_hard_failure() {
         rosetta_files: vec![],
         ddd_files: vec![],
         evt_files: vec![],
+        deploy_files: vec![],
     })
     .unwrap_err();
     assert!(
@@ -864,6 +873,7 @@ fn doctor_valid_import_passes() {
         rosetta_files: vec![],
         ddd_files: vec![],
         evt_files: vec![],
+        deploy_files: vec![],
     })
     .unwrap();
 }
@@ -882,6 +892,7 @@ fn doctor_missing_import_target_is_a_hard_failure() {
         rosetta_files: vec![],
         ddd_files: vec![],
         evt_files: vec![],
+        deploy_files: vec![],
     })
     .unwrap_err();
     assert!(
@@ -904,6 +915,7 @@ fn doctor_invalid_import_json_is_a_hard_failure() {
         rosetta_files: vec![],
         ddd_files: vec![],
         evt_files: vec![],
+        deploy_files: vec![],
     })
     .unwrap_err();
     assert!(
@@ -1091,6 +1103,7 @@ async fn init_rosetta_scaffold_runs_rosetta_first() {
         rosetta_files: &rosetta_files,
         ddd_files: &[],
         evt_files: &[],
+        deploy_files: &[],
         ifml_framework: &[],
         ifml_components: None,
         ifml_design_system: None,
@@ -1156,6 +1169,7 @@ fn doctor_rosetta_starter_has_zero_model_warnings() {
         rosetta_files: vec![project.join("model/common.rosetta")],
         ddd_files: vec![],
         evt_files: vec![],
+        deploy_files: vec![],
     })
     .unwrap();
     assert_eq!(summary.hard_failures, 0);
@@ -1181,6 +1195,7 @@ fn doctor_broken_rosetta_file_is_a_hard_failure() {
         rosetta_files: vec![broken],
         ddd_files: vec![],
         evt_files: vec![],
+        deploy_files: vec![],
     })
     .unwrap_err();
     assert!(
@@ -1213,6 +1228,7 @@ fn doctor_rosetta_namespace_without_domain_entry_warns() {
         rosetta_files: vec![file],
         ddd_files: vec![],
         evt_files: vec![],
+        deploy_files: vec![],
     })
     .unwrap();
     assert_eq!(
@@ -1251,6 +1267,7 @@ fn doctor_rosetta_import_without_matching_file_warns() {
         rosetta_files: vec![file],
         ddd_files: vec![],
         evt_files: vec![],
+        deploy_files: vec![],
     })
     .unwrap();
     assert_eq!(summary.hard_failures, 0);
@@ -1312,5 +1329,205 @@ fn add_domain_rosetta_mode_creates_rosetta_starter() {
     assert!(
         format!("{err}").contains("already exists"),
         "duplicate domain should be rejected: {err}"
+    );
+}
+
+// ── doctor --deploy-files (rexlang #49) ────────────────────────────────────
+
+/// A self-contained standalone deployment (no imports): compiles clean on
+/// a monolith scaffold — the topology cross-check agrees (standalone
+/// profile, monolith plan), and the fresh scaffold's domains.toml declares
+/// no entities so coverage is silent.
+#[test]
+fn doctor_deploy_files_compile_clean_with_matching_topology() {
+    let dir = TempDir::new().unwrap();
+    cmd_init(&init_args(dir.path(), "demo-app", None, false)).unwrap();
+    let project = dir.path().join("demo-app");
+    let deploy = project.join("svc.deploy");
+    fs::write(
+        &deploy,
+        concat!(
+            "application Shop {\n",
+            "    component api: api { replicas: 2 }\n",
+            "    component db: database { engine: sqlite }\n",
+            "    connects api -> db\n",
+            "}\n",
+            "\n",
+            "profile local {\n",
+            "    target: standalone\n",
+            "}\n",
+            "\n",
+            "deployment dev for Shop {\n",
+            "    use local\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+
+    let summary = cmd_doctor(&DoctorArgs {
+        config: project.join("domains.toml"),
+        schemas: None,
+        classifier: None,
+        profiles_config: Some(project.join("profiles.toml")),
+        mox_files: vec![project.join("model/common.mox")],
+        rosetta_files: vec![],
+        ddd_files: vec![],
+        evt_files: vec![],
+        deploy_files: vec![deploy],
+    })
+    .unwrap();
+    assert_eq!(
+        summary.hard_failures, 0,
+        "a clean deploy agreeing with the monolith plan must not fail"
+    );
+}
+
+/// Cross-check (a), profile side: a cloudflareWorkers profile with the
+/// monolith topology is a HARD failure — the plan cannot host the
+/// declared components.
+#[test]
+fn doctor_deploy_workers_profile_conflicts_with_monolith_topology() {
+    let dir = TempDir::new().unwrap();
+    cmd_init(&init_args(dir.path(), "demo-app", None, false)).unwrap();
+    let project = dir.path().join("demo-app");
+    let deploy = project.join("svc.deploy");
+    fs::write(
+        &deploy,
+        concat!(
+            "application Shop {\n",
+            "    component api: api { replicas: 2 }\n",
+            "    component db: database { engine: d1 }\n",
+            "    connects api -> db\n",
+            "}\n",
+            "\n",
+            "profile edge {\n",
+            "    target: cloudflareWorkers\n",
+            "}\n",
+            "\n",
+            "deployment prod for Shop {\n",
+            "    use edge\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+
+    let err = cmd_doctor(&DoctorArgs {
+        config: project.join("domains.toml"),
+        schemas: None,
+        classifier: None,
+        profiles_config: Some(project.join("profiles.toml")),
+        mox_files: vec![project.join("model/common.mox")],
+        rosetta_files: vec![],
+        ddd_files: vec![],
+        evt_files: vec![],
+        deploy_files: vec![deploy],
+    })
+    .unwrap_err();
+    assert!(
+        format!("{err}").contains("hard check"),
+        "workers profile on a monolith plan must be a hard failure: {err}"
+    );
+}
+
+/// Cross-check (a), topology side: the Workers topology with no
+/// cloudflareWorkers profile in any deploy model is a HARD failure.
+#[test]
+fn doctor_workers_topology_without_deploy_profile_is_hard_failure() {
+    let dir = TempDir::new().unwrap();
+    let mut args = init_args(dir.path(), "demo-app", None, false);
+    args.deployment_topology = "workers".to_string();
+    cmd_init(&args).unwrap();
+    let project = dir.path().join("demo-app");
+    let deploy = project.join("svc.deploy");
+    fs::write(
+        &deploy,
+        concat!(
+            "application Shop {\n",
+            "    component api: api { replicas: 2 }\n",
+            "    component db: database { engine: sqlite }\n",
+            "    connects api -> db\n",
+            "}\n",
+            "\n",
+            "profile local {\n",
+            "    target: standalone\n",
+            "}\n",
+            "\n",
+            "deployment dev for Shop {\n",
+            "    use local\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+
+    let err = cmd_doctor(&DoctorArgs {
+        config: project.join("domains.toml"),
+        schemas: None,
+        classifier: None,
+        profiles_config: Some(project.join("profiles.toml")),
+        mox_files: vec![project.join("model/common.mox")],
+        rosetta_files: vec![],
+        ddd_files: vec![],
+        evt_files: vec![],
+        deploy_files: vec![deploy],
+    })
+    .unwrap_err();
+    assert!(
+        format!("{err}").contains("hard check"),
+        "workers topology without a workers profile must be a hard failure: {err}"
+    );
+}
+
+/// Cross-check (b): a domains.toml domain with entities but no matching
+/// application component WARNs (soft) — never a hard failure.
+#[test]
+fn doctor_deploy_component_coverage_gap_warns_but_does_not_fail() {
+    let dir = TempDir::new().unwrap();
+    cmd_init(&init_args(dir.path(), "demo-app", None, false)).unwrap();
+    let project = dir.path().join("demo-app");
+    let config = project.join("domains.toml");
+    let toml = fs::read_to_string(&config).unwrap();
+    fs::write(&config, format!("{toml}\nentities = [\"Widget\"]\n")).unwrap();
+    // One application whose components do NOT carry the domain's name:
+    // the coverage gap warns.
+    let deploy = project.join("svc.deploy");
+    fs::write(
+        &deploy,
+        concat!(
+            "application Shop {\n",
+            "    component api: api { replicas: 2 }\n",
+            "    component db: database { engine: sqlite }\n",
+            "    connects api -> db\n",
+            "}\n",
+            "\n",
+            "profile local {\n",
+            "    target: standalone\n",
+            "}\n",
+            "\n",
+            "deployment dev for Shop {\n",
+            "    use local\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+
+    let summary = cmd_doctor(&DoctorArgs {
+        config,
+        schemas: None,
+        classifier: None,
+        profiles_config: Some(project.join("profiles.toml")),
+        mox_files: vec![project.join("model/common.mox")],
+        rosetta_files: vec![],
+        ddd_files: vec![],
+        evt_files: vec![],
+        deploy_files: vec![deploy],
+    })
+    .unwrap();
+    assert_eq!(
+        summary.hard_failures, 0,
+        "a coverage gap is advisory, never a hard failure"
+    );
+    assert!(
+        summary.soft_warnings >= 1,
+        "the coverage gap must warn (soft)"
     );
 }

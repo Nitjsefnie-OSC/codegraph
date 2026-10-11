@@ -11,10 +11,12 @@ command = "cargo install worker-build && worker-build --release --no-default-fea
 [vars]
 # Set in Cloudflare or in a local .dev.vars file.
 {% for domain in domains %}
+{%- if domain.in_gateway %}
 
 [[services]]
 binding = "{{ domain.binding }}"
 service = "{{ domain.worker_name }}"
+{% endif -%}
 {% endfor %}
 {% if gateway_observability %}
 

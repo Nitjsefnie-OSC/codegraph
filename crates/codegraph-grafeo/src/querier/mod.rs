@@ -2,6 +2,7 @@ mod api_model;
 mod atproto;
 mod composition;
 mod ddd;
+mod deploy;
 mod evt;
 mod governance;
 mod ifml;
@@ -17,14 +18,15 @@ use codegraph_core::types::{
     ActionNode, ActorNode, ActorPolicyNode, ApiOperationNode, ApiResourceNode,
     AtprotoNamespaceNode, CapabilityNode, CodeList, CollectionNode, CompositeColumn,
     CompositeRange, CompositionTree, ConditionNode, DataBindingResolution, DddModelGraph,
-    EnumValue, ErrorDefinitionNode, EventNode, EvtModelGraph, Extension, FunctionNode, GrantEdge,
-    HttpEndpointNode, InteractionNode, LexiconNode, MembershipNode, ModuleDefinitionNode,
-    MoxDerivedFeatureNode, MoxOperationNode, MoxVocabularyNode, NamespaceImport, NamespaceNode,
-    NavigationFlowRecord, ParameterDefinitionNode, ParentCandidate, PermissionNode, Permit,
-    PipelineNode, PolicyNode, PropertyNode, RegulatoryNode, RegulatoryRefRecord, RelationshipNode,
-    RepositoryNode, RuleNode, RuleRefRecord, SchemaClassificationData, SchemaNode,
-    SecurityIdentityNode, StructuredSubField, TenantNode, ViewComponentNode, ViewContainerNode,
-    descendants, topological_namespace_order, topological_order,
+    DeployModelGraph, EnumValue, ErrorDefinitionNode, EventNode, EvtModelGraph, Extension,
+    FunctionNode, GrantEdge, HttpEndpointNode, InteractionNode, LexiconNode, MembershipNode,
+    ModuleDefinitionNode, MoxDerivedFeatureNode, MoxOperationNode, MoxVocabularyNode,
+    NamespaceImport, NamespaceNode, NavigationFlowRecord, ParameterDefinitionNode, ParentCandidate,
+    PermissionNode, Permit, PipelineNode, PolicyNode, PropertyNode, RegulatoryNode,
+    RegulatoryRefRecord, RelationshipNode, RepositoryNode, RuleNode, RuleRefRecord,
+    SchemaClassificationData, SchemaNode, SecurityIdentityNode, StructuredSubField, TenantNode,
+    ViewComponentNode, ViewContainerNode, descendants, topological_namespace_order,
+    topological_order,
 };
 
 use self::query::{query_gql, query_gql_params, query_many, query_many_params};
@@ -676,6 +678,14 @@ impl GraphQuerier for GrafeoEngine {
 
     async fn get_evt_models(&self) -> Result<Vec<EvtModelGraph>, GraphError> {
         self.query_evt_models().await
+    }
+
+    async fn get_deploy_models(&self) -> Result<Vec<DeployModelGraph>, GraphError> {
+        self.query_deploy_models().await
+    }
+
+    async fn is_composition_child(&self, schema_title: &str) -> Result<bool, GraphError> {
+        self.query_is_composition_child(schema_title).await
     }
 
     async fn get_mox_vocabularies(&self) -> Result<Vec<MoxVocabularyNode>, GraphError> {

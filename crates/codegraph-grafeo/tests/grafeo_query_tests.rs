@@ -1989,3 +1989,94 @@ async fn test_evt_model_round_trip() {
     let empty = GrafeoEngine::in_memory().unwrap();
     assert!(empty.get_evt_models().await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn test_is_composition_child_detects_value_object_reference() {
+    let engine = GrafeoEngine::in_memory().unwrap();
+    engine
+        .ingest_schema(&make_schema("Reward", "compensation", true))
+        .await
+        .unwrap();
+    engine
+        .ingest_schema(&make_schema("RewardTarget", "compensation", false))
+        .await
+        .unwrap();
+
+    // mox contains lowering: a ValueObject-classified property referencing
+    // the target (edge id convention `{prop}::{schema_title}`).
+    let mut prop = make_property("target", true);
+    prop.classification_kind = Some(codegraph_type_contracts::RefClassificationKind::ValueObject);
+    prop.ref_target = Some("RewardTarget".to_string());
+    engine
+        .ingest_property("Reward", "compensation/Reward", &prop)
+        .await
+        .unwrap();
+    // The mox lowering writes the child-table link as ItemsOf; the JSON
+    // path writes ReferencesSchema. Both must detect.
+    engine
+        .ingest_edge(
+            "target::Reward",
+            "compensation/RewardTarget",
+            EdgeType::ItemsOf,
+            None,
+        )
+        .await
+        .unwrap();
+
+    assert!(engine.is_composition_child("RewardTarget").await.unwrap());
+    assert!(!engine.is_composition_child("Reward").await.unwrap());
+
+    // A "refers wins" containment whose target is an ENTITY keeps the
+    // target's own table — not a composition child.
+    engine
+        .ingest_schema(&make_schema("LegalDocument", "core", true))
+        .await
+        .unwrap();
+    let mut entity_ref_prop = make_property("legalDocuments", true);
+    entity_ref_prop.classification_kind =
+        Some(codegraph_type_contracts::RefClassificationKind::ValueObject);
+    entity_ref_prop.ref_target = Some("LegalDocument".to_string());
+    engine
+        .ingest_property("Reward", "compensation/Reward", &entity_ref_prop)
+        .await
+        .unwrap();
+    engine
+        .ingest_edge(
+            "legalDocuments::Reward",
+            "core/LegalDocument",
+            EdgeType::ItemsOf,
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(
+        !engine.is_composition_child("LegalDocument").await.unwrap(),
+        "entity-target containments keep their own table"
+    );
+
+    let mut ref_prop = make_property("linked", true);
+    ref_prop.classification_kind =
+        Some(codegraph_type_contracts::RefClassificationKind::ValueObject);
+    ref_prop.ref_target = Some("LinkedThing".to_string());
+    engine
+        .ingest_schema(&make_schema("LinkedThing", "compensation", false))
+        .await
+        .unwrap();
+    engine
+        .ingest_property("Reward", "compensation/Reward", &ref_prop)
+        .await
+        .unwrap();
+    engine
+        .ingest_edge(
+            "linked::Reward",
+            "compensation/LinkedThing",
+            EdgeType::ReferencesSchema,
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(
+        engine.is_composition_child("LinkedThing").await.unwrap(),
+        "ReferencesSchema-linked value objects detect too"
+    );
+}

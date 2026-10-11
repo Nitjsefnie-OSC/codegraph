@@ -193,6 +193,19 @@ impl EntityGenerator for DdlGenerator {
             return Ok(Vec::new());
         }
 
+        // Skip composition children: a `contains` value object is emitted
+        // by its parent's DDL as a child table (parent FK, updated_at, the
+        // child-table RLS). A standalone emission here races the parent's
+        // `CREATE TABLE IF NOT EXISTS` with a shape missing the parent FK —
+        // whichever sorts first wins, and the repository/queries planes
+        // assume the child shape (exposed by cornucopia's build-time SQL
+        // validation, which type-checks every query against the LIVE
+        // database). The child's own .rs/queries stay; only the duplicate
+        // table goes.
+        if query::is_composition_child(db, schema_title).await? {
+            return Ok(Vec::new());
+        }
+
         // Apply dialect-specific type mapping, default wrapping, and
         // per-dialect column type validation
         apply_dialect_type_mapping(&*self.dialect, &mut ctx)?;

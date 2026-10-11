@@ -443,8 +443,17 @@ pub(crate) fn build_global_generators(ctx: &GeneratorContext<'_>) -> Vec<Box<dyn
     let mut global_gens: Vec<Box<dyn GlobalGenerator>> = global_gens
         .into_iter()
         .filter(|generator| {
-            generator.name() == "evt_events" && evt_events_implied || {
-                ctx.plan_has_global(generator.name())
+            // The workers topology swap (above) replaces the monolith
+            // scaffold with the per-worker scaffold + gateway — the plan may
+            // gate it under either spelling: the profile-facing "scaffold"
+            // (profiles.toml lists the monolith name) or the explicit
+            // "worker_scaffold".
+            if ctx.workers_topology && generator.name() == "worker_scaffold" {
+                ctx.plan_has_global("worker_scaffold") || ctx.plan_has_global("scaffold")
+            } else {
+                generator.name() == "evt_events" && evt_events_implied || {
+                    ctx.plan_has_global(generator.name())
+                }
             }
         })
         .filter(|generator| {

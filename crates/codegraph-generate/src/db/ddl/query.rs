@@ -1775,3 +1775,14 @@ async fn warn_on_ddl_dto_gap(
     eprintln!("warning: ddl-dto-gap: {message}");
     tracing::warn!("{message}");
 }
+
+/// Whether `schema_title` is a composition child: some other schema carries
+/// a `contains` (ValueObject-classified) property referencing it. Such
+/// schemas are emitted by their parent's DDL as child tables; a standalone
+/// table would double-create under `IF NOT EXISTS` with the wrong shape.
+pub(super) async fn is_composition_child(
+    db: &dyn GraphQuerier,
+    schema_title: &str,
+) -> Result<bool> {
+    Ok(db.is_composition_child(schema_title).await?)
+}

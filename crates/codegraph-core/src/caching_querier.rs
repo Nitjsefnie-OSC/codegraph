@@ -9,14 +9,14 @@ use crate::types::{
     ActionNode, ActorNode, ActorPolicyNode, ApiOperationNode, ApiResourceNode,
     AtprotoNamespaceNode, CapabilityNode, CodeList, CollectionNode, CompositeColumn,
     CompositeRange, CompositionTree, ConditionNode, DataBindingResolution, DddModelGraph,
-    EnumValue, ErrorDefinitionNode, EventNode, EvtModelGraph, Extension, FunctionNode, GrantEdge,
-    HttpEndpointNode, InteractionNode, LexiconNode, MembershipNode, ModuleDefinitionNode,
-    MoxDerivedFeatureNode, MoxOperationNode, MoxVocabularyNode, NamespaceImport, NamespaceNode,
-    NavigationFlowRecord, ParameterDefinitionNode, ParentCandidate, PermissionNode, Permit,
-    PipelineNode, PolicyNode, PropertyNode, RegulatoryNode, RegulatoryRefRecord, RelationshipNode,
-    RepositoryNode, RuleNode, RuleRefRecord, SchemaClassificationData, SchemaNode,
-    SecurityIdentityNode, StructuredSubField, TenantNode, ViewComponentNode, ViewContainerNode,
-    ref_target_candidate_title,
+    DeployModelGraph, EnumValue, ErrorDefinitionNode, EventNode, EvtModelGraph, Extension,
+    FunctionNode, GrantEdge, HttpEndpointNode, InteractionNode, LexiconNode, MembershipNode,
+    ModuleDefinitionNode, MoxDerivedFeatureNode, MoxOperationNode, MoxVocabularyNode,
+    NamespaceImport, NamespaceNode, NavigationFlowRecord, ParameterDefinitionNode, ParentCandidate,
+    PermissionNode, Permit, PipelineNode, PolicyNode, PropertyNode, RegulatoryNode,
+    RegulatoryRefRecord, RelationshipNode, RepositoryNode, RuleNode, RuleRefRecord,
+    SchemaClassificationData, SchemaNode, SecurityIdentityNode, StructuredSubField, TenantNode,
+    ViewComponentNode, ViewContainerNode, ref_target_candidate_title,
 };
 
 /// Cached codelist-for-property value: `Option<(CodeList, render_as)>`.
@@ -60,6 +60,7 @@ pub struct CachingQuerier<'a> {
     all_relationships_cache: RwLock<Option<Vec<RelationshipNode>>>,
     ddd_models_cache: RwLock<Option<Vec<DddModelGraph>>>,
     evt_models_cache: RwLock<Option<Vec<EvtModelGraph>>>,
+    deploy_models_cache: RwLock<Option<Vec<DeployModelGraph>>>,
     /// Populated for future tenant-scoped queries; not read yet.
     #[allow(dead_code)]
     tenants_cache: RwLock<HashMap<String, TenantNode>>,
@@ -97,6 +98,7 @@ impl<'a> CachingQuerier<'a> {
             all_relationships_cache: RwLock::new(None),
             ddd_models_cache: RwLock::new(None),
             evt_models_cache: RwLock::new(None),
+            deploy_models_cache: RwLock::new(None),
             tenants_cache: RwLock::new(HashMap::new()),
         }
     }
@@ -930,6 +932,19 @@ impl GraphQuerier for CachingQuerier<'_> {
         let models = self.inner.get_evt_models().await?;
         *self.evt_models_cache.write().unwrap() = Some(models.clone());
         Ok(models)
+    }
+
+    async fn get_deploy_models(&self) -> Result<Vec<DeployModelGraph>, GraphError> {
+        if let Some(models) = self.deploy_models_cache.read().unwrap().clone() {
+            return Ok(models);
+        }
+        let models = self.inner.get_deploy_models().await?;
+        *self.deploy_models_cache.write().unwrap() = Some(models.clone());
+        Ok(models)
+    }
+
+    async fn is_composition_child(&self, schema_title: &str) -> Result<bool, GraphError> {
+        self.inner.is_composition_child(schema_title).await
     }
 
     // ── mox domain queries ─────────────────────────────────────────────

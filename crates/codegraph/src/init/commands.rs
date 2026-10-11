@@ -288,6 +288,12 @@ pub struct DoctorArgs {
     /// against their imported .mox domains (the same read+collect+compile
     /// the ingest path uses); error-severity diagnostics are hard failures.
     pub evt_files: Vec<PathBuf>,
+    /// rexlang .deploy deployment files (optional). Compile-verified
+    /// against their imported .ddd designs and .ifml flows (the same
+    /// read+resolve+compile the ingest path uses), then cross-checked
+    /// against the resolved BuildPlan topology and the domains.toml
+    /// component coverage; error-severity diagnostics are hard failures.
+    pub deploy_files: Vec<PathBuf>,
 }
 
 /// Outcome counts for a doctor run. `model_warnings` isolates the
@@ -759,6 +765,152 @@ fn check_evt_files(evt_files: &[PathBuf]) -> (usize, usize) {
     (hard, soft)
 }
 
+/// Validate `--deploy-files` for doctor (rexlang #49): every deployment
+/// file resolves its imported .ddd designs and .ifml flows and compiles
+/// through the SAME read+resolve+compile helper the ingest path uses, so
+/// doctor and ingest cannot drift. Error-severity diagnostics (or a
+/// missing artifact) are hard failures with the per-file rendered output;
+/// warnings count as soft. ADDITIVE (the `check_evt_files` policy): never
+/// feeds model_warnings. Once the files compile, two cross-checks run:
+/// profile target vs resolved BuildPlan topology (hard) and domains.toml
+/// component coverage (soft). Returns the (hard_failures, soft_warnings)
+/// contributed.
+fn check_deploy_files(
+    deploy_files: &[PathBuf],
+    build_plan: Option<&crate::profile::BuildPlan>,
+    domain_config: Option<&codegraph_config::config::DomainConfig>,
+) -> (usize, usize) {
+    let mut hard = 0;
+    let mut soft = 0;
+    let mut compiled_models: Vec<codegraph_core::types::DeployModelGraph> = Vec::new();
+    for path in deploy_files {
+        match crate::ingest::deploy_ingest::read_and_resolve_deploy(path) {
+            Ok(compiled) => {
+                let rendered = crate::ingest::deploy_ingest::render_deploy_diagnostics(&compiled);
+                if !rendered.is_empty() {
+                    println!("{rendered}");
+                }
+                let has_errors = compiled.diagnostics.iter().any(|(_, d)| d.is_error());
+                if has_errors || compiled.graph.is_none() {
+                    hard += 1;
+                    println!("FAIL deploy — {} does not compile", path.display());
+                    println!("     hint: fix the rexlang deployment errors reported above");
+                    continue;
+                }
+                soft += compiled.diagnostics.len();
+                let graph = compiled.graph.expect("checked above");
+                println!(
+                    "PASS deploy — {} compiles ({} application(s), {} profile(s), \
+                     {} deployment(s))",
+                    path.display(),
+                    graph.applications.len(),
+                    graph.profiles.len(),
+                    graph.deployments.len()
+                );
+                compiled_models.push(graph);
+            }
+            Err(e) => {
+                hard += 1;
+                println!("FAIL deploy — {e}");
+                println!("     hint: check the .deploy file and its imported .ddd/.ifml files");
+            }
+        }
+    }
+
+    // Cross-checks are only meaningful against models that compiled.
+    if !compiled_models.is_empty() {
+        hard += check_deploy_topology(&compiled_models, build_plan);
+        soft += check_deploy_component_coverage(&compiled_models, domain_config);
+    }
+    (hard, soft)
+}
+
+/// Profile/target vs topology cross-check (rexlang #49): a
+/// `cloudflareWorkers` profile needs the Workers deployment topology and
+/// vice versa — a deploy file and a profiles.toml that disagree describe
+/// scaffolds that cannot host the declared components. Skipped when no
+/// profiles.toml resolved (nothing to disagree with). Returns the hard
+/// failures contributed.
+fn check_deploy_topology(
+    models: &[codegraph_core::types::DeployModelGraph],
+    build_plan: Option<&crate::profile::BuildPlan>,
+) -> usize {
+    use crate::profile::DeploymentTopology;
+    let Some(plan) = build_plan else {
+        return 0;
+    };
+    let topology = plan.deployment_topology();
+    let has_workers_profile = models
+        .iter()
+        .any(|m| m.profiles.iter().any(|p| p.target == "cloudflareWorkers"));
+    match (has_workers_profile, topology) {
+        (true, other) if other != DeploymentTopology::Workers => {
+            println!(
+                "FAIL deploy — a cloudflareWorkers profile needs the Workers deployment \
+                 topology (profiles.toml says {})",
+                other.as_str()
+            );
+            println!(
+                "     hint: set deployment_topology = \"workers\" in profiles.toml \
+                 (or retarget the profile)"
+            );
+            1
+        }
+        (false, DeploymentTopology::Workers) => {
+            println!(
+                "FAIL deploy — the Workers deployment topology needs a cloudflareWorkers \
+                 profile; no .deploy model declares one"
+            );
+            println!("     hint: add a profile with target: cloudflareWorkers to the .deploy file");
+            1
+        }
+        _ => 0,
+    }
+}
+
+/// Component-coverage cross-check (rexlang #49): every domains.toml domain
+/// that declares entities should appear as an application component in the
+/// deployment models — a domain with no component has nowhere to run in
+/// the declared architecture. Advisory (WARN, never FAIL): a deployment
+/// may legitimately be narrower than the full model during rollout.
+/// Returns the soft warnings contributed.
+fn check_deploy_component_coverage(
+    models: &[codegraph_core::types::DeployModelGraph],
+    domain_config: Option<&codegraph_config::config::DomainConfig>,
+) -> usize {
+    let Some(config) = domain_config else {
+        return 0;
+    };
+    let declared: HashSet<String> = models
+        .iter()
+        .flat_map(|m| m.applications.iter())
+        .flat_map(|a| a.components.iter().map(|c| c.name.clone()))
+        .collect();
+    let mut warnings = 0;
+    let mut names: Vec<&String> = config
+        .domains
+        .iter()
+        .filter(|(_, entry)| !entry.entities.is_empty())
+        .map(|(name, _)| name)
+        .collect();
+    names.sort();
+    for name in names {
+        if declared.contains(name) {
+            continue;
+        }
+        warnings += 1;
+        println!(
+            "WARN deploy — domain '{name}' declares entities but no application component \
+             named '{name}'"
+        );
+        println!(
+            "     hint: add a component '{name}' to the .deploy application \
+             (or accept the gap: the domain may be intentionally outside this deployment)"
+        );
+    }
+    warnings
+}
+
 /// Validate an existing consumer project. Prints pass/fail checks and
 /// returns Err when any hard check fails; Ok carries the outcome counts.
 pub fn cmd_doctor(args: &DoctorArgs) -> Result<DoctorSummary> {
@@ -827,6 +979,10 @@ pub fn cmd_doctor(args: &DoctorArgs) -> Result<DoctorSummary> {
         .profiles_config
         .clone()
         .unwrap_or_else(|| PathBuf::from("profiles.toml"));
+    // The resolved plan feeds the deploy cross-checks below (profile
+    // target vs topology); absent when profiles.toml is missing (nothing
+    // to cross-check against).
+    let mut build_plan: Option<crate::profile::BuildPlan> = None;
     if profiles_path.exists() {
         match crate::profile::load_and_resolve_profile(&profiles_path, "default", None).and_then(
             |resolved| {
@@ -834,12 +990,15 @@ pub fn cmd_doctor(args: &DoctorArgs) -> Result<DoctorSummary> {
                 crate::profile::BuildPlan::from_profile(&resolved, &registry)
             },
         ) {
-            Ok(plan) => println!(
-                "PASS profiles.toml — {} entity, {} domain, {} global generator(s)",
-                plan.entity_generators.len(),
-                plan.domain_generators.len(),
-                plan.global_generators.len()
-            ),
+            Ok(plan) => {
+                println!(
+                    "PASS profiles.toml — {} entity, {} domain, {} global generator(s)",
+                    plan.entity_generators.len(),
+                    plan.domain_generators.len(),
+                    plan.global_generators.len()
+                );
+                build_plan = Some(plan);
+            }
             Err(e) => {
                 hard_failures += 1;
                 println!("FAIL profiles.toml — {e}");
@@ -942,6 +1101,20 @@ pub fn cmd_doctor(args: &DoctorArgs) -> Result<DoctorSummary> {
     // model-source check, so it never feeds model_warnings.
     if !args.evt_files.is_empty() {
         let (hard, soft) = check_evt_files(&args.evt_files);
+        hard_failures += hard;
+        soft_warnings += soft;
+    }
+
+    // The .deploy deployment plane is additive to any model source:
+    // compile-verify each file when provided (rexlang #49), plus the
+    // topology and component-coverage cross-checks once they compile. Not
+    // a model-source check, so it never feeds model_warnings.
+    if !args.deploy_files.is_empty() {
+        let (hard, soft) = check_deploy_files(
+            &args.deploy_files,
+            build_plan.as_ref(),
+            domain_config.as_ref().ok(),
+        );
         hard_failures += hard;
         soft_warnings += soft;
     }

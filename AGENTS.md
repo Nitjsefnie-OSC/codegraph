@@ -278,6 +278,57 @@ generators become model-driven; `--evt-files` also rides `codegraph doctor`
   `events_{domain}`); publisher/aggregate binding + event domain
   attribution (rexlang issue drafts, see below); LSP for `.evt`.
 
+## Deployment models as generator input (rexlang #49)
+
+rexlang `.deploy` deployment models compile — against their imported `.ddd`
+designs and `.ifml` flows — into the deployment plane: applications of
+components (kinded: api/worker/database/queue/objectStore/frontend) and
+`connects` edges, profiles (closed targets incl. `cloudflareWorkers` +
+defaults/policies/mappings), and deployments. `codegraph run
+--deploy-files fleet.deploy ...` ingests them (driver **Pass 1e**, after
+the evt pass, part of the graph-cache inputs group — a `.deploy` edit
+busts `.graph-cache/`); `--deploy-files` also rides `codegraph doctor`
+(`check_deploy_files`, plus two cross-checks: a `cloudflareWorkers`
+profile ⇔ the resolved `deployment_topology = "workers"`, and per-domain
+component coverage — the second warns, the first is hard).
+
+- **Pipeline**: `ingest_deploy_files`
+  (`crates/codegraph/src/ingest/deploy_ingest.rs`) reads each deployment
+  file, resolves its imports relative to the file (`.ddd` designs compile
+  through the shared `read_and_compile_ddd` union path, `.ifml` flows via
+  `parse_ifml_file`), compiles with `rex_driver::compile_deploy_str`, and
+  hard-errors on any error-severity diagnostic (`Error::DeployModel` — a
+  broken deployment model never half-ingests).
+- **Storage**: ONE `:DeployModel` node per source file — `source_path` +
+  `model_json` (the whole `codegraph_core::types::DeployModelGraph` typed
+  mirror serialized; consumers always want the model whole, so the
+  evt/ddd per-family node split buys nothing here). Upsert-by-source_path;
+  readback deserializes + sorts by `source_path`
+  (`ingestor/nodes_deploy.rs`, `querier/deploy.rs`).
+- **Derivation** (workers scaffold,
+  `codegraph-generate/src/scaffold/worker.rs`): `DeployShape` resolves the
+  first `cloudflareWorkers` profile → its first deployment → that
+  application; absent/unresolvable = pure config behavior (flag-off
+  identity). Component ↔ worker bridges BY NAME (a domain-named api/worker
+  component is that domain's worker); `connects` edges REPLACE the
+  `service_bindings_or_depends()` fallback per domain (explicit
+  `domains.toml` `service_bindings` still win; edges to non-domain
+  components are skipped); an api component named `gateway` narrows the
+  gateway's `[[services]]` to exactly the domains receiving a
+  `connects gateway -> X` (no gateway component ⇒ bind-all, byte-identical
+  template output).
+- **Gates**: `cargo test -p codegraph --test deploy_ingest_tests`
+  (conversion/hard-error/cache-input semantics), the grafeo round-trip
+  tests in `querier/deploy.rs`, the doctor cross-check tests in
+  `init_tests.rs`, and the scaffold derivation tests in
+  `scaffold/worker.rs`.
+- **Deferred**: crons/observability/webhook queues/hyperdrive names as
+  `.deploy` component settings (needs rex-driver setting-vocabulary
+  extensions); `queue`/`objectStore` components driving worker queues;
+  `remote_include_mode = "http"` over service bindings; non-workers
+  targets (standalone/dockerCompose/kubernetes backends do not exist yet
+  — rexlang #49 slice 2).
+
 ## Namespaces as first-class citizens (issue #267)
 
 Namespace = where a type lives + what it can see (hierarchical, dotted,

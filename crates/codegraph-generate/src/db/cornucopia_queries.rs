@@ -101,6 +101,16 @@ impl EntityGenerator for CornucopiaQueryGenerator {
             .map(|c| (c.column_name.clone(), c.pg_type.clone()))
             .collect();
 
+        // Composition children are queried through their parent's child
+        // queries (full-path table names — `enrollment_coverages_beneficiaries`
+        // for a grandchild); a standalone file would target a bare
+        // `{title}` table that only exists for depth-1 children. The
+        // parent's file owns the child queries.
+        let composition_child = db.is_composition_child(schema_title).await?;
+        if composition_child {
+            return Ok(Vec::new());
+        }
+
         let mut sql = render_entity_sql(schema_title, domain, config, &tree, &pg_types);
 
         // Deployed-worker query for tree_include entities: the resolution
@@ -360,7 +370,8 @@ fn write_design_finder_queries(
         };
         // `findByExample`'s Option params use the nullability idiom:
         // `(:p IS NULL OR col = :p)` — a None param filters its column out.
-        // Cornucopia infers `Option<T>` for params compared against NULL.
+        // The FIRST reference needs an explicit cast: Postgres cannot infer
+        // a bare parameter's type from `IS NULL` alone.
         let example = finder.kind == crate::ddd::design::FinderKind::FindByExample;
         let mut clauses = Vec::with_capacity(param_cols.len() + 1);
         for (param, col) in finder.params.iter().zip(param_cols.iter()) {
@@ -368,11 +379,19 @@ fn write_design_finder_queries(
             if example {
                 if crate::ddd::repository_emitter::finder_param_binds_as_text(&param.rust_type) {
                     clauses.push(format!(
-                        "(:{p} IS NULL OR {pg_col}::text = :{p})",
+                        "(:{p}::text IS NULL OR {pg_col}::text = :{p})",
                         p = param.name
                     ));
                 } else {
-                    clauses.push(format!("(:{p} IS NULL OR {pg_col} = :{p})", p = param.name));
+                    let pg_type = pg_types
+                        .get(&col.pg_column_name)
+                        .map(String::as_str)
+                        .unwrap_or("text");
+                    clauses.push(format!(
+                        "(:{p}::{t} IS NULL OR {pg_col} = :{p})",
+                        p = param.name,
+                        t = pg_type
+                    ));
                 }
             } else if crate::ddd::repository_emitter::finder_param_binds_as_text(&param.rust_type) {
                 clauses.push(format!("{pg_col}::text = :{}", param.name));
@@ -457,7 +476,11 @@ fn needs_text_cast(col: &TreeColumn, pg_types: &std::collections::HashMap<String
 fn row_hints(cols: &[&TreeColumn], append_only: bool) -> String {
     let mut hints: Vec<String> = vec!["id".to_string()];
     for c in cols {
-        let name = c.field_name.trim_start_matches("r#");
+        // Cornucopia validates every hint against the query's returned
+        // column names — the SELECT list emits `pg_column_name` (the DDL's
+        // resolved name, e.g. a codelist-ref `reward` → `reward_code`), so
+        // the hint must be the column name, never the Rust field name.
+        let name = c.pg_column_name.trim_start_matches("r#");
         hints.push(if c.is_nullable {
             format!("{}?", name)
         } else {

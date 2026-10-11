@@ -389,6 +389,37 @@ impl GrafeoEngine {
         .await
     }
 
+    /// Composition-child detection (see `GraphQuerier::is_composition_child`):
+    /// any OTHER schema carries a ValueObject-classified property whose
+    /// reference targets `schema_title`, and the target is itself a value
+    /// (`is_entity = false`) — a "refers wins" containment whose target is
+    /// an entity keeps the target's OWN table. The three property fields
+    /// mirror `PropertyNode::effective_kind`'s resolution order (typed
+    /// field, classification string, legacy render_strategy); the edge is
+    /// the property→target link the mox lowering writes — `ItemsOf` for the
+    /// child-table (contains) semantics, `ReferencesSchema` for the JSON
+    /// path.
+    pub(super) async fn query_is_composition_child(
+        &self,
+        schema_title: &str,
+    ) -> Result<bool, GraphError> {
+        let params = HashMap::from([(
+            "title".to_string(),
+            grafeo::Value::String(schema_title.into()),
+        )]);
+        let result = query_gql_params(
+            self,
+            "MATCH (p:Property)-[:ItemsOf|ReferencesSchema]->(me:Schema {title: $title}) \
+             WHERE (p.classification_kind = 'value_object' \
+                OR p.classification = 'value_object' \
+                OR p.render_strategy = 'value_object') \
+               AND me.is_entity = false \
+             RETURN p._schema_title LIMIT 1",
+            params,
+        )?;
+        Ok(!result.rows.is_empty())
+    }
+
     pub(super) async fn query_codelists(&self) -> Result<Vec<CodeList>, GraphError> {
         query_many(
             self,

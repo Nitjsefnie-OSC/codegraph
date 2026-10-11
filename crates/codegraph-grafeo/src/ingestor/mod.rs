@@ -20,6 +20,7 @@ mod edges;
 mod gql;
 mod nodes_authz;
 mod nodes_ddd;
+mod nodes_deploy;
 mod nodes_evt;
 mod nodes_ifml;
 mod nodes_misc;
@@ -32,13 +33,13 @@ use codegraph_core::traits::GraphIngestor;
 use codegraph_core::types::{
     ActionNode, ActorPolicyModel, ApiOperationNode, ApiResourceNode, AtprotoNamespaceNode,
     CodeList, CollectionNode, CompositeColumn, CompositeRange, ConditionKind, ConditionNode,
-    DataBindingNode, DddModelGraph, EdgeProperties, EdgeType, EnumValue, ErrorDefinitionNode,
-    EventNode, EvtModelGraph, FunctionNode, HttpEndpointNode, IngestStats, InteractionNode,
-    LexiconNode, MembershipNode, ModuleDefinitionNode, MoxDomainModel, NamespaceImport,
-    NamespaceNode, ParameterDefinitionNode, PermissionNode, PipelineNode, PolicyNode, PropertyNode,
-    RegulatoryEdgeKind, RegulatoryKind, RegulatoryNode, RegulatoryOwner, RelationshipNode,
-    RepositoryNode, RuleNode, SchemaNode, SecurityIdentityNode, TenantNode, ViewComponentNode,
-    ViewContainerNode,
+    DataBindingNode, DddModelGraph, DeployModelGraph, EdgeProperties, EdgeType, EnumValue,
+    ErrorDefinitionNode, EventNode, EvtModelGraph, FunctionNode, HttpEndpointNode, IngestStats,
+    InteractionNode, LexiconNode, MembershipNode, ModuleDefinitionNode, MoxDomainModel,
+    NamespaceImport, NamespaceNode, ParameterDefinitionNode, PermissionNode, PipelineNode,
+    PolicyNode, PropertyNode, RegulatoryEdgeKind, RegulatoryKind, RegulatoryNode, RegulatoryOwner,
+    RelationshipNode, RepositoryNode, RuleNode, SchemaNode, SecurityIdentityNode, TenantNode,
+    ViewComponentNode, ViewContainerNode,
 };
 
 use self::gql::{
@@ -775,5 +776,9 @@ impl GraphIngestor for GrafeoEngine {
 
     async fn ingest_evt_model(&self, model: &EvtModelGraph) -> Result<(), GraphError> {
         self.insert_evt_model(model).await
+    }
+
+    async fn ingest_deploy_model(&self, model: &DeployModelGraph) -> Result<(), GraphError> {
+        self.insert_deploy_model(model).await
     }
 }

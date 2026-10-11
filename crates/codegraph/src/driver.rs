@@ -60,6 +60,11 @@ pub struct RunArgs<'a> {
     /// (events/channels/subscriptions). Absent/empty = no event ingest,
     /// generators unchanged.
     pub evt_files: &'a [PathBuf],
+    /// rexlang `.deploy` deployment files (rexlang #49), compiled against
+    /// their imported `.ddd` designs and `.ifml` flows and ingested as the
+    /// deployment plane (applications/profiles/deployments). Absent/empty =
+    /// no deployment ingest, generators unchanged.
+    pub deploy_files: &'a [PathBuf],
     pub ifml_framework: &'a [String],
     /// Optional `ifml-components.toml` mapping IFML components to
     /// handcrafted framework components. Absent = all built-in templates.
@@ -232,6 +237,7 @@ pub async fn run_with_graph_cache(
         rosetta_files,
         ddd_files,
         evt_files,
+        deploy_files,
         ifml_framework,
         ifml_components,
         ifml_design_system,
@@ -279,6 +285,7 @@ pub async fn run_with_graph_cache(
                 rosetta_files,
                 ddd_files,
                 evt_files,
+                deploy_files,
                 ifml_files,
                 openapi_files,
             )
@@ -643,6 +650,18 @@ pub async fn run_with_graph_cache(
             )
             .await?;
             println!("Pass 1d complete: {evt_stats}");
+        }
+
+        // Pass 1e: Ingest rexlang .deploy deployment files (rexlang #49):
+        // compiled against their imported .ddd designs and .ifml flows and
+        // landed as the deployment plane. A compile error is a hard error
+        // (the EvtModel precedent).
+        if !deploy_files.is_empty() {
+            println!("Pass 1e: {} deploy files to ingest", deploy_files.len());
+            let deploy_stats =
+                crate::ingest::deploy_ingest::ingest_deploy_files(be.ingestor(), deploy_files)
+                    .await?;
+            println!("Pass 1e complete: {deploy_stats}");
         }
 
         // Pass 1c: Ingest API model from domain configuration
