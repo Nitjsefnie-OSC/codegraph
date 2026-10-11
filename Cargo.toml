@@ -57,15 +57,15 @@ tree-sitter-language = "0.1"
 # salsa: no direct dependency anywhere — 0.22 rides in transitively via
 # auto-lsp 0.6.2 (0.23 via rex-driver). A direct salsa upgrade is gated on
 # the same auto-lsp release as tree-sitter above (issue #423).
-# rex-* @ a714070: bumped for the DDD Sculptor semantics (rexlang #47 —
-# `protected` op visibility, `!flag` negations with auditable/
-# optimisticLocking defaulting ON for entity designs, findByExample/
-# findByKeys repository built-ins, validation rules 12-14) and the IFML
-# module composition + deep-navigation grammar (PR #45/#46).
-rex-ir = { git = "https://github.com/yestechgroup/rexlang.git", rev = "a714070794aaed8fef203edf103e313e7c0424ee" }
-rex-driver = { git = "https://github.com/yestechgroup/rexlang.git", rev = "a714070794aaed8fef203edf103e313e7c0424ee" }
-rex-expr = { git = "https://github.com/yestechgroup/rexlang.git", rev = "a714070794aaed8fef203edf103e313e7c0424ee" }
-rex-ifml = { git = "https://github.com/yestechgroup/rexlang.git", rev = "a714070794aaed8fef203edf103e313e7c0424ee" }
+# rex-* @ 40e8510: bumped for the .deploy deployment surface (rexlang #49 —
+# parse/lower/validate `.deploy` sources into the versioned
+# rex_ir::deploy::DeployModel; targets incl. cloudflareWorkers) on top of
+# the DDD Sculptor semantics (rexlang #47) and the IFML module composition
+# + deep-navigation grammar (PR #45/#46).
+rex-ir = { git = "https://github.com/yestechgroup/rexlang.git", rev = "40e85103e50e80861390696946a56b70a3c425c8" }
+rex-driver = { git = "https://github.com/yestechgroup/rexlang.git", rev = "40e85103e50e80861390696946a56b70a3c425c8" }
+rex-expr = { git = "https://github.com/yestechgroup/rexlang.git", rev = "40e85103e50e80861390696946a56b70a3c425c8" }
+rex-ifml = { git = "https://github.com/yestechgroup/rexlang.git", rev = "40e85103e50e80861390696946a56b70a3c425c8" }
 # Sigil (Rune DSL / .rosetta) — issue #255. Pinned by rev like the rexlang
 # crates; depended on from `crates/codegraph` ONLY (no sigil deps may leak
 # into codegraph-generate / codegraph-core).
