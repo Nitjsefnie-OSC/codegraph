@@ -531,15 +531,19 @@ async fn value_object_composes_child_table() {
 
     // The VO ALSO gets its own generation entry (any Schema with a
     // pg_table_name does): a standalone sweep_order_detail migration.
-    // Quirk: that standalone table carries no parent FK — the parent
-    // linkage exists only in the inline child block of the parent migration.
+    // The standalone carries the parent-FK COLUMN: `order` + `detail`
+    // collide (child_table_name(order, detail) == the VO's own table), so
+    // the standalone renders the parent's child-table shape — otherwise the
+    // bare shape would shadow the projection under IF NOT EXISTS and the
+    // cornucopia child queries (WHERE order_id) would not validate against
+    // the live database. Non-colliding VOs keep the no-FK quirk.
     let detail_sql = support::file_by_suffix(&files, "sweep_order_detail.sql")
         .expect("VO standalone migration missing")
         .clone();
     assert!(detail_sql.contains("address_line"), "{detail_sql}");
     assert!(
-        !detail_sql.contains("order_id"),
-        "quirk: standalone VO table carries no parent FK:\n{detail_sql}"
+        detail_sql.contains("order_id"),
+        "colliding VO standalone carries the parent-FK column:\n{detail_sql}"
     );
 
     // The parent SeaORM entity has no flattened VO fields either.

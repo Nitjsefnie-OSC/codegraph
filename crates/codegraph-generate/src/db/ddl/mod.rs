@@ -199,14 +199,16 @@ impl EntityGenerator for DdlGenerator {
 
         // A composition child whose parent's `{parent}_{feature}` child
         // table COLLIDES with this schema's own pg_table_name renders the
-        // PARENT'S child-table COLUMN shape as its standalone migration
-        // (cornucopia's build-time SQL validation type-checks every query
-        // against the LIVE database; a bare standalone shape would shadow
-        // the projection under `IF NOT EXISTS`). Constraints stay OUT: the
-        // parent's table does not exist in this band, and the parent's own
-        // migration adds the FK/index to the now-existing table. Both files
-        // exist (the #460/equivalence contracts); both agree on shape.
-        // Non-colliding contains-only VOs keep BOTH surfaces untouched.
+        // parent's child-table shape as its standalone migration (cornucopia
+        // 's build-time SQL validation type-checks every query against the
+        // LIVE database; a bare standalone shape would shadow the projection
+        // under `IF NOT EXISTS`). Augment the child's own context with what
+        // the projection adds — the physical parent-FK column and
+        // `updated_at` — but NOT the constraints: the parent's table does
+        // not exist in this band, and the parent's own migration adds the
+        // FK/index to the now-existing table. Both files exist (the
+        // #460/equivalence contracts); both agree on shape. Non-colliding
+        // contains-only VOs keep BOTH surfaces untouched.
         if let Some((parent_title, projected)) =
             query::composition_table_conflict(db, schema_title).await?
         {
@@ -223,10 +225,28 @@ impl EntityGenerator for DdlGenerator {
                          {projected} but carries no such child def"
                     ))
                 })?;
-            let mut child_ctx = child_table_rls_context(&parent_ctx, child_def);
-            child_ctx.foreign_keys = Vec::new();
-            child_ctx.check_constraints = Vec::new();
-            ctx = child_ctx;
+            let fk = child_def.parent_fk_column.clone();
+            if !ctx.columns.iter().any(|c| c.name == fk) {
+                ctx.columns.push(ColumnDef {
+                    name: fk,
+                    pg_type: "UUID".to_string(),
+                    nullable: false,
+                    default: None,
+                    is_primary_key: false,
+                    is_array: false,
+                });
+            }
+            if !ctx.columns.iter().any(|c| c.name == "updated_at") {
+                ctx.columns.push(ColumnDef {
+                    name: "updated_at".to_string(),
+                    pg_type: "TIMESTAMPTZ".to_string(),
+                    nullable: false,
+                    default: Some("now()".to_string()),
+                    is_primary_key: false,
+                    is_array: false,
+                });
+            }
+            ctx.has_updated_at = true;
         }
 
         // Quote PostgreSQL reserved words in column names (PG-specific, harmless pass-through for other dialects)
