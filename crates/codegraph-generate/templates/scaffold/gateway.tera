@@ -253,13 +253,17 @@ mod worker_impl {
                 axum::routing::any(forward),
             )
             .layer(axum::middleware::from_fn(
-                move |req: HttpRequest, next: axum::middleware::Next| {
+                move |req, next: axum::middleware::Next| {
                     let cors = cors.clone();
                     async move {
                         let origin = req.headers().get(axum::http::header::ORIGIN).cloned();
                         if cors.enabled() && crate::cors::is_preflight(&req) {
-                            let mut res = StatusCode::OK.into_response();
-                            for (name, value) in crate::cors::cors_headers(&cors, origin.as_ref()) {
+                            // The wasm request/response bodies are `worker::Body`.
+                            let mut res =
+                                axum::http::Response::new(worker::Body::empty());
+                            for (name, value) in
+                                crate::cors::cors_headers(&cors, origin.as_ref())
+                            {
                                 res.headers_mut().insert(name, value);
                             }
                             return res;

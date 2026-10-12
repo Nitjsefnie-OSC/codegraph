@@ -89,8 +89,9 @@ pub fn cors_headers(
 
 /// Whether the request is a CORS preflight: `OPTIONS` carrying
 /// `Access-Control-Request-Method` (a plain `OPTIONS` route request must
-/// still forward).
-pub fn is_preflight(req: &axum::extract::Request) -> bool {
+/// still forward). Generic over the body type — the wasm gateway's requests
+/// carry `worker::Body`, the native ones `axum::body::Body`.
+pub fn is_preflight<B>(req: &axum::http::Request<B>) -> bool {
     req.method() == axum::http::Method::OPTIONS
         && req.headers().contains_key(header::ACCESS_CONTROL_REQUEST_METHOD)
 }
