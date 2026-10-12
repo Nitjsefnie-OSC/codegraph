@@ -410,7 +410,7 @@ impl GrafeoEngine {
         let result = query_gql_params(
             self,
             "MATCH (p:Property)-[:ItemsOf|ReferencesSchema]->(me:Schema {title: $title}), (parent:Schema) \
-             WHERE parent.pg_table_name = p._schema_title \
+             WHERE parent.title = p._schema_title \
                AND (p.classification_kind = 'value_object' \
                 OR p.classification = 'value_object' \
                 OR p.render_strategy = 'value_object') \

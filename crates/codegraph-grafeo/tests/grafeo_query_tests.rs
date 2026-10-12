@@ -1997,30 +1997,30 @@ async fn test_composition_table_conflict_detects_name_collision() {
     // VO child `reward_target`, property column `target` — the parent's
     // `{parent}_{feature}` projection (`reward_target`) COLLIDES with the
     // child's own table name.
-    engine
-        .ingest_schema(&make_schema("reward", "compensation", true))
-        .await
-        .unwrap();
-    engine
-        .ingest_schema(&make_schema("reward_target", "compensation", false))
-        .await
-        .unwrap();
+    // Real-graph shape: schema titles are Camel, pg_table_names snake, and
+    // property `_schema_title` carries the parent's TITLE.
+    let mut parent = make_schema("Reward", "compensation", true);
+    parent.pg_table_name = "reward".to_string();
+    engine.ingest_schema(&parent).await.unwrap();
+    let mut child = make_schema("RewardTarget", "compensation", false);
+    child.pg_table_name = "reward_target".to_string();
+    engine.ingest_schema(&child).await.unwrap();
 
     // mox contains lowering: a ValueObject-classified property referencing
     // the target (edge id convention `{prop}::{schema_title}`).
     let mut prop = make_property("target", true);
     prop.classification_kind = Some(codegraph_type_contracts::RefClassificationKind::ValueObject);
-    prop.ref_target = Some("reward_target".to_string());
+    prop.ref_target = Some("RewardTarget".to_string());
     engine
-        .ingest_property("reward", "compensation/reward", &prop)
+        .ingest_property("Reward", "compensation/RewardTarget", &prop)
         .await
         .unwrap();
     // The mox lowering writes the child-table link as ItemsOf; the JSON
     // path writes ReferencesSchema. Both must detect.
     engine
         .ingest_edge(
-            "target::reward",
-            "compensation/reward_target",
+            "target::Reward",
+            "compensation/RewardTarget",
             EdgeType::ItemsOf,
             None,
         )
@@ -2029,34 +2029,33 @@ async fn test_composition_table_conflict_detects_name_collision() {
 
     assert_eq!(
         engine
-            .composition_table_conflict("reward_target")
+            .composition_table_conflict("RewardTarget")
             .await
             .unwrap(),
         Some("reward_target".to_string())
     );
     assert_eq!(
-        engine.composition_table_conflict("reward").await.unwrap(),
+        engine.composition_table_conflict("Reward").await.unwrap(),
         None
     );
 
     // Non-colliding VOs keep BOTH surfaces: the parent's projection
     // (`reward_linked`) differs from the child's own table (`linked_thing`).
-    engine
-        .ingest_schema(&make_schema("linked_thing", "compensation", false))
-        .await
-        .unwrap();
+    let mut linked = make_schema("LinkedThing", "compensation", false);
+    linked.pg_table_name = "linked_thing".to_string();
+    engine.ingest_schema(&linked).await.unwrap();
     let mut linked_prop = make_property("linked", true);
     linked_prop.classification_kind =
         Some(codegraph_type_contracts::RefClassificationKind::ValueObject);
-    linked_prop.ref_target = Some("linked_thing".to_string());
+    linked_prop.ref_target = Some("LinkedThing".to_string());
     engine
-        .ingest_property("reward", "compensation/reward", &linked_prop)
+        .ingest_property("Reward", "compensation/Reward", &linked_prop)
         .await
         .unwrap();
     engine
         .ingest_edge(
-            "linked::reward",
-            "compensation/linked_thing",
+            "linked::Reward",
+            "compensation/LinkedThing",
             EdgeType::ReferencesSchema,
             None,
         )
@@ -2064,7 +2063,7 @@ async fn test_composition_table_conflict_detects_name_collision() {
         .unwrap();
     assert_eq!(
         engine
-            .composition_table_conflict("linked_thing")
+            .composition_table_conflict("LinkedThing")
             .await
             .unwrap(),
         None,
@@ -2074,21 +2073,21 @@ async fn test_composition_table_conflict_detects_name_collision() {
     // A "refers wins" containment whose target is an ENTITY keeps the
     // target's own table regardless of naming.
     engine
-        .ingest_schema(&make_schema("legal_document", "core", true))
+        .ingest_schema(&make_schema("LegalDocument", "core", true))
         .await
         .unwrap();
-    let mut entity_ref_prop = make_property("legal_documents", true);
+    let mut entity_ref_prop = make_property("legalDocuments", true);
     entity_ref_prop.classification_kind =
         Some(codegraph_type_contracts::RefClassificationKind::ValueObject);
-    entity_ref_prop.ref_target = Some("legal_document".to_string());
+    entity_ref_prop.ref_target = Some("LegalDocument".to_string());
     engine
-        .ingest_property("reward", "compensation/reward", &entity_ref_prop)
+        .ingest_property("Reward", "compensation/Reward", &entity_ref_prop)
         .await
         .unwrap();
     engine
         .ingest_edge(
-            "legalDocuments::reward",
-            "core/legal_document",
+            "legalDocuments::Reward",
+            "core/LegalDocument",
             EdgeType::ItemsOf,
             None,
         )
@@ -2096,7 +2095,7 @@ async fn test_composition_table_conflict_detects_name_collision() {
         .unwrap();
     assert_eq!(
         engine
-            .composition_table_conflict("legal_document")
+            .composition_table_conflict("LegalDocument")
             .await
             .unwrap(),
         None,
