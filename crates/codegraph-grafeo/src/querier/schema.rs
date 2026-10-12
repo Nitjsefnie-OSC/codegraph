@@ -389,35 +389,46 @@ impl GrafeoEngine {
         .await
     }
 
-    /// Composition-child detection (see `GraphQuerier::is_composition_child`):
-    /// any OTHER schema carries a ValueObject-classified property whose
-    /// reference targets `schema_title`, and the target is itself a value
-    /// (`is_entity = false`) — a "refers wins" containment whose target is
-    /// an entity keeps the target's OWN table. The three property fields
-    /// mirror `PropertyNode::effective_kind`'s resolution order (typed
-    /// field, classification string, legacy render_strategy); the edge is
-    /// the property→target link the mox lowering writes — `ItemsOf` for the
+    /// Composition table-conflict detection (see
+    /// `GraphQuerier::composition_table_conflict`): a ValueObject-classified
+    /// property on some OTHER schema references this schema (value targets
+    /// only — refers-wins entity targets keep their own table), and the
+    /// parent's `{parent}_{feature}` child-table projection equals this
+    /// schema's `pg_table_name`. The three property fields mirror
+    /// `PropertyNode::effective_kind`'s resolution order; the edge is the
+    /// property→target link the mox lowering writes — `ItemsOf` for the
     /// child-table (contains) semantics, `ReferencesSchema` for the JSON
     /// path.
-    pub(super) async fn query_is_composition_child(
+    pub(super) async fn query_composition_table_conflict(
         &self,
         schema_title: &str,
-    ) -> Result<bool, GraphError> {
+    ) -> Result<Option<String>, GraphError> {
         let params = HashMap::from([(
             "title".to_string(),
             grafeo::Value::String(schema_title.into()),
         )]);
         let result = query_gql_params(
             self,
-            "MATCH (p:Property)-[:ItemsOf|ReferencesSchema]->(me:Schema {title: $title}) \
-             WHERE (p.classification_kind = 'value_object' \
+            "MATCH (p:Property)-[:ItemsOf|ReferencesSchema]->(me:Schema {title: $title}), (parent:Schema) \
+             WHERE parent.pg_table_name = p._schema_title \
+               AND (p.classification_kind = 'value_object' \
                 OR p.classification = 'value_object' \
                 OR p.render_strategy = 'value_object') \
                AND me.is_entity = false \
-             RETURN p._schema_title LIMIT 1",
+             RETURN parent.pg_table_name, p.pg_column_name, me.pg_table_name",
             params,
         )?;
-        Ok(!result.rows.is_empty())
+        let reader = RowReader::from_columns(&result.columns);
+        for row in &result.rows {
+            let parent_table = reader.get_string(row, "parent.pg_table_name")?;
+            let feature = reader.get_string(row, "p.pg_column_name")?;
+            let own_table = reader.get_string(row, "me.pg_table_name")?;
+            let projected = codegraph_naming::child_table_name(&parent_table, &feature);
+            if projected == own_table {
+                return Ok(Some(projected));
+            }
+        }
+        Ok(None)
     }
 
     pub(super) async fn query_codelists(&self) -> Result<Vec<CodeList>, GraphError> {

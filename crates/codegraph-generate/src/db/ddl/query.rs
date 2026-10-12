@@ -1776,13 +1776,13 @@ async fn warn_on_ddl_dto_gap(
     tracing::warn!("{message}");
 }
 
-/// Whether `schema_title` is a composition child: some other schema carries
-/// a `contains` (ValueObject-classified) property referencing it. Such
-/// schemas are emitted by their parent's DDL as child tables; a standalone
-/// table would double-create under `IF NOT EXISTS` with the wrong shape.
-pub(super) async fn is_composition_child(
+/// The colliding composition child-table name for `schema_title`, when its
+/// parent's `{parent}_{feature}` projection equals the schema's own
+/// `pg_table_name` (the standalone emission must yield to the parent's
+/// child-table projection).
+pub(super) async fn composition_table_conflict(
     db: &dyn GraphQuerier,
     schema_title: &str,
-) -> Result<bool> {
-    Ok(db.is_composition_child(schema_title).await?)
+) -> Result<Option<String>> {
+    Ok(db.composition_table_conflict(schema_title).await?)
 }

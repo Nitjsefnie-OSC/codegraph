@@ -943,8 +943,11 @@ impl GraphQuerier for CachingQuerier<'_> {
         Ok(models)
     }
 
-    async fn is_composition_child(&self, schema_title: &str) -> Result<bool, GraphError> {
-        self.inner.is_composition_child(schema_title).await
+    async fn composition_table_conflict(
+        &self,
+        schema_title: &str,
+    ) -> Result<Option<String>, GraphError> {
+        self.inner.composition_table_conflict(schema_title).await
     }
 
     // ── mox domain queries ─────────────────────────────────────────────

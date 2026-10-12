@@ -509,13 +509,19 @@ pub trait GraphQuerier: Send + Sync {
         Ok(Vec::new())
     }
 
-    /// Whether `schema_title` is a composition child: some other schema
-    /// carries a `contains` (ValueObject-classified) property referencing
-    /// it. The DDL plane emits those from the PARENT as child tables; a
-    /// standalone table would double-create under `IF NOT EXISTS` with a
-    /// shape missing the parent FK.
-    async fn is_composition_child(&self, _schema_title: &str) -> Result<bool, GraphError> {
-        Ok(false)
+    /// When a composition parent projects a `{parent}_{feature}` child
+    /// table whose name COLLIDES with this schema's own `pg_table_name`,
+    /// returns the colliding name: the parent's child-table projection must
+    /// win (it carries the parent FK + audit columns — cornucopia's
+    /// build-time SQL validation type-checks queries against the LIVE
+    /// database), so the standalone emission yields. `None` when nothing
+    /// collides: contains-only VOs keep BOTH surfaces (their standalone
+    /// title-based table AND the parent's child table).
+    async fn composition_table_conflict(
+        &self,
+        _schema_title: &str,
+    ) -> Result<Option<String>, GraphError> {
+        Ok(None)
     }
 
     // ── mox domain query methods (default: no mox data) ──────────────

@@ -684,8 +684,11 @@ impl GraphQuerier for GrafeoEngine {
         self.query_deploy_models().await
     }
 
-    async fn is_composition_child(&self, schema_title: &str) -> Result<bool, GraphError> {
-        self.query_is_composition_child(schema_title).await
+    async fn composition_table_conflict(
+        &self,
+        schema_title: &str,
+    ) -> Result<Option<String>, GraphError> {
+        self.query_composition_table_conflict(schema_title).await
     }
 
     async fn get_mox_vocabularies(&self) -> Result<Vec<MoxVocabularyNode>, GraphError> {

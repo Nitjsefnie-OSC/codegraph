@@ -101,16 +101,6 @@ impl EntityGenerator for CornucopiaQueryGenerator {
             .map(|c| (c.column_name.clone(), c.pg_type.clone()))
             .collect();
 
-        // Composition children are queried through their parent's child
-        // queries (full-path table names — `enrollment_coverages_beneficiaries`
-        // for a grandchild); a standalone file would target a bare
-        // `{title}` table that only exists for depth-1 children. The
-        // parent's file owns the child queries.
-        let composition_child = db.is_composition_child(schema_title).await?;
-        if composition_child {
-            return Ok(Vec::new());
-        }
-
         let mut sql = render_entity_sql(schema_title, domain, config, &tree, &pg_types);
 
         // Deployed-worker query for tree_include entities: the resolution

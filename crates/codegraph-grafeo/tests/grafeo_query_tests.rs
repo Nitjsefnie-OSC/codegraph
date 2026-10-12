@@ -1991,14 +1991,18 @@ async fn test_evt_model_round_trip() {
 }
 
 #[tokio::test]
-async fn test_is_composition_child_detects_value_object_reference() {
+async fn test_composition_table_conflict_detects_name_collision() {
     let engine = GrafeoEngine::in_memory().unwrap();
+    // pg_table_name = title (the make_schema convention): parent `reward`,
+    // VO child `reward_target`, property column `target` — the parent's
+    // `{parent}_{feature}` projection (`reward_target`) COLLIDES with the
+    // child's own table name.
     engine
-        .ingest_schema(&make_schema("Reward", "compensation", true))
+        .ingest_schema(&make_schema("reward", "compensation", true))
         .await
         .unwrap();
     engine
-        .ingest_schema(&make_schema("RewardTarget", "compensation", false))
+        .ingest_schema(&make_schema("reward_target", "compensation", false))
         .await
         .unwrap();
 
@@ -2006,77 +2010,96 @@ async fn test_is_composition_child_detects_value_object_reference() {
     // the target (edge id convention `{prop}::{schema_title}`).
     let mut prop = make_property("target", true);
     prop.classification_kind = Some(codegraph_type_contracts::RefClassificationKind::ValueObject);
-    prop.ref_target = Some("RewardTarget".to_string());
+    prop.ref_target = Some("reward_target".to_string());
     engine
-        .ingest_property("Reward", "compensation/Reward", &prop)
+        .ingest_property("reward", "compensation/reward", &prop)
         .await
         .unwrap();
     // The mox lowering writes the child-table link as ItemsOf; the JSON
     // path writes ReferencesSchema. Both must detect.
     engine
         .ingest_edge(
-            "target::Reward",
-            "compensation/RewardTarget",
+            "target::reward",
+            "compensation/reward_target",
             EdgeType::ItemsOf,
             None,
         )
         .await
         .unwrap();
 
-    assert!(engine.is_composition_child("RewardTarget").await.unwrap());
-    assert!(!engine.is_composition_child("Reward").await.unwrap());
-
-    // A "refers wins" containment whose target is an ENTITY keeps the
-    // target's own table — not a composition child.
-    engine
-        .ingest_schema(&make_schema("LegalDocument", "core", true))
-        .await
-        .unwrap();
-    let mut entity_ref_prop = make_property("legalDocuments", true);
-    entity_ref_prop.classification_kind =
-        Some(codegraph_type_contracts::RefClassificationKind::ValueObject);
-    entity_ref_prop.ref_target = Some("LegalDocument".to_string());
-    engine
-        .ingest_property("Reward", "compensation/Reward", &entity_ref_prop)
-        .await
-        .unwrap();
-    engine
-        .ingest_edge(
-            "legalDocuments::Reward",
-            "core/LegalDocument",
-            EdgeType::ItemsOf,
-            None,
-        )
-        .await
-        .unwrap();
-    assert!(
-        !engine.is_composition_child("LegalDocument").await.unwrap(),
-        "entity-target containments keep their own table"
+    assert_eq!(
+        engine
+            .composition_table_conflict("reward_target")
+            .await
+            .unwrap(),
+        Some("reward_target".to_string())
+    );
+    assert_eq!(
+        engine.composition_table_conflict("reward").await.unwrap(),
+        None
     );
 
-    let mut ref_prop = make_property("linked", true);
-    ref_prop.classification_kind =
-        Some(codegraph_type_contracts::RefClassificationKind::ValueObject);
-    ref_prop.ref_target = Some("LinkedThing".to_string());
+    // Non-colliding VOs keep BOTH surfaces: the parent's projection
+    // (`reward_linked`) differs from the child's own table (`linked_thing`).
     engine
-        .ingest_schema(&make_schema("LinkedThing", "compensation", false))
+        .ingest_schema(&make_schema("linked_thing", "compensation", false))
         .await
         .unwrap();
+    let mut linked_prop = make_property("linked", true);
+    linked_prop.classification_kind =
+        Some(codegraph_type_contracts::RefClassificationKind::ValueObject);
+    linked_prop.ref_target = Some("linked_thing".to_string());
     engine
-        .ingest_property("Reward", "compensation/Reward", &ref_prop)
+        .ingest_property("reward", "compensation/reward", &linked_prop)
         .await
         .unwrap();
     engine
         .ingest_edge(
-            "linked::Reward",
-            "compensation/LinkedThing",
+            "linked::reward",
+            "compensation/linked_thing",
             EdgeType::ReferencesSchema,
             None,
         )
         .await
         .unwrap();
-    assert!(
-        engine.is_composition_child("LinkedThing").await.unwrap(),
-        "ReferencesSchema-linked value objects detect too"
+    assert_eq!(
+        engine
+            .composition_table_conflict("linked_thing")
+            .await
+            .unwrap(),
+        None,
+        "no collision — the standalone table stays"
+    );
+
+    // A "refers wins" containment whose target is an ENTITY keeps the
+    // target's own table regardless of naming.
+    engine
+        .ingest_schema(&make_schema("legal_document", "core", true))
+        .await
+        .unwrap();
+    let mut entity_ref_prop = make_property("legal_documents", true);
+    entity_ref_prop.classification_kind =
+        Some(codegraph_type_contracts::RefClassificationKind::ValueObject);
+    entity_ref_prop.ref_target = Some("legal_document".to_string());
+    engine
+        .ingest_property("reward", "compensation/reward", &entity_ref_prop)
+        .await
+        .unwrap();
+    engine
+        .ingest_edge(
+            "legalDocuments::reward",
+            "core/legal_document",
+            EdgeType::ItemsOf,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        engine
+            .composition_table_conflict("legal_document")
+            .await
+            .unwrap(),
+        None,
+        "entity-target containments keep their own table"
     );
 }
