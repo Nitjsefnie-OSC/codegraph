@@ -1776,13 +1776,13 @@ async fn warn_on_ddl_dto_gap(
     tracing::warn!("{message}");
 }
 
-/// The colliding composition child-table name for `schema_title`, when its
-/// parent's `{parent}_{feature}` projection equals the schema's own
-/// `pg_table_name` (the standalone emission must yield to the parent's
-/// child-table projection).
+/// The `(parent_title, projected_table)` pair when `schema_title`'s parent
+/// projects a `{parent}_{feature}` child table equal to the schema's own
+/// `pg_table_name` (the standalone emission renders the parent's child
+/// shape and the parent skips its duplicate block).
 pub(super) async fn composition_table_conflict(
     db: &dyn GraphQuerier,
     schema_title: &str,
-) -> Result<Option<String>> {
+) -> Result<Option<(String, String)>> {
     Ok(db.composition_table_conflict(schema_title).await?)
 }

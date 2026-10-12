@@ -511,16 +511,18 @@ pub trait GraphQuerier: Send + Sync {
 
     /// When a composition parent projects a `{parent}_{feature}` child
     /// table whose name COLLIDES with this schema's own `pg_table_name`,
-    /// returns the colliding name: the parent's child-table projection must
-    /// win (it carries the parent FK + audit columns — cornucopia's
-    /// build-time SQL validation type-checks queries against the LIVE
-    /// database), so the standalone emission yields. `None` when nothing
-    /// collides: contains-only VOs keep BOTH surfaces (their standalone
-    /// title-based table AND the parent's child table).
+    /// returns `(parent_title, projected_table)`: the parent's child-table
+    /// projection must win (it carries the parent FK + audit columns —
+    /// cornucopia's build-time SQL validation type-checks queries against
+    /// the LIVE database), so the DDL plane emits the child-shaped table as
+    /// the standalone migration and the parent skips its duplicate block.
+    /// `None` when nothing collides: contains-only VOs keep BOTH surfaces
+    /// (their standalone title-based table AND the parent's child table).
+    /// `$title` matches a schema by title or pg_table_name.
     async fn composition_table_conflict(
         &self,
         _schema_title: &str,
-    ) -> Result<Option<String>, GraphError> {
+    ) -> Result<Option<(String, String)>, GraphError> {
         Ok(None)
     }
 

@@ -402,20 +402,21 @@ impl GrafeoEngine {
     pub(super) async fn query_composition_table_conflict(
         &self,
         schema_title: &str,
-    ) -> Result<Option<String>, GraphError> {
+    ) -> Result<Option<(String, String)>, GraphError> {
         let params = HashMap::from([(
             "title".to_string(),
             grafeo::Value::String(schema_title.into()),
         )]);
         let result = query_gql_params(
             self,
-            "MATCH (p:Property)-[:ItemsOf|ReferencesSchema]->(me:Schema {title: $title}), (parent:Schema) \
-             WHERE parent.title = p._schema_title \
+            "MATCH (p:Property)-[:ItemsOf|ReferencesSchema]->(me:Schema), (parent:Schema) \
+             WHERE (me.title = $title OR me.pg_table_name = $title) \
+               AND parent.title = p._schema_title \
                AND (p.classification_kind = 'value_object' \
                 OR p.classification = 'value_object' \
                 OR p.render_strategy = 'value_object') \
                AND me.is_entity = false \
-             RETURN parent.pg_table_name, p.pg_column_name, me.pg_table_name",
+             RETURN parent.title, parent.pg_table_name, p.pg_column_name, me.pg_table_name",
             params,
         )?;
         let reader = RowReader::from_columns(&result.columns);
@@ -425,7 +426,8 @@ impl GrafeoEngine {
             let own_table = reader.get_string(row, "me.pg_table_name")?;
             let projected = codegraph_naming::child_table_name(&parent_table, &feature);
             if projected == own_table {
-                return Ok(Some(projected));
+                let parent_title = reader.get_string(row, "parent.title")?;
+                return Ok(Some((parent_title, projected)));
             }
         }
         Ok(None)

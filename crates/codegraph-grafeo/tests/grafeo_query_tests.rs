@@ -2032,7 +2032,7 @@ async fn test_composition_table_conflict_detects_name_collision() {
             .composition_table_conflict("RewardTarget")
             .await
             .unwrap(),
-        Some("reward_target".to_string())
+        Some(("Reward".to_string(), "reward_target".to_string()))
     );
     assert_eq!(
         engine.composition_table_conflict("Reward").await.unwrap(),

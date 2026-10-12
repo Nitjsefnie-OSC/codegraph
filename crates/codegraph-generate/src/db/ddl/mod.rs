@@ -193,25 +193,41 @@ impl EntityGenerator for DdlGenerator {
             return Ok(Vec::new());
         }
 
-        // A composition child whose parent's `{parent}_{feature}` child
-        // table COLLIDES with this schema's own pg_table_name yields: the
-        // parent's projection must win (it carries the parent FK + audit
-        // columns — cornucopia's build-time SQL validation type-checks every
-        // query against the LIVE database, and a bare standalone shape would
-        // shadow it under `IF NOT EXISTS`). Non-colliding contains-only VOs
-        // keep BOTH surfaces: the standalone title-based table AND the
-        // parent's child table (the #460 split applies to the entity-flavored
-        // case only).
-        if query::composition_table_conflict(db, schema_title)
-            .await?
-            .is_some()
-        {
-            return Ok(Vec::new());
-        }
-
         // Apply dialect-specific type mapping, default wrapping, and
         // per-dialect column type validation
         apply_dialect_type_mapping(&*self.dialect, &mut ctx)?;
+
+        // A composition child whose parent's `{parent}_{feature}` child
+        // table COLLIDES with this schema's own pg_table_name renders the
+        // PARENT'S child-table COLUMN shape as its standalone migration
+        // (cornucopia's build-time SQL validation type-checks every query
+        // against the LIVE database; a bare standalone shape would shadow
+        // the projection under `IF NOT EXISTS`). Constraints stay OUT: the
+        // parent's table does not exist in this band, and the parent's own
+        // migration adds the FK/index to the now-existing table. Both files
+        // exist (the #460/equivalence contracts); both agree on shape.
+        // Non-colliding contains-only VOs keep BOTH surfaces untouched.
+        if let Some((parent_title, projected)) =
+            query::composition_table_conflict(db, schema_title).await?
+        {
+            let parent_ctx = self
+                .query_ddl_context(db, &parent_title, domain, config)
+                .await?;
+            let child_def = parent_ctx
+                .child_tables
+                .iter()
+                .find(|c| c.table_name == projected)
+                .ok_or_else(|| {
+                    crate::error::Error::Config(format!(
+                        "composition conflict: parent {parent_title} projects child table \
+                         {projected} but carries no such child def"
+                    ))
+                })?;
+            let mut child_ctx = child_table_rls_context(&parent_ctx, child_def);
+            child_ctx.foreign_keys = Vec::new();
+            child_ctx.check_constraints = Vec::new();
+            ctx = child_ctx;
+        }
 
         // Quote PostgreSQL reserved words in column names (PG-specific, harmless pass-through for other dialects)
         quote_ddl_identifiers(&mut ctx);

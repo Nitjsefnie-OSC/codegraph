@@ -946,7 +946,7 @@ impl GraphQuerier for CachingQuerier<'_> {
     async fn composition_table_conflict(
         &self,
         schema_title: &str,
-    ) -> Result<Option<String>, GraphError> {
+    ) -> Result<Option<(String, String)>, GraphError> {
         self.inner.composition_table_conflict(schema_title).await
     }
 

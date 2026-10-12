@@ -687,7 +687,7 @@ impl GraphQuerier for GrafeoEngine {
     async fn composition_table_conflict(
         &self,
         schema_title: &str,
-    ) -> Result<Option<String>, GraphError> {
+    ) -> Result<Option<(String, String)>, GraphError> {
         self.query_composition_table_conflict(schema_title).await
     }
 
