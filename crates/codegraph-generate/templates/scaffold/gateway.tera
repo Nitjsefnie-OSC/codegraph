@@ -236,6 +236,14 @@ mod worker_impl {
         _ctx: Context,
     ) -> Result<axum::http::Response<axum::body::Body>> {
         let state = GatewayState { env };
+        let cors = crate::cors::Cors::resolve(
+            state
+                .env
+                .var("CORS_ALLOWED_ORIGINS")
+                .ok()
+                .map(|v| v.to_string())
+                .as_deref(),
+        );
         let mut app = Router::new()
             .route("/version", axum::routing::get(version))
             .route("/health", axum::routing::get(health))
@@ -244,6 +252,26 @@ mod worker_impl {
                 "/api/v1/{domain}/{*path}",
                 axum::routing::any(forward),
             )
+            .layer(axum::middleware::from_fn(
+                move |req: HttpRequest, next: axum::middleware::Next| {
+                    let cors = cors.clone();
+                    async move {
+                        let origin = req.headers().get(axum::http::header::ORIGIN).cloned();
+                        if cors.enabled() && crate::cors::is_preflight(&req) {
+                            let mut res = StatusCode::OK.into_response();
+                            for (name, value) in crate::cors::cors_headers(&cors, origin.as_ref()) {
+                                res.headers_mut().insert(name, value);
+                            }
+                            return res;
+                        }
+                        let mut res = next.run(req).await;
+                        for (name, value) in crate::cors::cors_headers(&cors, origin.as_ref()) {
+                            res.headers_mut().insert(name, value);
+                        }
+                        res
+                    }
+                },
+            ))
             .with_state(state);
         Ok(app.call(req).await?)
     }

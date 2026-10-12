@@ -539,6 +539,12 @@ impl GlobalGenerator for WorkerScaffoldGenerator {
             path: gateway_dir.join("src").join("lib.rs"),
             content: gateway_lib,
         });
+        let gateway_cors =
+            render_template_with_project(tera, "scaffold/gateway_cors.tera", &ctx, project)?;
+        files.push(GeneratedFile {
+            path: gateway_dir.join("src").join("cors.rs"),
+            content: gateway_cors,
+        });
         let gateway_worker =
             render_template_with_project(tera, "scaffold/gateway.tera", &ctx, project)?;
         files.push(GeneratedFile {
