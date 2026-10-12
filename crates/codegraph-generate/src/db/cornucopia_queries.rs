@@ -371,9 +371,13 @@ fn write_design_finder_queries(
                 // nullability idiom textually and binds Option; the cast
                 // rides the EQUALITY so Postgres can type the parameter
                 // (a bare param used only in IS NULL has no inferable type).
+                // Fully cast on BOTH references: Postgres must type the
+                // parameter without relying on cross-reference inference,
+                // and the header's `?` (below) is what makes cornucopia
+                // bind Option — never the SQL text.
                 if crate::ddd::repository_emitter::finder_param_binds_as_text(&param.rust_type) {
                     clauses.push(format!(
-                        "(:{p} IS NULL OR {pg_col}::text = :{p}::text)",
+                        "(:{p}::text IS NULL OR {pg_col}::text = :{p}::text)",
                         p = param.name
                     ));
                 } else {
@@ -382,7 +386,7 @@ fn write_design_finder_queries(
                         .map(String::as_str)
                         .unwrap_or("text");
                     clauses.push(format!(
-                        "(:{p} IS NULL OR {pg_col} = :{p}::{t})",
+                        "(:{p}::{t} IS NULL OR {pg_col} = :{p}::{t})",
                         p = param.name,
                         t = pg_type
                     ));
@@ -409,7 +413,17 @@ fn write_design_finder_queries(
             params = finder
                 .params
                 .iter()
-                .map(|p| p.name.clone())
+                .zip(param_cols.iter())
+                .map(|(p, _col)| {
+                    // `?` marks the header param nullable — cornucopia binds
+                    // Option<T> for it (the findByExample None-filters param,
+                    // whose declared type is Option<...>).
+                    if p.rust_type.starts_with("Option<") {
+                        format!("{}?", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                })
                 .collect::<Vec<_>>()
                 .join(", "),
             author = finder.name,
