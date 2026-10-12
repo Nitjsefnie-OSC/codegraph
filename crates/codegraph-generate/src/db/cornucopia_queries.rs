@@ -367,9 +367,13 @@ fn write_design_finder_queries(
         for (param, col) in finder.params.iter().zip(param_cols.iter()) {
             let pg_col = format!("\"{}\"", col.pg_column_name);
             if example {
+                // `:p IS NULL` stays bare — cornucopia's derive detects the
+                // nullability idiom textually and binds Option; the cast
+                // rides the EQUALITY so Postgres can type the parameter
+                // (a bare param used only in IS NULL has no inferable type).
                 if crate::ddd::repository_emitter::finder_param_binds_as_text(&param.rust_type) {
                     clauses.push(format!(
-                        "(:{p}::text IS NULL OR {pg_col}::text = :{p})",
+                        "(:{p} IS NULL OR {pg_col}::text = :{p}::text)",
                         p = param.name
                     ));
                 } else {
@@ -378,7 +382,7 @@ fn write_design_finder_queries(
                         .map(String::as_str)
                         .unwrap_or("text");
                     clauses.push(format!(
-                        "(:{p}::{t} IS NULL OR {pg_col} = :{p})",
+                        "(:{p} IS NULL OR {pg_col} = :{p}::{t})",
                         p = param.name,
                         t = pg_type
                     ));
@@ -429,11 +433,11 @@ fn row_col_list(
 ) -> String {
     let mut names: Vec<String> = vec!["\"id\"".to_string()];
     for c in cols {
-        if needs_text_cast(c, pg_types) {
-            names.push(format!("\"{}\"::text", c.pg_column_name));
-        } else {
-            names.push(format!("\"{}\"", c.pg_column_name));
-        }
+        names.push(select_col(
+            c.field_name.trim_start_matches("r#"),
+            c,
+            pg_types,
+        ));
     }
     names.push("\"created_at\"".to_string());
     // Append-only entities (#284) carry no updated_at column.
@@ -441,6 +445,28 @@ fn row_col_list(
         names.push("\"updated_at\"".to_string());
     }
     names.join(", ")
+}
+
+/// One SELECT column, aliased to the Rust field name the row hints (and
+/// the repository emitter's `row.<field>` accessors) use: physical columns
+/// renamed at the DDL (codelist-ref `reward` → `reward_code`) must still
+/// surface under their field names, and cornucopia validates the hints
+/// against the RETURNED column names.
+fn select_col(
+    field_name: &str,
+    c: &TreeColumn,
+    pg_types: &std::collections::HashMap<String, String>,
+) -> String {
+    let expr = if needs_text_cast(c, pg_types) {
+        format!("\"{}\"::text", c.pg_column_name)
+    } else {
+        format!("\"{}\"", c.pg_column_name)
+    };
+    if c.pg_column_name == field_name {
+        expr
+    } else {
+        format!("{expr} AS \"{field_name}\"")
+    }
 }
 
 /// Whether a column's DB type needs an explicit `::text` cast in SELECT lists
@@ -466,11 +492,11 @@ fn needs_text_cast(col: &TreeColumn, pg_types: &std::collections::HashMap<String
 fn row_hints(cols: &[&TreeColumn], append_only: bool) -> String {
     let mut hints: Vec<String> = vec!["id".to_string()];
     for c in cols {
-        // Cornucopia validates every hint against the query's returned
-        // column names — the SELECT list emits `pg_column_name` (the DDL's
-        // resolved name, e.g. a codelist-ref `reward` → `reward_code`), so
-        // the hint must be the column name, never the Rust field name.
-        let name = c.pg_column_name.trim_start_matches("r#");
+        // Hints name the cornucopia-generated struct fields — the Rust
+        // field names the repository emitter reads (`row.reward`). The
+        // SELECT list aliases each physical column to its field name (see
+        // `select_col`), so hint == returned column == struct field.
+        let name = c.field_name.trim_start_matches("r#");
         hints.push(if c.is_nullable {
             format!("{}?", name)
         } else {
@@ -799,20 +825,27 @@ fn write_child_queries(
     // All child columns participate in the row return (the FK is a real
     // property on the child DTO); only the INSERT excludes it.
     let data_cols: Vec<_> = child.columns.iter().collect();
+    // Aliased to the child DTO field names — same contract as `select_col`
+    // (hints name struct fields; the returned columns must match them).
     let col_names: Vec<String> = data_cols
         .iter()
         .map(|c| {
-            if c.pg_cast.is_some()
+            let field = c.field_name.trim_start_matches("r#");
+            let expr = if c.pg_cast.is_some()
                 || matches!(
                     c.rust_type.as_str(),
                     "String" | "Decimal" | "rust_decimal::Decimal"
-                )
-            {
+                ) {
                 // Range/geometry/numeric columns: the DTO holds strings — cast
                 // to text so tokio-postgres can deserialize them.
                 format!("\"{}\"::text", c.pg_column_name)
             } else {
                 format!("\"{}\"", c.pg_column_name)
+            };
+            if c.pg_column_name == field {
+                expr
+            } else {
+                format!("{expr} AS \"{field}\"")
             }
         })
         .collect();
