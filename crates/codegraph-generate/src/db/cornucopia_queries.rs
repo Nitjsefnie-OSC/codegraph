@@ -416,9 +416,10 @@ fn write_design_finder_queries(
                 .zip(param_cols.iter())
                 .map(|(p, _col)| {
                     // `?` marks the header param nullable — cornucopia binds
-                    // Option<T> for it (the findByExample None-filters param,
-                    // whose declared type is Option<...>).
-                    if p.rust_type.starts_with("Option<") {
+                    // Option<T> for it. Every findByExample parameter binds
+                    // as Option (the None-filters idiom); other finders bind
+                    // their declared type directly.
+                    if example || p.rust_type.starts_with("Option<") {
                         format!("{}?", p.name)
                     } else {
                         p.name.clone()
