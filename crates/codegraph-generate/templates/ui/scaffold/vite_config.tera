@@ -9,7 +9,16 @@ export default defineConfig({
 	plugins: [
 		sveltekit({
 			adapter: adapter(),
-			preprocess: vitePreprocess()
+			preprocess: vitePreprocess(),
+			// SvelteKit 3-next removed the `$lib` alias; the generated code
+			// (and the @crewbase/ui design system) still import via `$lib` —
+			// keep the documented compat alias until the migration lands.
+			kit: {
+				alias: {
+					'$lib': 'src/lib',
+					'$lib/*': 'src/lib/*'
+				}
+			}
 		}),
 		paraglideVitePlugin({
 			project: './project.inlang',
