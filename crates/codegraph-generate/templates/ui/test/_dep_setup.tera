@@ -6,7 +6,9 @@
 #}
 {%- if dep_section == "before_all" -%}
 {% if dependency_errors | length > 0 %}
-    throw new Error('{{ dependency_errors | join(sep="; ") }}');
+    {# to_json renders a properly-escaped JS string literal — cycle messages
+       embed model titles, which may carry single quotes. #}
+    throw new Error({{ dependency_errors | join(sep="; ") | to_json }});
 {% endif %}
 {% for step in dependency_steps %}
 {%- if step.optional %}
