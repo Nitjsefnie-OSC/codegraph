@@ -316,12 +316,28 @@ component coverage — the second warns, the first is hard).
   components are skipped); an api component named `gateway` narrows the
   gateway's `[[services]]` to exactly the domains receiving a
   `connects gateway -> X` (no gateway component ⇒ bind-all, byte-identical
-  template output).
+  template output). Composition children whose
+  `child_table_name(parent, field)` collides with their own `pg_table_name`
+  hoist the parent's child-table column shape into their standalone
+  migration (the `GraphQuerier::composition_table_conflict` plane); the
+  parent's inline block still adds the FK/index to the now-existing table.
 - **Gates**: `cargo test -p codegraph --test deploy_ingest_tests`
   (conversion/hard-error/cache-input semantics), the grafeo round-trip
   tests in `querier/deploy.rs`, the doctor cross-check tests in
   `init_tests.rs`, and the scaffold derivation tests in
   `scaffold/worker.rs`.
+- **Workerd parity** (from the first full consumer run — hr-platform never
+  exercised these): the gateway carries a CORS layer under the monolith's
+  `CORS_ALLOWED_ORIGINS` contract (dependency-free `gateway/src/cors.rs`,
+  native middleware + wasm fetch-boundary handling — the inbound wasm body
+  is `worker::Body`, so `from_fn` cannot span the seam); wrangler's
+  `[build]` assumes `cargo install worker-build` as a prerequisite (the
+  per-worker reinstall cost three minutes per worker); `pub mod entity`
+  (SeaORM) is `#[cfg(feature = "native")]` — SeaORM cannot link wasm32 and
+  nothing in the wasm slice references it; cornucopia SELECT columns alias
+  to the Rust field names and findByExample headers mark optional params
+  with `?` (nullability is header-driven, and bare `:p IS NULL` references
+  are indeterminate at prepare time).
 - **Deferred**: crons/observability/webhook queues/hyperdrive names as
   `.deploy` component settings (needs rex-driver setting-vocabulary
   extensions); `queue`/`objectStore` components driving worker queues;
