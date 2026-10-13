@@ -284,10 +284,6 @@ fn primitive_docs(ui: &Path) -> Vec<(&'static str, PathBuf)> {
 fn core_scaffold_templates(ui: &Path, src: &Path, lib: &Path) -> Vec<(&'static str, PathBuf)> {
     vec![
         ("ui/scaffold/package_json.tera", ui.join("package.json")),
-        (
-            "ui/scaffold/svelte_config.tera",
-            ui.join("svelte.config.js"),
-        ),
         ("ui/scaffold/vite_config.tera", ui.join("vite.config.ts")),
         ("ui/scaffold/env_ts.tera", src.join("env.ts")),
         (
