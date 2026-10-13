@@ -244,6 +244,18 @@ mod worker_impl {
                 .map(|v| v.to_string())
                 .as_deref(),
         );
+        // CORS rides the fetch boundary directly: the inbound request body is
+        // `worker::Body` while responses are `axum::body::Body`, so a
+        // `from_fn` middleware cannot span that seam. Preflights answer here
+        // without reaching the router; every response gains the CORS headers.
+        let origin = req.headers().get(axum::http::header::ORIGIN).cloned();
+        if cors.enabled() && crate::cors::is_preflight(&req) {
+            let mut res = axum::http::Response::new(axum::body::Body::empty());
+            for (name, value) in crate::cors::cors_headers(&cors, origin.as_ref()) {
+                res.headers_mut().insert(name, value);
+            }
+            return Ok(res);
+        }
         let mut app = Router::new()
             .route("/version", axum::routing::get(version))
             .route("/health", axum::routing::get(health))
@@ -252,31 +264,11 @@ mod worker_impl {
                 "/api/v1/{domain}/{*path}",
                 axum::routing::any(forward),
             )
-            .layer(axum::middleware::from_fn(
-                move |req, next: axum::middleware::Next| {
-                    let cors = cors.clone();
-                    async move {
-                        let origin = req.headers().get(axum::http::header::ORIGIN).cloned();
-                        if cors.enabled() && crate::cors::is_preflight(&req) {
-                            // The wasm request/response bodies are `worker::Body`.
-                            let mut res =
-                                axum::http::Response::new(worker::Body::empty());
-                            for (name, value) in
-                                crate::cors::cors_headers(&cors, origin.as_ref())
-                            {
-                                res.headers_mut().insert(name, value);
-                            }
-                            return res;
-                        }
-                        let mut res = next.run(req).await;
-                        for (name, value) in crate::cors::cors_headers(&cors, origin.as_ref()) {
-                            res.headers_mut().insert(name, value);
-                        }
-                        res
-                    }
-                },
-            ))
             .with_state(state);
-        Ok(app.call(req).await?)
+        let mut response = app.call(req).await?;
+        for (name, value) in crate::cors::cors_headers(&cors, origin.as_ref()) {
+            response.headers_mut().insert(name, value);
+        }
+        Ok(response)
     }
 }
