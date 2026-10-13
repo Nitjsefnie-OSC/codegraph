@@ -636,7 +636,7 @@ tests/rsvp/rsvp_test.rs: 181db8575765bb7041f8162f164d6cb6b3d34943e14c3aad9fb84f8
 tests/tests.rs: 416c5e7874410e21faab65f7b5a17b4d4e4c41876b6f7b6e017a5c705750a98c
 ui/components.json: e22a2d7c44ecf96682b209ac18acadc35b792975219399fe32b3515f577e55a9
 ui/messages/en.json: 376d34fd7881c24a5931f943a15b8f101015e3e50a2b8c3f661cfa8972962f6f
-ui/package.json: 44a7283b3574e2e45c1551b00bbdc67a5e962ca6e0a04be738a5941a7f43af40
+ui/package.json: 1efd90265f7d5c4b5f495425bc60e61317028d374708cc9d8955c5743caded70
 ui/playwright.config.ts: b37eb0f264ad4b12d53196fd4ab3b84c5372b354433900e2ecb63f4ca939335c
 ui/project.inlang/settings.json: c9feab3c64ac8d62f84743ca6eca9a3c68a5e6ddcda456e1ad08b284b6866a15
 ui/src/app.css: 5a1d242bb439648eddc8b5bb36876275e1acf6cc9cd9a6a89c533341846ccea2
@@ -1036,4 +1036,4 @@ ui/tests/generated/rsvp/rsvp.manager.team.test.ts: 7078b8a37023565ac311d93011f35
 ui/tests/generated/rsvp/rsvp.owner.crud.test.ts: ccbc826b37d16ad9f041bae72ef803c699da832fa7912becdf3a2f5072bbacc2
 ui/tests/generated/rsvp/rsvp.page.ts: 3ea0e2315bb5b438e5e75b2700a2eb3c561278e692de6068d2212b3cb80f8fa8
 ui/tests/generated/rsvp/rsvp.validation.test.ts: 23755f6d852aa4d02d98994e8fa172f15675a079f45d2d8ded549ad80fbcf2a4
-ui/vite.config.ts: bd1da90dae86f4fe2ac41085d01ba8700402e5037172507bbdfe06d2e6d651b3
+ui/vite.config.ts: f78486eece7cc292c3de7a74ea8cb6bb7b6f70191b5605ea6898ed5ade599715
