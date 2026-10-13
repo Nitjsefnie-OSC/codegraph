@@ -241,7 +241,7 @@ fn post_order_visit(
             .map(|n| n.title.clone())
             .unwrap_or_else(|| key.to_string());
         let msg = format!(
-            "required dependency cycle detected involving '{}' — break the required FK cycle or make one ref optional",
+            "required dependency cycle detected involving {} — break the required FK cycle or make one ref optional",
             title
         );
         if !errors.iter().any(|e| e == &msg) {
