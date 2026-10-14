@@ -153,21 +153,23 @@ impl<'a> IfmlGraphQuerier<'a> {
             return Ok(None);
         }
         let grants = self.db.get_grants().await?;
-        let mut actor_caps: Vec<(String, Vec<String>)> = actors
-            .iter()
-            .map(|actor| {
-                let mut caps: Vec<String> =
-                    resolve_effective_permits(&actors, &grants, &actor.name)
-                        .into_iter()
-                        .filter(|permit| permit.effect == "permit")
-                        .map(|permit| permit.capability)
-                        .collect();
-                caps.sort();
-                caps.dedup();
-                (actor.name.clone(), caps)
-            })
+        // Actors repeat across policies (every domain's `.actor` re-imports
+        // the core ladder), so merge by NAME with the union of effective
+        // permits — one entry per actor, not one per ingested policy.
+        let mut merged: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> =
+            Default::default();
+        for actor in &actors {
+            let entry = merged.entry(actor.name.clone()).or_default();
+            for permit in resolve_effective_permits(&actors, &grants, &actor.name) {
+                if permit.effect == "permit" {
+                    entry.insert(permit.capability);
+                }
+            }
+        }
+        let actor_caps: Vec<(String, Vec<String>)> = merged
+            .into_iter()
+            .map(|(name, caps)| (name, caps.into_iter().collect()))
             .collect();
-        actor_caps.sort_by(|a, b| a.0.cmp(&b.0));
         let mut capability_names: Vec<String> =
             capabilities.into_iter().map(|cap| cap.name).collect();
         capability_names.sort();
