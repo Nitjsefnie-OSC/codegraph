@@ -155,14 +155,14 @@ export class UxTable {
     return this.page.locator(this.tid('action-delete')).first();
   }
 
-  /** `{module}-delete-confirm` — the row-delete dialog. */
+  /** The row-delete dialog (`{module}-delete-dialog`, issue #468). */
   deleteConfirm(): Locator {
-    return this.page.locator(this.tid('delete-confirm'));
+    return this.page.locator(this.tid('delete-dialog'));
   }
 
-  /** Its confirm button (`{module}-delete-confirm-confirm`). */
+  /** Its confirm button (`{module}-delete-dialog-confirm`). */
   deleteConfirmConfirm(): Locator {
-    return this.page.locator(this.tid('delete-confirm-confirm'));
+    return this.page.locator(this.tid('delete-dialog-confirm'));
   }
 
   /** Menu-driven delete through the confirmation dialog. */

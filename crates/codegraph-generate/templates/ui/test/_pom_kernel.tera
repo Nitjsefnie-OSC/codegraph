@@ -7,7 +7,7 @@
   The testid literals below mirror `codegraph-generate` `ux::plan::ids`:
   the shared fragments (chip/copy/actions/actions-menu/timeline(-item)) and
   the entity family (`{module}-table/-row/-sort-{field}/-pagination/
-  -delete-confirm(-confirm)`) both pipelines render. Cross-checked by the
+  -delete-dialog(-confirm)`) both pipelines render. Cross-checked by the
   generated specs, which drive ALL list-page interaction through
   `UxTable` (entity pipeline from step 3, IFML from step 4).
 #}
@@ -144,14 +144,14 @@ export class UxTable {
     return this.page.locator(this.tid('action-delete')).first();
   }
 
-  /** `{module}-delete-confirm` — the row-delete dialog. */
+  /** The row-delete dialog (`{module}-delete-dialog`, issue #468). */
   deleteConfirm(): Locator {
-    return this.page.locator(this.tid('delete-confirm'));
+    return this.page.locator(this.tid('delete-dialog'));
   }
 
-  /** Its confirm button (`{module}-delete-confirm-confirm`). */
+  /** Its confirm button (`{module}-delete-dialog-confirm`). */
   deleteConfirmConfirm(): Locator {
-    return this.page.locator(this.tid('delete-confirm-confirm'));
+    return this.page.locator(this.tid('delete-dialog-confirm'));
   }
 
   /** Menu-driven delete through the confirmation dialog. */

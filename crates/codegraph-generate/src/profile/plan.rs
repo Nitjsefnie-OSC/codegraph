@@ -71,6 +71,10 @@ pub struct BuildPlan {
     pub ux_rules: bool,
     /// IFML test-side auth surface (issue #463): `ifml_e2e_auth` feature.
     pub ifml_e2e_auth: bool,
+    /// One testid vocabulary (issue #468 W3): `testid_module` feature —
+    /// emits `ui/src/lib/testids.ts` and switches the POM/spec templates
+    /// to import it. Default false = byte-identical.
+    pub testid_module: bool,
     /// Canonical expression IR (issue #278): when true, IFML guards render
     /// from the persisted `expr_json` AST via the TypeScript lowering
     /// instead of raw source interpolation. Default OFF = byte-identical.
@@ -275,6 +279,13 @@ impl BuildPlan {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
+        // Parse testid_module from features (issue #468 W3; default: false).
+        let testid_module = profile
+            .features
+            .get("testid_module")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
         // Parse public_operations_rls from features (issue #279; default: false).
         let public_operations_rls = profile
             .features
@@ -303,6 +314,7 @@ impl BuildPlan {
             ux_rules,
             expr_ir,
             ifml_e2e_auth,
+            testid_module,
             public_operations_rls,
             features: profile.features.clone(),
         })
@@ -363,6 +375,7 @@ impl BuildPlan {
             ux_rules: false,
             expr_ir: false,
             ifml_e2e_auth: false,
+            testid_module: false,
             public_operations_rls: false,
             features,
         })

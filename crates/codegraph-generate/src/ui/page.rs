@@ -71,6 +71,12 @@ pub struct UiPageContext {
     /// context otherwise, so timeline/flag-off renders stay byte-identical.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ux_sort: Option<UxSortCtx>,
+    /// This entity's testid vocabulary, projected from `ux::plan::ids`
+    /// (issue #468 W3). Templates interpolate `tid.*` instead of carrying
+    /// literals, so page markup renders FROM the canonical table.
+    pub tid: crate::ui::testids::TidMap,
+    /// Unprefixed shared testids (`confirm-dialog`, workflow panel).
+    pub shared_tid: crate::ui::testids::SharedTids,
 }
 
 /// One consumer-owned panel mounted on a generated detail page.
@@ -246,6 +252,8 @@ pub struct ChildSection {
     pub domain: String,
     pub has_children: bool,
     pub fields: Vec<UiField>,
+    /// The child entity's testid vocabulary (issue #468 W3).
+    pub tid: crate::ui::testids::TidMap,
 }
 
 pub struct UiPageGenerator {
@@ -424,6 +432,7 @@ impl EntityGenerator for UiPageGenerator {
             .unwrap_or_default();
 
         let ctx = UiPageContext {
+            tid: crate::ui::testids::for_module(&module_name),
             entity_name,
             module_name,
             domain: domain.clone(),
@@ -450,6 +459,7 @@ impl EntityGenerator for UiPageGenerator {
             ux_actions,
             ux,
             ux_sort,
+            shared_tid: crate::ui::testids::shared(),
         };
 
         let routes_base = self
@@ -875,7 +885,7 @@ mod ux_list_template_tests {
     use serde_json::json;
 
     fn base_ctx() -> serde_json::Value {
-        json!({
+        let mut ctx = json!({
             "entity_name": "Task",
             "module_name": "task",
             "domain": "common",
@@ -896,7 +906,19 @@ mod ux_list_template_tests {
             "ux_columns": [],
             "ux_actions": null,
             "ux": null,
-        })
+        });
+        // The testid vocabulary rides the context like production renders
+        // it (issue #468 W3): projected from `ux::plan::ids` for the module.
+        let obj = ctx.as_object_mut().unwrap();
+        obj.insert(
+            "tid".into(),
+            serde_json::to_value(crate::ui::testids::for_module("task")).unwrap(),
+        );
+        obj.insert(
+            "shared_tid".into(),
+            serde_json::to_value(crate::ui::testids::shared()).unwrap(),
+        );
+        ctx
     }
 
     fn render(ctx: &serde_json::Value) -> String {
@@ -1007,7 +1029,7 @@ mod ux_list_template_tests {
         assert!(out.contains(r#"data-testid="task-actions-menu""#), "{out}");
         assert!(out.contains("AlertDialog"), "{out}");
         assert!(
-            out.contains(r#"data-testid="task-delete-confirm""#),
+            out.contains(r#"data-testid="task-delete-dialog""#),
             "{out}"
         );
         // Tooltip wrapping for truncated cells.
@@ -1232,7 +1254,7 @@ mod ux_list_template_tests {
         assert!(out.contains(r#"data-testid="task-actions""#), "{out}");
         assert!(out.contains(r#"data-testid="task-actions-menu""#), "{out}");
         assert!(
-            out.contains(r#"data-testid="task-delete-confirm""#),
+            out.contains(r#"data-testid="task-delete-dialog""#),
             "{out}"
         );
         // Table markup absent in timeline mode.
@@ -1331,7 +1353,7 @@ mod ux_child_section_template_tests {
 
     /// One child section attached to a `TaskType` detail page.
     fn child_sections() -> serde_json::Value {
-        json!([{
+        let mut section = json!([{
             "entity_name": "SubTaskType",
             "module_name": "sub_task",
             "label": "Sub Task",
@@ -1339,7 +1361,13 @@ mod ux_child_section_template_tests {
             "domain": "common",
             "has_children": true,
             "fields": []
-        }])
+        }]);
+        // Per-section testid vocabulary, like collect_child_sections.
+        section[0].as_object_mut().unwrap().insert(
+            "tid".into(),
+            serde_json::to_value(crate::ui::testids::for_module("sub_task")).unwrap(),
+        );
+        section
     }
 
     /// Detail-page context with `ux` keys present only when `ux` is true.
@@ -1371,6 +1399,17 @@ mod ux_child_section_template_tests {
             "ux_actions": null,
             "ux": null,
         });
+        {
+            let obj = ctx.as_object_mut().unwrap();
+            obj.insert(
+                "tid".into(),
+                serde_json::to_value(crate::ui::testids::for_module("task")).unwrap(),
+            );
+            obj.insert(
+                "shared_tid".into(),
+                serde_json::to_value(crate::ui::testids::shared()).unwrap(),
+            );
+        }
         if ux {
             let obj = ctx.as_object_mut().unwrap();
             obj.insert(
@@ -1419,7 +1458,7 @@ mod ux_child_section_template_tests {
             "sub_task-actions",
             "sub_task-action-edit",
             "sub_task-action-delete",
-            "sub_task-delete-confirm",
+            "sub_task-delete-dialog",
             "DeleteId",
             "confirmDelete",
         ] {
@@ -1478,11 +1517,11 @@ mod ux_child_section_template_tests {
         assert!(out.contains("open={sub_taskDeleteId !== null}"), "{out}");
         assert!(out.contains("if (!v) sub_taskDeleteId = null;"), "{out}");
         assert!(
-            out.contains(r#"data-testid="sub_task-delete-confirm""#),
+            out.contains(r#"data-testid="sub_task-delete-dialog""#),
             "{out}"
         );
         assert!(
-            out.contains(r#"data-testid="sub_task-delete-confirm-confirm""#),
+            out.contains(r#"data-testid="sub_task-delete-dialog-confirm""#),
             "{out}"
         );
         assert!(
@@ -1556,7 +1595,7 @@ mod ux_child_section_template_tests {
             out.contains(r#"onclick={() =>  void deleteChild('common', 'sub-task', child.id)}"#,),
             "{out}"
         );
-        assert!(!out.contains("sub_task-delete-confirm"), "{out}");
+        assert!(!out.contains("sub_task-delete-dialog"), "{out}");
         assert!(!out.contains("DeleteId = $state"), "{out}");
     }
 

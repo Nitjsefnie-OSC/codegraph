@@ -255,7 +255,7 @@ fn ux_rules_default_profile_renders_list_page_pins() {
     // 6. Delete behind the AlertDialog confirm.
     assert!(page.contains("AlertDialog"), "{page}");
     assert!(
-        page.contains(r#"data-testid="task-delete-confirm""#),
+        page.contains(r#"data-testid="task-delete-dialog""#),
         "{page}"
     );
     assert!(page.contains("requestDelete"), "{page}");
@@ -400,7 +400,7 @@ fn ux_rules_project_file_overrides_pack_display() {
         "{page}"
     );
     assert!(
-        page.contains(r#"data-testid="task-delete-confirm""#),
+        page.contains(r#"data-testid="task-delete-dialog""#),
         "{page}"
     );
 }
@@ -513,7 +513,7 @@ fn ux_rules_timeline_rule_renders_timeline_layout() {
         "{page}"
     );
     assert!(
-        page.contains(r#"data-testid="task-delete-confirm""#),
+        page.contains(r#"data-testid="task-delete-dialog""#),
         "{page}"
     );
 
@@ -701,11 +701,11 @@ fn ux_rules_child_sections_tier_actions_behind_menu() {
 
     // 3. Delete behind the per-section AlertDialog confirm.
     assert!(
-        page.contains(r#"data-testid="sub_task-delete-confirm""#),
+        page.contains(r#"data-testid="sub_task-delete-dialog""#),
         "{page}"
     );
     assert!(
-        page.contains(r#"data-testid="sub_task-delete-confirm-confirm""#),
+        page.contains(r#"data-testid="sub_task-delete-dialog-confirm""#),
         "{page}"
     );
     assert!(

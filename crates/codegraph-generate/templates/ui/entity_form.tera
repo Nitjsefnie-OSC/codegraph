@@ -137,7 +137,7 @@
 	}
 </script>
 
-<form onsubmit={handleSubmit} class="space-y-6" aria-label={% raw %}{{% endraw %}mode === 'create' ? m.{{ domain }}_{{ module_name }}_new() : m.common_edit() + ' ' + m.{{ domain }}_{{ module_name }}_title(){% raw %}}{% endraw %} data-testid="{{ module_name }}-form">
+<form onsubmit={handleSubmit} class="space-y-6" aria-label={% raw %}{{% endraw %}mode === 'create' ? m.{{ domain }}_{{ module_name }}_new() : m.common_edit() + ' ' + m.{{ domain }}_{{ module_name }}_title(){% raw %}}{% endraw %} data-testid="{{ tid.form }}">
 	<Field.Group>
 {% for field in create_fields %}
 {% if field.is_codelist %}
@@ -252,10 +252,10 @@
 
 	<div class="flex flex-col-reverse gap-3 pt-4 sm:flex-row sm:justify-end">
 {% raw %}
-		<Button variant="outline" type="button" onclick={() => history.back()} data-testid="{% endraw %}{{ module_name }}{% raw %}-cancel-btn">
+		<Button variant="outline" type="button" onclick={() => history.back()} data-testid="{% endraw %}{{ tid.cancel_btn }}{% raw %}">
 			{m.common_cancel()}
 		</Button>
-		<Button type="submit" disabled={submitting} data-testid="{% endraw %}{{ module_name }}{% raw %}-submit-btn">
+		<Button type="submit" disabled={submitting} data-testid="{% endraw %}{{ tid.submit_btn }}{% raw %}">
 			{#if submitting}
 				<Spinner class="mr-2 h-4 w-4" />
 				{m.common_saving()}

@@ -242,7 +242,7 @@
 		<div class="flex gap-2">
 {% if has_update %}
 {% raw %}{#if page.data.organization?.role === 'owner'}{% endraw %}
-			<Button variant="outline" href={`${basePath}/${item.id}/edit`} data-testid="{{ module_name }}-edit-btn">
+			<Button variant="outline" href={`${basePath}/${item.id}/edit`} data-testid="{{ tid.edit_btn }}">
 				{% raw %}{m.common_edit()}{% endraw %}
 			</Button>
 {% raw %}{/if}{% endraw %}
@@ -250,7 +250,7 @@
 {% if has_delete %}
 {% raw %}
 			{#if page.data.organization?.role === 'owner'}
-				<Button variant="destructive" onclick={() => deleteDialogOpen = true} data-testid="{% endraw %}{{ module_name }}{% raw %}-delete-btn">
+				<Button variant="destructive" onclick={() => deleteDialogOpen = true} data-testid="{% endraw %}{{ tid.delete_btn }}{% raw %}">
 					{m.common_delete()}
 				</Button>
 			{/if}
@@ -365,7 +365,7 @@
 {% if has_delete %}
 {% raw %}
 <AlertDialog.Root open={deleteDialogOpen} onOpenChange={(v) => deleteDialogOpen = v}>
-	<AlertDialog.Content data-testid="confirm-dialog">
+	<AlertDialog.Content data-testid="{% endraw %}{{ shared_tid.confirm_dialog }}{% raw %}">
 		<AlertDialog.Header>
 			<AlertDialog.Title>{m.common_confirm_delete_title({ entity: '{% endraw %}{{ entity_name }}{% raw %}' })}</AlertDialog.Title>
 			<AlertDialog.Description>
@@ -377,7 +377,7 @@
 			<AlertDialog.Action
 				onclick={handleDelete}
 				disabled={deleting}
-				data-testid="confirm-dialog-confirm"
+				data-testid="{% endraw %}{{ shared_tid.confirm_dialog_confirm }}{% raw %}"
 				class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
 			>
 				{deleting ? m.common_deleting() : m.common_delete()}

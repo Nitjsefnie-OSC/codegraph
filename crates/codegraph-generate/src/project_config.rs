@@ -141,6 +141,13 @@ pub struct CodegenConfig {
     /// specs, and the extended POM surface. Default false = byte-identical.
     #[serde(default)]
     pub ifml_e2e_auth: bool,
+    /// One testid vocabulary (issue #468 W3): when true the `ui_testids`
+    /// global generator emits `ui/src/lib/testids.ts` and the generated
+    /// POM/spec templates import it, binding the test surface to the same
+    /// `ux::plan::ids` table the page markup renders from. Default false =
+    /// byte-identical (POM/spec templates keep their literals).
+    #[serde(default)]
+    pub testid_module: bool,
     /// Import prefix for structured wrapper types in generated re-exports.
     /// Default: "codegraph_type_contracts".
     /// Domain crates should set this to their own crate or module path (e.g. "crate").
@@ -154,6 +161,7 @@ impl Default for CodegenConfig {
             namespace_layout: false,
             expr_ir: false,
             ifml_e2e_auth: false,
+            testid_module: false,
             types_import_prefix: "codegraph_type_contracts".into(),
         }
     }
@@ -414,6 +422,7 @@ mod tests {
             ("namespace_layout", serde_json::json!(false)),
             ("expr_ir", serde_json::json!(false)),
             ("ifml_e2e_auth", serde_json::json!(false)),
+            ("testid_module", serde_json::json!(false)),
             ("public_operations_rls", serde_json::json!(false)),
             (
                 "types_import_prefix",

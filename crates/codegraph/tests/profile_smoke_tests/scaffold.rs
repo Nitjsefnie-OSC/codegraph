@@ -185,6 +185,7 @@ async fn workers_topology_generates_worker_scaffold_and_gateway() {
         ux_rules: false,
         expr_ir: false,
         ifml_e2e_auth: false,
+        testid_module: false,
         public_operations_rls: false,
         features: toml::Table::new(),
     };

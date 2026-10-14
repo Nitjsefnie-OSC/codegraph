@@ -592,7 +592,7 @@
 {% endraw %}
 </div>{% if ux_actions and has_delete %}{% raw %}
 <AlertDialog.Root open={deleteTarget !== null} onOpenChange={(v) => { if (!v) deleteTarget = null; }}>
-	<AlertDialog.Content data-testid="{% endraw %}{{ module_name }}{% raw %}-delete-confirm">
+	<AlertDialog.Content data-testid="{% endraw %}{{ tid.delete_dialog }}{% raw %}">
 		<AlertDialog.Header>
 			<AlertDialog.Title>{m.common_confirm_delete_title({ entity: '{% endraw %}{{ entity_name }}{% raw %}' })}</AlertDialog.Title>
 			<AlertDialog.Description>
@@ -604,7 +604,7 @@
 			<AlertDialog.Action
 				onclick={() => performDelete(deleteTarget as Record<string, unknown>)}
 				disabled={deleting}
-				data-testid="{% endraw %}{{ module_name }}{% raw %}-delete-confirm-confirm"
+				data-testid="{% endraw %}{{ tid.delete_dialog_confirm }}{% raw %}"
 				class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
 			>
 				{deleting ? m.common_deleting() : m.common_delete()}

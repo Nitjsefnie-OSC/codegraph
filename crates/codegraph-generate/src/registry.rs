@@ -306,6 +306,13 @@ pub(crate) fn build_global_generators(ctx: &GeneratorContext<'_>) -> Vec<Box<dyn
     )) as Box<dyn GlobalGenerator>);
     global_gens
         .push(Box::new(ui::types::UiTypeGenerator::new(output_dir)) as Box<dyn GlobalGenerator>);
+    // One testid vocabulary (issue #468 W3): emits `ui/src/lib/testids.ts`
+    // when the `testid_module` feature is on (the generator itself warns
+    // and emits nothing otherwise). Plan-filtered like the other globals.
+    global_gens.push(
+        Box::new(ui::testids_gen::UiTestidsGenerator::new(output_dir))
+            as Box<dyn GlobalGenerator>,
+    );
     global_gens.push(Box::new(ui::codelist::UiCodelistGenerator::new(
         output_dir,
         ctx.schema_base_dir,

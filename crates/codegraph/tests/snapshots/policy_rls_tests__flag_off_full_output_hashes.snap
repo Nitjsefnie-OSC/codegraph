@@ -1,5 +1,6 @@
 ---
 source: crates/codegraph/tests/policy_rls_tests.rs
+assertion_line: 291
 expression: hashes
 ---
 ".codegraph-manifest.json": 4bb3dd445d0d1f9ac96679f050b5c2d540d0c5cca7f3c13a6a1bef74d0ac580c
@@ -887,7 +888,7 @@ ui/tests/e2e/fixtures/personas.ts: 8e4b297126c9f9e956635a1df6870139be90b9970d7ae
 ui/tests/e2e/helpers.ts: 6d456986b14e8017a5b0cfa3c280ba4db799a1ff848bdfb0934ef2e751a76e8a
 ui/tests/e2e/webhooks/webhooks-crud.test.ts: e1f1c8519513f8328ed0e492991041e25a21f92849643b6dd3689e5d2043c943
 ui/tests/e2e/webhooks/webhooks-delivery.test.ts: a98c50e5a719c55163980b70087798c71b9ff5eae86767f5cfe32ef082013663
-ui/tests/generated/_support/pom.ts: 13e8796c1259f3c3c8a8332e9f6e1282dbb6597318a49a151cdc6f6bce806070
+ui/tests/generated/_support/pom.ts: c815d9f0f3c6abf6a55e8b1647691a1313a772646e43cd459047a5604413de0f
 ui/tests/generated/common/amount.api.crud.test.ts: 549cf0a4c280fd5d541fa2e7808022472d5b90e86c7f20702ea92d75354e5419
 ui/tests/generated/common/amount.employee.view.test.ts: 0de8bb4834a00151c680865115f44f96ec64ba71c39a09f20fa8c88293b1111d
 ui/tests/generated/common/amount.isolation.test.ts: a73593deb30847549d267a5a5b55bb92097862f96f5eca7a3c5b8711b25d2cb9

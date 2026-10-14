@@ -113,7 +113,7 @@
 		</div>
 	{/if}{% endraw %}{% if ux_actions %}{% if ux_actions.confirm_delete %}
 	<AlertDialog.Root open={{"{"}}{{ section.module_name }}DeleteId !== null} onOpenChange={(v) => { if (!v) {{ section.module_name }}DeleteId = null; }}>{% raw %}
-		<AlertDialog.Content data-testid="{% endraw %}{{ section.module_name }}{% raw %}-delete-confirm">
+		<AlertDialog.Content data-testid="{% endraw %}{{ section.tid.delete_dialog }}{% raw %}">
 			<AlertDialog.Header>
 				<AlertDialog.Title>{m.common_confirm_delete_title({ entity: '{% endraw %}{{ section.entity_name }}{% raw %}' })}</AlertDialog.Title>
 				<AlertDialog.Description>
@@ -124,7 +124,7 @@
 				<AlertDialog.Cancel>{m.common_cancel()}</AlertDialog.Cancel>
 				<AlertDialog.Action
 					onclick={confirmDelete{% endraw %}{{ section.entity_name }}{% raw %}Child}
-					data-testid="{% endraw %}{{ section.module_name }}{% raw %}-delete-confirm-confirm"
+					data-testid="{% endraw %}{{ section.tid.delete_dialog_confirm }}{% raw %}"
 					class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
 				>
 					{m.common_delete()}

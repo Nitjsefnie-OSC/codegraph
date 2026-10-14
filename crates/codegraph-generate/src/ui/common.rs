@@ -436,12 +436,13 @@ pub async fn collect_child_sections(
 
             sections.push(ChildSection {
                 entity_name,
-                module_name,
+                module_name: module_name.clone(),
                 label,
                 path_segment,
                 domain: domain_name.clone(),
                 has_children,
                 fields,
+                tid: crate::ui::testids::for_module(&module_name),
             });
         }
     }
@@ -471,10 +472,12 @@ pub async fn collect_child_sections(
             .await?;
 
             let grandchildren = db.get_child_schemas(&child.title).await.unwrap_or_default();
+            let child_module = child.pg_table_name.clone();
 
             sections.push(ChildSection {
                 entity_name,
-                module_name: child.pg_table_name.clone(),
+                tid: crate::ui::testids::for_module(&child_module),
+                module_name: child_module,
                 label,
                 path_segment,
                 domain: child
