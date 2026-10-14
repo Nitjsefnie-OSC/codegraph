@@ -135,6 +135,13 @@ impl GlobalGenerator for IfmlRouteGenerator {
             .map_err(crate::error::Error::Graph)?;
 
         if model.view_containers.is_empty() {
+            // Issue #468 finding 1: an enabled route generator over an
+            // empty IFML model used to exit silently — the profile looked
+            // wired while emitting nothing. Say so instead.
+            eprintln!(
+                "warning: ifml_route: no IFML model in the graph \
+                 (pass --ifml-files); no view routes emitted"
+            );
             return Ok(vec![]);
         }
 
@@ -179,23 +186,31 @@ impl GlobalGenerator for IfmlRouteGenerator {
             )
             .await?;
 
-            if let Ok(content) = render_template(tera, &page_template, &ctx) {
-                files.push(GeneratedFile {
+            match render_template(tera, &page_template, &ctx) {
+                Ok(content) => files.push(GeneratedFile {
                     path: self
                         .output_dir
                         .join((self.output_paths.route_page)(&vc.name)),
                     content,
-                });
+                }),
+                Err(e) => eprintln!(
+                    "warning: ifml_route: {} render failed for view '{}': {e}",
+                    page_template, vc.name
+                ),
             }
 
             if let Some(ref route_load_fn) = self.output_paths.route_load {
                 let load_ctx =
                     build_load_context(&project.identity.api_version, vc, &ctx.components, &denial);
-                if let Ok(content) = render_template(tera, &load_template, &load_ctx) {
-                    files.push(GeneratedFile {
+                match render_template(tera, &load_template, &load_ctx) {
+                    Ok(content) => files.push(GeneratedFile {
                         path: self.output_dir.join(route_load_fn(&vc.name)),
                         content,
-                    });
+                    }),
+                    Err(e) => eprintln!(
+                        "warning: ifml_route: {} render failed for view '{}': {e}",
+                        load_template, vc.name
+                    ),
                 }
             }
         }
@@ -206,13 +221,18 @@ impl GlobalGenerator for IfmlRouteGenerator {
 
         if let Some(ctx) = self.layout_context(&model) {
             let layout_template = format!("ifml/{}/layout.tera", self.framework);
-            if let Ok(content) = render_template(tera, &layout_template, &ctx)
-                && let Some(rel) = self.route_layout()
-            {
-                files.push(GeneratedFile {
-                    path: self.output_dir.join(rel),
-                    content,
-                });
+            match render_template(tera, &layout_template, &ctx) {
+                Ok(content) => {
+                    if let Some(rel) = self.route_layout() {
+                        files.push(GeneratedFile {
+                            path: self.output_dir.join(rel),
+                            content,
+                        });
+                    }
+                }
+                Err(e) => eprintln!(
+                    "warning: ifml_route: {layout_template} render failed: {e}"
+                ),
             }
         }
 

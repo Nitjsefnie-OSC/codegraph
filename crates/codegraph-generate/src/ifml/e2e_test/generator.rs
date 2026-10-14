@@ -110,6 +110,11 @@ impl GlobalGenerator for IfmlE2eTestGenerator {
             .await
             .map_err(crate::error::Error::Graph)?;
         if model.view_containers.is_empty() {
+            // Issue #468 finding 1: enabled-but-empty used to be silent.
+            eprintln!(
+                "warning: ifml_e2e_test: no IFML model in the graph \
+                 (pass --ifml-files); no view specs emitted"
+            );
             return Ok(vec![]);
         }
 
@@ -177,6 +182,11 @@ impl GlobalGenerator for IfmlE2eTestGenerator {
             }
         }
         if specs.is_empty() && workflow_specs.is_empty() {
+            eprintln!(
+                "warning: ifml_e2e_test: model has {} view(s) but none assembled \
+                 a render/click-through/validation/round-trip spec",
+                model.view_containers.len()
+            );
             return Ok(vec![]);
         }
 
