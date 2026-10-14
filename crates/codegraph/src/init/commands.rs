@@ -294,6 +294,12 @@ pub struct DoctorArgs {
     /// against the resolved BuildPlan topology and the domains.toml
     /// component coverage; error-severity diagnostics are hard failures.
     pub deploy_files: Vec<PathBuf>,
+    /// rexlang .ifml interaction-model files (optional). Parse-verified
+    /// through the same `rex_ifml::parse_ifml_file` the ingest path uses;
+    /// `import "….actor"` statements are resolved read-only through
+    /// `resolve_actor_policy` (a policy the run path would silently skip
+    /// is a hard failure here). Parse errors are hard failures.
+    pub ifml_files: Vec<PathBuf>,
 }
 
 /// Outcome counts for a doctor run. `model_warnings` isolates the
@@ -825,6 +831,99 @@ fn check_deploy_files(
     (hard, soft)
 }
 
+/// Parse-verify the .ifml interaction-model plane (additive, like
+/// `check_evt_files`: never feeds model_warnings). Each file goes through
+/// the SAME `rex_ifml::parse_ifml_file` the ingest path uses, so doctor
+/// and ingest cannot drift. A parse error is a hard failure. `import
+/// "….actor"` statements resolve read-only through
+/// `resolve_actor_policy` — the ingest path warns-and-continues on an
+/// unresolvable policy, so doctor is where a silent skip becomes a hard
+/// failure instead. Returns the (hard_failures, soft_warnings)
+/// contributed.
+fn check_ifml_files(ifml_files: &[PathBuf]) -> (usize, usize) {
+    let mut hard = 0;
+    let mut soft = 0;
+    for path in ifml_files {
+        match rex_ifml::parse_ifml_file(path) {
+            Ok(model) => {
+                soft += model.actors.len();
+                println!(
+                    "PASS ifml — {} parses ({} view(s), {} action(s), {} actor(s))",
+                    path.display(),
+                    model.views.len(),
+                    model.actions.len(),
+                    model.actors.len()
+                );
+                if model.imports.is_empty() {
+                    continue;
+                }
+                let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
+                let mut missing = Vec::new();
+                for raw in &model.imports {
+                    let resolved = base_dir.join(raw);
+                    if !resolved.is_file() {
+                        missing.push(raw.clone());
+                    }
+                }
+                if !missing.is_empty() {
+                    hard += 1;
+                    println!(
+                        "FAIL ifml — {} imports unresolvable file(s): {}",
+                        path.display(),
+                        missing.join(", ")
+                    );
+                    println!(
+                        "     hint: the run path warns and continues past a missing import, \
+                         so the view guards would silently lose their policy"
+                    );
+                    continue;
+                }
+                // Only .actor/.json imports carry policy; .mox imports feed
+                // entity resolution elsewhere and are not resolve_actor_policy's
+                // business (it would warn "unsupported extension" on them).
+                let policy_imports: Vec<String> = model
+                    .imports
+                    .iter()
+                    .filter(|raw| {
+                        matches!(
+                            raw.rsplit('.').next(),
+                            Some("actor") | Some("json")
+                        )
+                    })
+                    .cloned()
+                    .collect();
+                let policy =
+                    crate::ifml_actor_import::resolve_actor_policy(&policy_imports, base_dir);
+                match policy {
+                    Some(p) => println!(
+                        "PASS ifml — {} policy import(s) resolve ({} actor(s), {} capability(ies))",
+                        policy_imports.len(),
+                        p.actors.len(),
+                        p.capabilities.len()
+                    ),
+                    None => {
+                        hard += 1;
+                        println!(
+                            "FAIL ifml — {} imports policy file(s) but none compile",
+                            path.display()
+                        );
+                        println!(
+                            "     hint: check the .actor sources for compile errors \
+                             (the run path warns and continues past them)"
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                hard += 1;
+                println!("FAIL ifml — {} does not parse: {e}", path.display());
+                println!("     hint: fix the rexlang interaction-model errors above");
+            }
+        }
+    }
+    (hard, soft)
+}
+
 /// Profile/target vs topology cross-check (rexlang #49): a
 /// `cloudflareWorkers` profile needs the Workers deployment topology and
 /// vice versa — a deploy file and a profiles.toml that disagree describe
@@ -1101,6 +1200,16 @@ pub fn cmd_doctor(args: &DoctorArgs) -> Result<DoctorSummary> {
     // model-source check, so it never feeds model_warnings.
     if !args.evt_files.is_empty() {
         let (hard, soft) = check_evt_files(&args.evt_files);
+        hard_failures += hard;
+        soft_warnings += soft;
+    }
+
+    // The .ifml interaction plane is additive to any model source:
+    // parse-verify each file when provided (issue #468 phase 1), and
+    // resolve its policy imports read-only. Not a model-source check, so
+    // it never feeds model_warnings.
+    if !args.ifml_files.is_empty() {
+        let (hard, soft) = check_ifml_files(&args.ifml_files);
         hard_failures += hard;
         soft_warnings += soft;
     }
