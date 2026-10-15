@@ -321,6 +321,17 @@ pub mod ids {
         format!("{prefix}-{TIMELINE_ITEM}")
     }
 
+    /// `{prefix}-timeline-meta` — one entry's meta line.
+    pub fn timeline_meta(prefix: &str) -> String {
+        format!("{prefix}-timeline-meta")
+    }
+
+    /// `{prefix}-workflow-state` — a timeline row's state badge (the
+    /// detail panel's badge is the unprefixed [`workflow_state`]).
+    pub fn timeline_workflow_state(prefix: &str) -> String {
+        format!("{prefix}-workflow-state")
+    }
+
     /// `{prefix}-action-delete` — the row-actions delete entry.
     pub fn action_delete(prefix: &str) -> String {
         format!("{prefix}-action-delete")

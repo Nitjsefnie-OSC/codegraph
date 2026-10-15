@@ -6,7 +6,7 @@
 	<button
 		class="flex w-full items-center justify-between px-4 py-3 text-sm font-medium bg-muted/50 hover:bg-muted transition-colors"
 		onclick={() => toggleSection('{% endraw %}{{ section.module_name }}{% raw %}')}
-		data-testid="child-section-{% endraw %}{{ section.module_name }}{% raw %}"
+		data-testid="{% endraw %}{{ section.tid.child_section }}{% raw %}"
 		type="button"
 	>
 		<span class="flex items-center gap-2">
@@ -28,7 +28,7 @@
 				<button
 					class="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-accent transition-colors"
 					onclick={() => startAddChild('{% endraw %}{{ section.domain }}{% raw %}', '{% endraw %}{{ section.path_segment }}{% raw %}')}
-					data-testid="child-section-{% endraw %}{{ section.module_name }}{% raw %}-add-btn"
+					data-testid="{% endraw %}{{ section.tid.child_section_add_btn }}{% raw %}"
 					type="button"
 				>
 					+ Add
@@ -53,16 +53,16 @@
 								<DropdownMenu.Root>
 									<DropdownMenu.Trigger
 										class="rounded px-2 py-1 text-xs hover:bg-accent transition-colors"
-										data-testid="{% endraw %}{{ section.module_name }}{% raw %}-actions"
+										data-testid="{% endraw %}{{ section.tid.actions }}{% raw %}"
 									>
 										{m.common_actions()}
 									</DropdownMenu.Trigger>
 									<DropdownMenu.Portal>
-										<DropdownMenu.Content data-testid="{% endraw %}{{ section.module_name }}{% raw %}-actions-menu" class="w-40">
+										<DropdownMenu.Content data-testid="{% endraw %}{{ section.tid.actions_menu }}{% raw %}" class="w-40">
 											{#each ux_actions.child_menu as item}
 												{#if item.action === 'edit'}
 												<DropdownMenu.Item
-													data-testid="{% endraw %}{{ section.module_name }}{% raw %}-action-edit"
+													data-testid="{% endraw %}{{ section.tid.action_edit }}{% raw %}"
 													onclick={() => editChild('{% endraw %}{{ section.domain }}{% raw %}', '{% endraw %}{{ section.path_segment }}{% raw %}', child.id)}
 												>
 													{m.common_edit()}
@@ -70,7 +70,7 @@
 												{:else if item.action === 'delete'}
 												<DropdownMenu.Item
 													class="text-destructive data-[highlighted]:text-destructive"
-													data-testid="{% endraw %}{{ section.module_name }}{% raw %}-action-delete"
+													data-testid="{% endraw %}{{ section.tid.action_delete }}{% raw %}"
  													onclick={() => {% endraw %}{% if ux_actions.confirm_delete %}{% raw %}{% endraw %}{{ section.module_name }}{% raw %}DeleteId = child.id}{% endraw %}{% else %}{% raw %} void deleteChild('{% endraw %}{{ section.domain }}{% raw %}', '{% endraw %}{{ section.path_segment }}{% raw %}', child.id)}{% endraw %}{% endif %}{% raw %}
 												>
 													{m.common_delete()}
@@ -99,7 +99,7 @@
 								<button
 									class="rounded px-2 py-1 text-xs hover:bg-accent transition-colors"
 									onclick={() => manageChild('{% endraw %}{{ section.domain }}{% raw %}', '{% endraw %}{{ section.path_segment }}{% raw %}', child.id)}
-									data-testid="manage-{% endraw %}{{ section.module_name }}{% raw %}-btn"
+									data-testid="{% endraw %}{{ section.tid.manage_btn }}{% raw %}"
 									type="button"
 								>
 									Manage →

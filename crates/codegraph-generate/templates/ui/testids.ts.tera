@@ -37,6 +37,8 @@ export interface EntityTestids<F extends string = string> {
   copy: string;
   timeline: string;
   timelineItem: string;
+  timelineMeta: string;
+  timelineWorkflowState: string;
   childSection: string;
   childSectionAddBtn: string;
   manageBtn: string;
@@ -71,6 +73,8 @@ function entity<F extends string>(m: string, fields: readonly F[]): EntityTestid
     copy: `${m}-copy`,
     timeline: `${m}-timeline`,
     timelineItem: `${m}-timeline-item`,
+    timelineMeta: `${m}-timeline-meta`,
+    timelineWorkflowState: `${m}-workflow-state`,
     childSection: `child-section-${m}`,
     childSectionAddBtn: `child-section-${m}-add-btn`,
     manageBtn: `manage-${m}-btn`,

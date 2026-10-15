@@ -42,6 +42,8 @@ pub struct TidMap {
     pub copy: String,
     pub timeline: String,
     pub timeline_item: String,
+    pub timeline_meta: String,
+    pub timeline_workflow_state: String,
     /// `child-section-{module}` — the detail page's child accordion root.
     pub child_section: String,
     pub child_section_add_btn: String,
@@ -91,6 +93,8 @@ pub fn for_module(module: &str) -> TidMap {
         copy: ids::copy(module),
         timeline: ids::timeline(module),
         timeline_item: ids::timeline_item(module),
+        timeline_meta: ids::timeline_meta(module),
+        timeline_workflow_state: ids::timeline_workflow_state(module),
         child_section: format!("child-section-{module}"),
         child_section_add_btn: format!("child-section-{module}-add-btn"),
         manage_btn: ids::manage(module),
