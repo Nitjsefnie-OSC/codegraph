@@ -148,6 +148,12 @@ pub struct CodegenConfig {
     /// byte-identical (POM/spec templates keep their literals).
     #[serde(default)]
     pub testid_module: bool,
+    /// Post-generation structural gates (issue #468): when true the run
+    /// scans the emitted tree and hard-fails on retired vocabulary
+    /// (`-confirm-confirm`, raw POM compositions under `testid_module`).
+    /// Default false = zero behavior.
+    #[serde(default)]
+    pub structural_gates: bool,
     /// Import prefix for structured wrapper types in generated re-exports.
     /// Default: "codegraph_type_contracts".
     /// Domain crates should set this to their own crate or module path (e.g. "crate").
@@ -162,6 +168,7 @@ impl Default for CodegenConfig {
             expr_ir: false,
             ifml_e2e_auth: false,
             testid_module: false,
+            structural_gates: false,
             types_import_prefix: "codegraph_type_contracts".into(),
         }
     }
@@ -423,6 +430,7 @@ mod tests {
             ("expr_ir", serde_json::json!(false)),
             ("ifml_e2e_auth", serde_json::json!(false)),
             ("testid_module", serde_json::json!(false)),
+            ("structural_gates", serde_json::json!(false)),
             ("public_operations_rls", serde_json::json!(false)),
             (
                 "types_import_prefix",

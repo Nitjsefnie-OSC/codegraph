@@ -418,6 +418,7 @@ pub async fn run_with_graph_cache(
                 expr_ir: plan.expr_ir,
                 ifml_e2e_auth: plan.ifml_e2e_auth,
                 testid_module: plan.testid_module,
+                structural_gates: plan.structural_gates,
                 types_import_prefix: domain_config.defaults.types_import_prefix.clone(),
             },
             deployment: DeploymentConfig {
@@ -1237,6 +1238,7 @@ pub async fn ifml_generate(args: IfmlGenerateArgs<'_>) -> Result<()> {
         project_config.codegen.expr_ir = plan.expr_ir;
         project_config.codegen.ifml_e2e_auth = plan.ifml_e2e_auth;
         project_config.codegen.testid_module = plan.testid_module;
+        project_config.codegen.structural_gates = plan.structural_gates;
         project_config.integration.public_operations_rls = plan.public_operations_rls;
 
         println!(

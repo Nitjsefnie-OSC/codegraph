@@ -51,6 +51,7 @@ async fn run_routing_generators(
         expr_ir: false,
         ifml_e2e_auth: false,
         testid_module: false,
+        structural_gates: false,
         public_operations_rls: false,
         features: toml::Table::new(),
     };

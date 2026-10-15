@@ -75,6 +75,10 @@ pub struct BuildPlan {
     /// emits `ui/src/lib/testids.ts` and switches the POM/spec templates
     /// to import it. Default false = byte-identical.
     pub testid_module: bool,
+    /// Post-generation structural gates (issue #468): `structural_gates`
+    /// feature — the run hard-fails on retired vocabulary in the emitted
+    /// tree. Default false = zero behavior.
+    pub structural_gates: bool,
     /// Canonical expression IR (issue #278): when true, IFML guards render
     /// from the persisted `expr_json` AST via the TypeScript lowering
     /// instead of raw source interpolation. Default OFF = byte-identical.
@@ -286,6 +290,13 @@ impl BuildPlan {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
+        // Parse structural_gates from features (issue #468; default: false).
+        let structural_gates = profile
+            .features
+            .get("structural_gates")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
         // Parse public_operations_rls from features (issue #279; default: false).
         let public_operations_rls = profile
             .features
@@ -315,6 +326,7 @@ impl BuildPlan {
             expr_ir,
             ifml_e2e_auth,
             testid_module,
+            structural_gates,
             public_operations_rls,
             features: profile.features.clone(),
         })
@@ -376,6 +388,7 @@ impl BuildPlan {
             expr_ir: false,
             ifml_e2e_auth: false,
             testid_module: false,
+            structural_gates: false,
             public_operations_rls: false,
             features,
         })
