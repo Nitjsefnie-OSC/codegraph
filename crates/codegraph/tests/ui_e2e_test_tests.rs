@@ -1300,3 +1300,57 @@ fn ux_spec_random_valued_columns_never_get_copy_or_flip_assertions() {
         "random uuid fixture ⇒ no clipboard prediction:\n{content}"
     );
 }
+
+// ── One testid vocabulary (issue #468 W3): the POM imports the module ───
+
+#[test]
+fn testid_module_pom_resolves_locators_through_the_module() {
+    let person = schema("PersonType", "person", "Person", "hr", "person");
+    let engine = MockEngine::builder()
+        .with_schema(person)
+        .with_properties("PersonType", vec![scalar("full_name", "TEXT", true)])
+        .build();
+    let config = config(&[("hr", "PersonType")]);
+    let project = codegraph::generate::ProjectConfig {
+        codegen: codegraph::generate::CodegenConfig {
+            testid_module: true,
+            ..Default::default()
+        },
+        ..ProjectConfig::default()
+    };
+
+    let files = all_files(&engine, &config, &project, "PersonType", "hr");
+    let page = files
+        .iter()
+        .find(|(p, _)| p.ends_with("person.page.ts"))
+        .expect("POM page emitted")
+        .1
+        .clone();
+
+    // The module import rides the flag.
+    assert!(
+        page.contains("import { shared, testids, tidFor } from '#lib/testids.js';"),
+        "{page}"
+    );
+    // Static locators resolve typed per-entity.
+    assert!(page.contains("testids.person.table}"), "{page}");
+    assert!(page.contains("testids.person.deleteBtn}"), "{page}");
+    // The field locator goes through the typed union.
+    assert!(page.contains("testids.person.field(name)"), "{page}");
+    // Shared dialogs resolve through the shared table — and the old
+    // unprefixed literals are gone from the delete flow.
+    assert!(page.contains("shared.confirmDialog}"), "{page}");
+    assert!(!page.contains("${this.module}-table"), "{page}");
+    assert!(!page.contains("confirm-dialog-confirm"), "{page}");
+
+    // Flag OFF (default): literals as before, no import.
+    let files = all_files(&engine, &config, &ProjectConfig::default(), "PersonType", "hr");
+    let page = &files
+        .iter()
+        .find(|(p, _)| p.ends_with("person.page.ts"))
+        .expect("POM page emitted")
+        .1;
+    assert!(!page.contains("#lib/testids.js"), "{page}");
+    assert!(page.contains("${this.module}-table"), "{page}");
+    assert!(page.contains("data-testid=\"confirm-dialog\""), "{page}");
+}

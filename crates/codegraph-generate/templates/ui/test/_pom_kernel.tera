@@ -20,6 +20,12 @@
 // Regenerated every run; edit the `_pom_kernel.tera` template instead.
 
 import { expect, type Locator, type Page, type Response } from '@playwright/test';
+{%- if project.testid_module %}
+// One testid vocabulary (issue #468 W3): static ids resolve through the
+// generated module; the `{dialog}-confirm`/dynamic compositions keep the
+// composition rule as fallback.
+import { testids, type EntityTestids } from '#lib/testids.js';
+{% endif %}
 
 /** Svelte hydration + selector visibility, the `waitForHydration` convention
  * from `tests/e2e/helpers.ts` (which stays the persona-fixture helper). */
@@ -60,6 +66,12 @@ export class UxTable {
   ) {}
 
   private tid(suffix: string): string {
+{%- if project.testid_module %}
+    const e = (testids as Record<string, EntityTestids<string>>)[this.cfg.module];
+    const key = suffix.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+    const v = e ? (e as unknown as Record<string, unknown>)[key] : undefined;
+    if (typeof v === 'string') return `[data-testid="${v}"]`;
+{% endif %}
     return `[data-testid="${this.cfg.module}-${suffix}"]`;
   }
 

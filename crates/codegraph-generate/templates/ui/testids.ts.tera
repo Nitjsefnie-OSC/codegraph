@@ -82,6 +82,14 @@ function entity<F extends string>(m: string, fields: readonly F[]): EntityTestid
 
 export const testids: { readonly [K in keyof typeof entities]: EntityTestids<(typeof entities[K] extends readonly (infer F)[] ? F : never)> } = {
 {% for e in entities %}  {{ e.module_name }}: entity('{{ e.module_name }}', [
-{% for f in e.fields %}    '{{ f.name }}',
+{% for f in e.fields %}    '{{ f }}',
 {% endfor %}  ] as const),
 {% endfor %}} as const;
+
+/** Runtime accessor for entity modules not known at compile time
+ * (cross-entity locators, e.g. a parent page reaching a child section). */
+export function tidFor(module: string): EntityTestids<string> {
+  const e = (testids as Record<string, EntityTestids<string>>)[module];
+  if (!e) throw new Error(`no generated testids for entity module '${module}'`);
+  return e;
+}
