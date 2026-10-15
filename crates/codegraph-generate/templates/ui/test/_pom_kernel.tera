@@ -67,7 +67,7 @@ export class UxTable {
 
   private tid(suffix: string): string {
 {%- if project.testid_module %}
-    const e = (testids as Record<string, EntityTestids<string>>)[this.cfg.module];
+    const e = (testids as unknown as Record<string, EntityTestids<string>>)[this.cfg.module];
     const key = suffix.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
     const v = e ? (e as unknown as Record<string, unknown>)[key] : undefined;
     if (typeof v === 'string') return `[data-testid="${v}"]`;
