@@ -6,6 +6,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi, expectToast } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreatePublicEventRequest } from '#lib/api/types.ts';
+
 import { PublicEventPage } from './public-event.page';
 
 
@@ -17,7 +20,7 @@ const BASE_PATH = '/events/public-event';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreatePublicEventRequest | 'code', unknown>> {
   return {
     'is_published': true,
     'capacity': 42,
@@ -30,7 +33,7 @@ function testData(): Record<string, unknown> {
   };
 }
 
-function updatedData(): Record<string, unknown> {
+function updatedData(): Partial<Record<keyof CreatePublicEventRequest | 'code', unknown>> {
   return {
     'is_published': false,
     'capacity': 99,

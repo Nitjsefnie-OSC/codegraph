@@ -6,6 +6,7 @@
 	import Input from '@community-os/ui/Input.svelte';
 	import Select from '@community-os/ui/Select.svelte';
 	import { api } from '$lib/api';
+	import type { EffectiveDateResponse } from '#lib/api/types.ts';
 
 	type FormData = Record<string, unknown>;
 
@@ -14,11 +15,11 @@
 		apiPath: string;
 		routePath: string;
 		id?: string;
-		initialData?: Record<string, unknown>;
+		initialData?: EffectiveDateResponse;
 		submitting?: boolean;
 	}
 
-	let { mode, apiPath, routePath, id = '', initialData = {}, submitting = $bindable(false) }: Props = $props();
+	let { mode, apiPath, routePath, id = '', initialData = undefined, submitting = $bindable(false) }: Props = $props();
 
 	let error = $state('');
 	let loading = $state(mode === 'edit');
@@ -26,11 +27,11 @@
 	// Form state
 
 
-	let valid_from = $state(String(initialData['valid_from'] ?? ''));
+	let valid_from = $state(String(initialData?.valid_from ?? ''));
 
 
 
-	let valid_to = $state(String(initialData['valid_to'] ?? ''));
+	let valid_to = $state(String(initialData?.valid_to ?? ''));
 
 
 
@@ -38,11 +39,11 @@
 		const payload: Record<string, unknown> = {};
 
 
-		if (valid_from !== String(initialData['valid_from'] ?? '')) payload['valid_from'] = valid_from;
+		if (valid_from !== String(initialData?.valid_from ?? '')) payload['valid_from'] = valid_from;
 
 
 
-		if (valid_to !== String(initialData['valid_to'] ?? '')) payload['valid_to'] = valid_to;
+		if (valid_to !== String(initialData?.valid_to ?? '')) payload['valid_to'] = valid_to;
 
 
 		return payload;

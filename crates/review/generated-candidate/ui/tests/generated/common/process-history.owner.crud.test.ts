@@ -6,6 +6,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi, expectToast } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateProcessHistoryRequest } from '#lib/api/types.ts';
+
 import { ProcessHistoryPage } from './process-history.page';
 
 
@@ -17,7 +20,7 @@ const BASE_PATH = '/common/process-history';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreateProcessHistoryRequest | 'code', unknown>> {
   return {
     'action_date': '2025-01-15T10:30:00Z',
     'descriptions': ['Test Descriptions'],
@@ -27,7 +30,7 @@ function testData(): Record<string, unknown> {
   };
 }
 
-function updatedData(): Record<string, unknown> {
+function updatedData(): Partial<Record<keyof CreateProcessHistoryRequest | 'code', unknown>> {
   return {
     'action_date': '2025-06-20T14:00:00Z',
     'descriptions': ['Updated Descriptions'],

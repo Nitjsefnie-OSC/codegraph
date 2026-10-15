@@ -6,6 +6,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi, expectToast } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateEffectiveDateRequest } from '#lib/api/types.ts';
+
 import { EffectiveDatePage } from './effective-date.page';
 
 
@@ -17,7 +20,7 @@ const BASE_PATH = '/common/effective-date';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreateEffectiveDateRequest | 'code', unknown>> {
   return {
     'valid_from': '2025-01-15',
     'valid_to': '2025-01-15',
@@ -26,7 +29,7 @@ function testData(): Record<string, unknown> {
   };
 }
 
-function updatedData(): Record<string, unknown> {
+function updatedData(): Partial<Record<keyof CreateEffectiveDateRequest | 'code', unknown>> {
   return {
     'valid_from': '2025-06-20',
     'valid_to': '2025-06-20',

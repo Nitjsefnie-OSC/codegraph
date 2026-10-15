@@ -632,6 +632,7 @@
     "ui/src/lib/components/ui/WorkflowPanel.svelte",
     "ui/src/lib/components/ui/structured-wrapper-field/StructuredWrapperField.svelte",
     "ui/src/lib/components/ui/structured-wrapper-field/index.ts",
+    "ui/src/lib/format.ts",
     "ui/src/lib/stores/common_amount.ts",
     "ui/src/lib/stores/common_code.ts",
     "ui/src/lib/stores/common_currency_code_list.ts",

@@ -6,6 +6,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreatePublicEventRequest } from '#lib/api/types.ts';
+
 import { PublicEventPage } from './public-event.page';
 
 
@@ -19,7 +22,7 @@ const BASE_PATH = '/events/public-event';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreatePublicEventRequest | 'code', unknown>> {
   return {
     'is_published': true,
     'capacity': 77,
@@ -34,7 +37,8 @@ function testData(): Record<string, unknown> {
 
 test.describe('PublicEvent Cross-Org Isolation', () => {
   let acmeEntityId: string;
-  const data = testData();
+  // Widened read view: list-column reads may touch response-only fields.
+  const data: Record<string, unknown> = testData();
 
   test.beforeAll(async ({ orgContext }) => {
 

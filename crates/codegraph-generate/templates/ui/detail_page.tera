@@ -29,21 +29,8 @@
 	import { TimeAgo } from '@crewbase/entities';
 	import { toast } from 'svelte-sonner';
 	import * as m from '#lib/paraglide/messages.js';
-	import type { {{ entity_name }}Response } from '#lib/api/types.ts';
-
-	function formatRange(range: unknown): string {
-		if (!range || typeof range !== 'string') return '—';
-		const inner = range.slice(1, -1);
-		const [start, end] = inner.split(',');
-		const fmt = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' });
-		try {
-			const startStr = start && start.trim() ? fmt.format(new Date(start.trim())) : '';
-			if (!end || end.trim() === '') return `${startStr} — Ongoing`;
-			return `${startStr} — ${fmt.format(new Date(end.trim()))}`;
-		} catch {
-			return String(range);
-		}
-	}
+	import * as fmt from '#lib/format.ts';
+	import type { {{ entity_name }}Response{% if has_child_sections %}{% for section in child_sections %}, {{ section.entity_name }}Response{% endfor %}{% endif %} } from '#lib/api/types.ts';
 
 	interface Props {
 		data: {
@@ -77,7 +64,7 @@
 	let {{ section.module_name }}DeleteId = $state<string | null>(null);
 {% endfor %}
 {% endif %}{% endif %}{% for section in child_sections %}
-	let {{ section.module_name }}Items = $state<any[]>([]);
+	let {{ section.module_name }}Items = $state<{{ section.entity_name }}Response[]>([]);
 {% endfor %}
 
 	function toggleSection(name: string) {
@@ -92,7 +79,7 @@
 	async function loadChildren() {
 {% for section in child_sections %}
 		try {
-			const res = await apiGet<any[]>('/{{ section.domain }}/{{ section.path_segment }}', { parent_id: item.id });
+			const res = await apiGet<{{ section.entity_name }}Response[]>('/{{ section.domain }}/{{ section.path_segment }}', { parent_id: item.id });
 			{{ section.module_name }}Items = res ?? [];
 		} catch {
 			{{ section.module_name }}Items = [];
@@ -289,26 +276,34 @@
 						{/if}{% endraw %}
 {% elif field.input_type == "date-range" %}
 						{% raw %}{#if item.{% endraw %}{{ field.name }}{% raw %}}
-							{formatRange(item.{% endraw %}{{ field.name }}{% raw %})}
+							{fmt.formatRange(item.{% endraw %}{{ field.name }}{% raw %})}
 						{:else}
 							—
 						{/if}{% endraw %}
 {% elif field.structured_sub_fields | length > 0 and not field.is_array %}
 						{% raw %}{#if item.{% endraw %}{{ field.name }}{% raw %}}
 							{@const obj = item.{% endraw %}{{ field.name }}{% raw %} as Record<string, unknown>}
-							{obj.value ?? obj.code ?? obj.name ?? obj.id ?? '—'}
+							{% endraw %}{% if field.nested_type_name %}{% raw %}{fmt.format{% endraw %}{{ field.nested_type_name | pascal_case }}{% raw %}(item.{% endraw %}{{ field.name }}{% raw %})}{% else %}{% raw %}{obj.value ?? obj.code ?? obj.name ?? obj.id ?? '—'}{% endraw %}{% endif %}{% raw %}
 							{#if obj.schemeId}
 								<span class="text-muted-foreground text-xs">({obj.schemeId})</span>
 							{/if}
 						{:else}—{/if}{% endraw %}
 {% elif field.structured_sub_fields | length > 0 and field.is_array %}
-						{% raw %}{#if Array.isArray(item.{% endraw %}{{ field.name }}{% raw %}) && item.{% endraw %}{{ field.name }}{% raw %}.length > 0}
+{% if field.nested_type_name %}						{% raw %}{#if Array.isArray(item.{% endraw %}{{ field.name }}{% raw %}) && item.{% endraw %}{{ field.name }}{% raw %}.length > 0}
+							<ul class="list-disc list-inside">
+								{#each (item.{% endraw %}{{ field.name }}{% raw %} as {% endraw %}{{ field.nested_type_name }}{% raw %}Response[]) as id}
+									<li>{fmt.format{% endraw %}{{ field.nested_type_name | pascal_case }}{% raw %}(id)}{#if 'schemeId' in id && id.schemeId} <span class="text-muted-foreground text-xs">({id.schemeId})</span>{/if}</li>
+								{/each}
+							</ul>
+						{:else}—{/if}{% endraw %}
+{% else %}						{% raw %}{#if Array.isArray(item.{% endraw %}{{ field.name }}{% raw %}) && item.{% endraw %}{{ field.name }}{% raw %}.length > 0}
 							<ul class="list-disc list-inside">
 								{#each (item.{% endraw %}{{ field.name }}{% raw %} as Record<string, string>[]) as id}
 									<li>{id.value ?? id.code ?? id.name ?? id.id ?? '—'}{#if id.schemeId} <span class="text-muted-foreground text-xs">({id.schemeId})</span>{/if}</li>
 								{/each}
 							</ul>
 						{:else}—{/if}{% endraw %}
+{% endif %}
 {% elif field.input_type == "array" %}
 						{% raw %}{#if Array.isArray(item.{% endraw %}{{ field.name }}{% raw %}) && item.{% endraw %}{{ field.name }}{% raw %}.length > 0}
 							<ul class="list-disc list-inside">

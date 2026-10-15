@@ -5,6 +5,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateFormattedDateTimeRequest } from '#lib/api/types.ts';
+
 import { FormattedDateTimePage } from './formatted-date-time.page';
 
 
@@ -18,7 +21,7 @@ const BASE_PATH = '/common/formatted-date-time';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreateFormattedDateTimeRequest | 'code', unknown>> {
   return {
 
 

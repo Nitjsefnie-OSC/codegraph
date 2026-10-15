@@ -12,6 +12,9 @@ import {
   deleteEntityViaApi,
   expectToast,
 } from '../../e2e/helpers';
+{% if has_create %}
+import type { Create{{ entity_name }}Request } from '#lib/api/types.ts';
+{% endif %}
 import { {{ entity_name }}Page } from './{{ path_segment }}.page';
 
 {% if parent %}
@@ -34,9 +37,7 @@ const BASE_PATH = '/{{ domain }}/{{ path_segment }}';
 const depIds: Record<string, string | string[]> = {};
 {% endraw %}
 
-{% raw %}
-function testData(): Record<string, unknown> {
-{% endraw %}
+function testData(): {% if has_create %}Partial<Record<keyof Create{{ entity_name }}Request | 'code', unknown>>{% else %}Record<string, unknown>{% endif %} {
   return {
 {% for field in create_fields %}
 {% if field.nested_type_name %}

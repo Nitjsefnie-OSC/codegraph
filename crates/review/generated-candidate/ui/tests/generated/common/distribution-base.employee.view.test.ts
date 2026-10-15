@@ -5,6 +5,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi, expectToast } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateDistributionBaseRequest } from '#lib/api/types.ts';
+
 import { DistributionBasePage } from './distribution-base.page';
 
 
@@ -18,7 +21,7 @@ const BASE_PATH = '/common/distribution-base';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreateDistributionBaseRequest | 'code', unknown>> {
   return {
     'description': 'Test Description',
     'end_date': '2025-01-15',

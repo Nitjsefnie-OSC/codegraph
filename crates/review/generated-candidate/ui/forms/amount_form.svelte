@@ -6,6 +6,7 @@
 	import Input from '@community-os/ui/Input.svelte';
 	import Select from '@community-os/ui/Select.svelte';
 	import { api } from '$lib/api';
+	import type { AmountResponse } from '#lib/api/types.ts';
 
 	type FormData = Record<string, unknown>;
 
@@ -14,11 +15,11 @@
 		apiPath: string;
 		routePath: string;
 		id?: string;
-		initialData?: Record<string, unknown>;
+		initialData?: AmountResponse;
 		submitting?: boolean;
 	}
 
-	let { mode, apiPath, routePath, id = '', initialData = {}, submitting = $bindable(false) }: Props = $props();
+	let { mode, apiPath, routePath, id = '', initialData = undefined, submitting = $bindable(false) }: Props = $props();
 
 	let error = $state('');
 	let loading = $state(mode === 'edit');
@@ -26,11 +27,11 @@
 	// Form state
 
 
-	let currency = $state(String(initialData['currency'] ?? ''));
+	let currency = $state(String(initialData?.currency ?? ''));
 
 
 
-	let value = $state<string>(initialData['value'] != null ? String(initialData['value']) : '');
+	let value = $state<string>(initialData?.value != null ? String(initialData?.value) : '');
 
 
 
@@ -38,13 +39,13 @@
 		const payload: Record<string, unknown> = {};
 
 
-		if (currency !== String(initialData['currency'] ?? '')) payload['currency'] = currency;
+		if (currency !== String(initialData?.currency ?? '')) payload['currency'] = currency;
 
 
 
 		{
 			const current = value.trim();
-			const original = initialData['value'] != null ? String(initialData['value']) : '';
+			const original = initialData?.value != null ? String(initialData?.value) : '';
 			if (current !== original) payload['value'] = current !== '' ? Number(current) : undefined;
 		}
 

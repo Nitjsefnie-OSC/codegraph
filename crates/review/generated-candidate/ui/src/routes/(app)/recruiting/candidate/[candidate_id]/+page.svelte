@@ -22,21 +22,8 @@
 	import { TimeAgo } from '@crewbase/entities';
 	import { toast } from 'svelte-sonner';
 	import * as m from '#lib/paraglide/messages.js';
-	import type { CandidateResponse } from '#lib/api/types.ts';
-
-	function formatRange(range: unknown): string {
-		if (!range || typeof range !== 'string') return '—';
-		const inner = range.slice(1, -1);
-		const [start, end] = inner.split(',');
-		const fmt = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' });
-		try {
-			const startStr = start && start.trim() ? fmt.format(new Date(start.trim())) : '';
-			if (!end || end.trim() === '') return `${startStr} — Ongoing`;
-			return `${startStr} — ${fmt.format(new Date(end.trim()))}`;
-		} catch {
-			return String(range);
-		}
-	}
+	import * as fmt from '#lib/format.ts';
+	import type { CandidateResponse, DistributionGuidelinesResponse, QualificationResponse } from '#lib/api/types.ts';
 
 	interface Props {
 		data: {
@@ -56,9 +43,9 @@
 
 	let expandedSections = $state(new Set<string>());
 
-	let distribution_guidelinesItems = $state<any[]>([]);
+	let distribution_guidelinesItems = $state<DistributionGuidelinesResponse[]>([]);
 
-	let qualificationItems = $state<any[]>([]);
+	let qualificationItems = $state<QualificationResponse[]>([]);
 
 
 	function toggleSection(name: string) {
@@ -73,14 +60,14 @@
 	async function loadChildren() {
 
 		try {
-			const res = await apiGet<any[]>('/recruiting/distribution-guidelines', { parent_id: item.id });
+			const res = await apiGet<DistributionGuidelinesResponse[]>('/recruiting/distribution-guidelines', { parent_id: item.id });
 			distribution_guidelinesItems = res ?? [];
 		} catch {
 			distribution_guidelinesItems = [];
 		}
 
 		try {
-			const res = await apiGet<any[]>('/recruiting/qualification', { parent_id: item.id });
+			const res = await apiGet<QualificationResponse[]>('/recruiting/qualification', { parent_id: item.id });
 			qualificationItems = res ?? [];
 		} catch {
 			qualificationItems = [];
@@ -245,7 +232,7 @@
 
 						{#if item.application_process_history}
 							{@const obj = item.application_process_history as Record<string, unknown>}
-							{obj.value ?? obj.code ?? obj.name ?? obj.id ?? '—'}
+							{fmt.formatProcessHistoryType(item.application_process_history)}{% else %}{% raw %}{obj.value ?? obj.code ?? obj.name ?? obj.id ?? '—'}
 							{#if obj.schemeId}
 								<span class="text-muted-foreground text-xs">({obj.schemeId})</span>
 							{/if}
@@ -287,7 +274,7 @@
 
 						{#if item.distribution_guidelines}
 							{@const obj = item.distribution_guidelines as Record<string, unknown>}
-							{obj.value ?? obj.code ?? obj.name ?? obj.id ?? '—'}
+							{fmt.formatDistributionGuidelinesType(item.distribution_guidelines)}{% else %}{% raw %}{obj.value ?? obj.code ?? obj.name ?? obj.id ?? '—'}
 							{#if obj.schemeId}
 								<span class="text-muted-foreground text-xs">({obj.schemeId})</span>
 							{/if}
@@ -302,7 +289,7 @@
 
 						{#if item.external_identifier}
 							{@const obj = item.external_identifier as Record<string, unknown>}
-							{obj.value ?? obj.code ?? obj.name ?? obj.id ?? '—'}
+							
 							{#if obj.schemeId}
 								<span class="text-muted-foreground text-xs">({obj.schemeId})</span>
 							{/if}
@@ -326,7 +313,7 @@
 
 						{#if item.person_name}
 							{@const obj = item.person_name as Record<string, unknown>}
-							{obj.value ?? obj.code ?? obj.name ?? obj.id ?? '—'}
+							{fmt.formatNameType(item.person_name)}{% else %}{% raw %}{obj.value ?? obj.code ?? obj.name ?? obj.id ?? '—'}
 							{#if obj.schemeId}
 								<span class="text-muted-foreground text-xs">({obj.schemeId})</span>
 							{/if}
@@ -369,11 +356,12 @@
 
 						{#if Array.isArray(item.qualifications) && item.qualifications.length > 0}
 							<ul class="list-disc list-inside">
-								{#each (item.qualifications as Record<string, string>[]) as id}
-									<li>{id.value ?? id.code ?? id.name ?? id.id ?? '—'}{#if id.schemeId} <span class="text-muted-foreground text-xs">({id.schemeId})</span>{/if}</li>
+								{#each (item.qualifications as QualificationTypeResponse[]) as id}
+									<li>{fmt.formatQualificationType(id)}{#if 'schemeId' in id && id.schemeId} <span class="text-muted-foreground text-xs">({id.schemeId})</span>{/if}</li>
 								{/each}
 							</ul>
 						{:else}—{/if}
+
 
 					</dd>
 				</div>
@@ -468,9 +456,10 @@
 			{:else}
 				<ul class="divide-y divide-border rounded-md border">
 					{#each distribution_guidelinesItems as child (child.id)}
+						{@const label = (child as Record<string, unknown>)['start_date'] ?? child.id}
 						<li class="flex items-center justify-between px-3 py-2 text-sm">
 							<span class="truncate text-foreground">
-								{child.id}
+								{label}
 							</span>
 							<div class="flex shrink-0 items-center gap-1 ml-2">
 								<button
@@ -542,9 +531,10 @@
 			{:else}
 				<ul class="divide-y divide-border rounded-md border">
 					{#each qualificationItems as child (child.id)}
+						{@const label = (child as Record<string, unknown>)['qualification_name'] ?? child.id}
 						<li class="flex items-center justify-between px-3 py-2 text-sm">
 							<span class="truncate text-foreground">
-								{child.id}
+								{label}
 							</span>
 							<div class="flex shrink-0 items-center gap-1 ml-2">
 								<button

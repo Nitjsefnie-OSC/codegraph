@@ -6,6 +6,7 @@
 	import Input from '@community-os/ui/Input.svelte';
 	import Select from '@community-os/ui/Select.svelte';
 	import { api } from '$lib/api';
+	import type { DistributionBaseResponse } from '#lib/api/types.ts';
 
 	type FormData = Record<string, unknown>;
 
@@ -14,11 +15,11 @@
 		apiPath: string;
 		routePath: string;
 		id?: string;
-		initialData?: Record<string, unknown>;
+		initialData?: DistributionBaseResponse;
 		submitting?: boolean;
 	}
 
-	let { mode, apiPath, routePath, id = '', initialData = {}, submitting = $bindable(false) }: Props = $props();
+	let { mode, apiPath, routePath, id = '', initialData = undefined, submitting = $bindable(false) }: Props = $props();
 
 	let error = $state('');
 	let loading = $state(mode === 'edit');
@@ -26,15 +27,15 @@
 	// Form state
 
 
-	let description = $state(String(initialData['description'] ?? ''));
+	let description = $state(String(initialData?.description ?? ''));
 
 
 
-	let end_date = $state(String(initialData['end_date'] ?? ''));
+	let end_date = $state(String(initialData?.end_date ?? ''));
 
 
 
-	let start_date = $state(String(initialData['start_date'] ?? ''));
+	let start_date = $state(String(initialData?.start_date ?? ''));
 
 
 
@@ -42,11 +43,11 @@
 		const payload: Record<string, unknown> = {};
 
 
-		if (description !== String(initialData['description'] ?? '')) payload['description'] = description;
+		if (description !== String(initialData?.description ?? '')) payload['description'] = description;
 
 
 
-		if (end_date !== String(initialData['end_date'] ?? '')) payload['end_date'] = end_date;
+		if (end_date !== String(initialData?.end_date ?? '')) payload['end_date'] = end_date;
 
 
 

@@ -6,6 +6,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi, expectToast } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateApplicationRequest } from '#lib/api/types.ts';
+
 import { ApplicationPage } from './applications.page';
 
 
@@ -17,7 +20,7 @@ const BASE_PATH = '/recruiting/applications';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreateApplicationRequest | 'code', unknown>> {
   return {
     'application_id': 'Test Application Id',
     'applied_date': '2025-01-15',
@@ -28,7 +31,7 @@ function testData(): Record<string, unknown> {
   };
 }
 
-function updatedData(): Record<string, unknown> {
+function updatedData(): Partial<Record<keyof CreateApplicationRequest | 'code', unknown>> {
   return {
     'application_id': 'Updated Application Id',
     'applied_date': '2025-06-20',

@@ -5,6 +5,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateRsvpRequest } from '#lib/api/types.ts';
+
 import { RsvpPage } from './rsvp.page';
 
 
@@ -18,7 +21,7 @@ const BASE_PATH = '/rsvp/rsvp';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreateRsvpRequest | 'code', unknown>> {
   return {
     // 'event': ValueObject — omit, serde default
     'status': 'Confirmed',

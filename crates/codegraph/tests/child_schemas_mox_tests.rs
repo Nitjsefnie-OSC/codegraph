@@ -105,6 +105,52 @@ parent_ref = "todo_list_id"
 path_segment = "config-items"
 "#;
 
+/// Fallback fixture: a child whose only field is a required integer, so no
+/// readable display field exists and rows must fall back to `child.id`.
+const COUNTER_JSON: &str = r#"{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CounterType",
+  "description": "A named counter.",
+  "type": "object",
+  "properties": {
+    "name": { "description": "Counter name.", "type": "string" },
+    "entries": {
+      "description": "The entries on this counter.",
+      "type": "array",
+      "items": { "$ref": "TallyEntryType.json#" }
+    }
+  },
+  "required": ["name"]
+}"#;
+
+const TALLY_ENTRY_JSON: &str = r#"{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TallyEntryType",
+  "description": "An entry with no readable label field.",
+  "type": "object",
+  "properties": {
+    "quantity": { "description": "How much.", "type": "integer" }
+  },
+  "required": ["quantity"]
+}"#;
+
+const DOMAINS_TOML_COUNTER: &str = r#"
+[defaults]
+operations = ["create", "read", "update", "delete", "list"]
+
+[domains.tally]
+label = "Tally"
+schema_dir = "tally"
+postgres_schema = "tally"
+entities = ["CounterType", "TallyEntryType"]
+
+[domains.tally.entity_config.TallyEntryType]
+role = "child"
+parent = "CounterType"
+parent_ref = "counter_id"
+path_segment = "entries"
+"#;
+
 struct MoxFixture {
     root: tempfile::TempDir,
     config: PathBuf,
@@ -359,5 +405,164 @@ async fn config_declared_child_wins_and_dedupes_with_derived_child() {
         count_page_occurrences(&files, "startAddChild('todo', 'config-items')"),
         1,
         "the surviving section must carry the config-declared path_segment"
+    );
+}
+
+// ── 4. Typed child loads + display-field row labels (issue #468 W2) ─────
+
+/// The todo_list detail page loads its child rows as `TodoItemResponse[]`
+/// (never `any[]`), and the child rows render the child's resolved display
+/// field (`title`) instead of the raw UUID. The descriptor carries the same
+/// resolution for both the child entry and the items entity-ref.
+#[tokio::test]
+async fn detail_page_child_loads_are_typed_and_rows_render_display_field() {
+    let fixture = write_mox_fixture();
+    let output = fixture.root.path().join("generated");
+    let mox_files = vec![fixture.mox.clone()];
+
+    codegraph::driver::run(run_args(
+        &fixture.config,
+        None,
+        None,
+        &mox_files,
+        &output,
+        fixture.root.path(),
+    ))
+    .await
+    .unwrap();
+
+    let files = collect_files(&output);
+
+    let detail_page = files
+        .iter()
+        .find(|(path, content)| {
+            path.ends_with("+page.svelte") && content.contains("child-section-todo_item")
+        })
+        .map(|(_, content)| content)
+        .expect("the todo_list detail page must render the todo_item child section");
+
+    let import_line = "import type { TodoListResponse, TodoItemResponse } from '#lib/api/types.ts';";
+    assert!(
+        detail_page.contains(import_line),
+        "child DTO types must ride the existing type-only import:\n{detail_page}"
+    );
+    assert!(
+        detail_page.contains("let todo_itemItems = $state<TodoItemResponse[]>([]);"),
+        "child section state must be typed:\n{detail_page}"
+    );
+    assert!(
+        detail_page.contains("apiGet<TodoItemResponse[]>('/todo/todo-item'"),
+        "child section fetch must be typed:\n{detail_page}"
+    );
+    assert!(
+        !detail_page.contains("$state<any[]>") && !detail_page.contains("apiGet<any[]>"),
+        "the child-load region must not fall back to any[]:\n{detail_page}"
+    );
+
+    let label_const =
+        r#"{@const label = (child as Record<string, unknown>)['title'] ?? child.id}"#;
+    assert!(
+        detail_page.contains(label_const),
+        "child rows must render the resolved display field with a single cast:\n{detail_page}"
+    );
+    assert!(
+        !detail_page.contains("{child.id}"),
+        "no raw-UUID fallback may render when a display field exists:\n{detail_page}"
+    );
+
+    let descriptor = files
+        .iter()
+        .find(|(path, content)| {
+            path.ends_with("descriptor.ts") && content.contains("TodoListDescriptor")
+        })
+        .map(|(_, content)| content)
+        .expect("todo_list must generate a descriptor");
+
+    let child_block = "\
+      name: 'todo_item',\n      label: 'TodoItem',\n      entity: 'TodoItem',\n      relationship: 'one-to-many',\n      inline: false,\n      displayField: 'title',";
+    assert!(
+        descriptor.contains(child_block),
+        "the child entry must carry the resolved displayField:\n{descriptor}"
+    );
+    assert!(
+        descriptor.contains(
+            "ref: { entity: 'TodoItemType', domain: 'todo', displayField: 'title' }"
+        ),
+        "the items entity-ref must resolve displayField over the target's fields:\n{descriptor}"
+    );
+}
+
+/// A child with no readable field (required integer only) keeps the raw
+/// `{child.id}` label — no `@const`, and the descriptor falls back to
+/// `displayField: 'id'`.
+#[tokio::test]
+async fn child_without_readable_field_falls_back_to_id() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("domains.toml"), DOMAINS_TOML_COUNTER).unwrap();
+    fs::create_dir_all(root.path().join("schemas/tally")).unwrap();
+    fs::write(
+        root.path().join("schemas/tally/CounterType.json"),
+        COUNTER_JSON,
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("schemas/tally/TallyEntryType.json"),
+        TALLY_ENTRY_JSON,
+    )
+    .unwrap();
+
+    let config = root.path().join("domains.toml");
+    let schemas = root.path().join("schemas");
+    let output = root.path().join("generated");
+
+    codegraph::driver::run(run_args(
+        &config,
+        Some(&schemas),
+        Some(Path::new("tests/fixtures/classifier.toml")),
+        &[],
+        &output,
+        root.path(),
+    ))
+    .await
+    .unwrap();
+
+    let files = collect_files(&output);
+
+    let detail_page = files
+        .iter()
+        .find(|(path, content)| {
+            path.ends_with("+page.svelte") && content.contains("child-section-tally_entry")
+        })
+        .map(|(_, content)| content)
+        .expect("the counter detail page must render the tally_entry child section");
+
+    assert!(
+        detail_page.contains("let tally_entryItems = $state<TallyEntryResponse[]>([]);"),
+        "typed loads apply even without a display field:\n{detail_page}"
+    );
+    assert!(
+        !detail_page.contains("@const label"),
+        "no display-field const may render when none resolves:\n{detail_page}"
+    );
+    assert!(
+        detail_page.contains("{child.id}"),
+        "rows must fall back to the raw id:\n{detail_page}"
+    );
+
+    let descriptor = files
+        .iter()
+        .find(|(path, content)| {
+            path.ends_with("descriptor.ts") && content.contains("CounterDescriptor")
+        })
+        .map(|(_, content)| content)
+        .expect("counter must generate a descriptor");
+
+    assert!(
+        descriptor.contains("displayField: 'id'"),
+        "the child entry must fall back to displayField: 'id':\n{descriptor}"
+    );
+    assert!(
+        !descriptor.contains("displayField: 'quantity'"),
+        "non-string scalars must never become the displayField:\n{descriptor}"
     );
 }

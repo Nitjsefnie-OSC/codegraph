@@ -40,10 +40,12 @@
 				<p class="text-sm text-muted-foreground text-center py-4">No items yet.</p>
 			{:else}
 				<ul class="divide-y divide-border rounded-md border">
-					{#each {% endraw %}{{ section.module_name }}{% raw %}Items as child (child.id)}
+					{#each {% endraw %}{{ section.module_name }}{% raw %}Items as child (child.id)}{% endraw %}{% if section.display_field %}{% raw %}
+						{@const label = (child as Record<string, unknown>)['{% endraw %}{{ section.display_field }}{% raw %}'] ?? child.id}{% endraw %}{% endif %}{% raw %}
 						<li class="flex items-center justify-between px-3 py-2 text-sm">
-							<span class="truncate text-foreground">
-								{child.id}
+							<span class="truncate text-foreground">{% endraw %}{% if section.display_field %}{% raw %}
+								{label}{% endraw %}{% else %}{% raw %}
+								{child.id}{% endraw %}{% endif %}{% raw %}
 							</span>
 							<div class="flex shrink-0 items-center gap-1 ml-2">{% endraw %}{% if ux_actions.child_menu %}{% raw %}
 								<!-- ux-rules (#299): primary open/manage stays inline (the

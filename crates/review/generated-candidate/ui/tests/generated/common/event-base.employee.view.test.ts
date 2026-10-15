@@ -5,6 +5,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi, expectToast } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateEventBaseRequest } from '#lib/api/types.ts';
+
 import { EventBasePage } from './event-base.page';
 
 
@@ -18,7 +21,7 @@ const BASE_PATH = '/common/event-base';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreateEventBaseRequest | 'code', unknown>> {
   return {
     'capacity': 42,
     'title': 'Test Title',

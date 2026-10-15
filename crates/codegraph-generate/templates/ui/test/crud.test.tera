@@ -5,6 +5,9 @@
 
 import { test, expect } from '../../e2e/fixtures/personas';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+{% if has_create %}
+import type { Create{{ entity_name }}Request } from '#lib/api/types.ts';
+{% endif %}
 import {
   createEntityAsAcme,
   createEntityViaApi,
@@ -38,9 +41,7 @@ const BASE_PATH = '/{{ domain }}/{{ path_segment }}';
 const depIds: Record<string, string | string[]> = {};
 {% endraw %}
 
-{% raw %}
-function testData(): Record<string, unknown> {
-{% endraw %}
+function testData(): {% if has_create %}Partial<Record<keyof Create{{ entity_name }}Request | 'code', unknown>>{% else %}Record<string, unknown>{% endif %} {
   return {
 {% for field in create_fields %}
 {% if field.nested_type_name %}
@@ -92,9 +93,7 @@ function testData(): Record<string, unknown> {
   };
 }
 
-{% raw %}
-function updatedData(): Record<string, unknown> {
-{% endraw %}
+function updatedData(): {% if has_create %}Partial<Record<keyof Create{{ entity_name }}Request | 'code', unknown>>{% else %}Record<string, unknown>{% endif %} {
   return {
 {% for field in update_fields %}
 {% if field.nested_type_name %}
@@ -202,7 +201,10 @@ test.describe('{{ entity_name }} CRUD', () => {
     await ui.gotoCreate();
     // Wait for SvelteKit to hydrate so the form's onsubmit handler is attached
     await ui.waitForForm();
-    const data = testData();
+    // Widened read view: the keyed testData() checks the payload's keys;
+    // form-fill reads may touch convention-resolved FK columns the
+    // generated Create request type does not declare.
+    const data: Record<string, unknown> = testData();
 
 {% for field in create_fields %}
 {% if field.nested_type_name %}
@@ -344,7 +346,7 @@ await ui.fill{{ field.name | pascal_case }}(String(data['{{ field.name }}']));
 
     await ui.gotoEdit(myId);
     await ui.waitForForm();
-    const data = updatedData();
+    const data: Record<string, unknown> = updatedData();
 
 {% for field in update_fields %}
 {% if field.nested_type_name %}

@@ -6,6 +6,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreatePayRunRequest } from '#lib/api/types.ts';
+
 import { PayRunPage } from './pay-runs.page';
 
 
@@ -19,7 +22,7 @@ const BASE_PATH = '/compensation/pay-runs';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreatePayRunRequest | 'code', unknown>> {
   return {
     'pay_run_id': 'ACME Isolation Pay Run Id',
     'run_date': '2025-03-10',
@@ -32,7 +35,8 @@ function testData(): Record<string, unknown> {
 
 test.describe('PayRun Cross-Org Isolation', () => {
   let acmeEntityId: string;
-  const data = testData();
+  // Widened read view: list-column reads may touch response-only fields.
+  const data: Record<string, unknown> = testData();
 
   test.beforeAll(async ({ orgContext }) => {
 

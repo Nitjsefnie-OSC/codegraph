@@ -709,6 +709,29 @@ fn unresolved_required_uuid_emits_valid_uuid_literal() {
     );
 }
 
+// ── Payload typing (issue #468 W2): payloads are keyed to the request ───
+
+#[test]
+fn owner_crud_test_data_is_key_typed_to_the_create_request() {
+    let person = schema("PersonType", "person", "Person", "hr", "person");
+    let engine = MockEngine::builder()
+        .with_schema(person)
+        .with_properties("PersonType", vec![scalar("full_name", "TEXT", true)])
+        .build();
+    let config = config(&[("hr", "PersonType")]);
+
+    let content = owner_crud(&engine, &config, "PersonType", "hr");
+
+    assert!(
+        content.contains("Record<keyof Create"),
+        "testData/updatedData must be keyed to the generated create request:\n{content}"
+    );
+    assert!(
+        !content.contains("function testData(): Record<string, unknown>"),
+        "create-capable entities must not fall back to the free-form record:\n{content}"
+    );
+}
+
 // ── Slice F: ux-rules spec emission + per-block gating (issue #302) ─────
 
 /// A codelist-backed column (CodelistReference prop + graph enum values).

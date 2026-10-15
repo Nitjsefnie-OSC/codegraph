@@ -6,6 +6,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi, expectToast } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreatePayRunRequest } from '#lib/api/types.ts';
+
 import { PayRunPage } from './pay-runs.page';
 
 
@@ -17,7 +20,7 @@ const BASE_PATH = '/compensation/pay-runs';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreatePayRunRequest | 'code', unknown>> {
   return {
     'pay_run_id': 'Test Pay Run Id',
     'run_date': '2025-01-15',
@@ -28,7 +31,7 @@ function testData(): Record<string, unknown> {
   };
 }
 
-function updatedData(): Record<string, unknown> {
+function updatedData(): Partial<Record<keyof CreatePayRunRequest | 'code', unknown>> {
   return {
     'pay_run_id': 'Updated Pay Run Id',
     'run_date': '2025-06-20',

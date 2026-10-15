@@ -11,31 +11,31 @@
 	import { ArrayField } from '#lib/components/ui/array-field/index.js';
 	import { StructuredWrapperField } from '#lib/components/ui/structured-wrapper-field/index.js';
 	import * as m from '#lib/paraglide/messages.js';
-	import type { CreateDistributionBaseRequest, UpdateDistributionBaseRequest } from '#lib/api/types.ts';
+	import type { CreateDistributionBaseRequest, UpdateDistributionBaseRequest, DistributionBaseResponse } from '#lib/api/types.ts';
 
 	type FormData = CreateDistributionBaseRequest | UpdateDistributionBaseRequest;
 
 	interface Props {
 		mode: 'create' | 'edit';
-		initialData?: Record<string, unknown>;
+		initialData?: DistributionBaseResponse;
 		onSubmit: (data: FormData) => void;
 		submitting?: boolean;
 	}
 
-	let { mode, initialData = {}, onSubmit, submitting = false }: Props = $props();
+	let { mode, initialData = undefined, onSubmit, submitting = false }: Props = $props();
 
 	// Form state
 
 
-	let description = $state(String(initialData['description'] ?? ''));
+	let description = $state(String(initialData?.description ?? ''));
 
 
 
-	let end_date = $state(String(initialData['end_date'] ?? ''));
+	let end_date = $state(String(initialData?.end_date ?? ''));
 
 
 
-	let start_date = $state(String(initialData['start_date'] ?? ''));
+	let start_date = $state(String(initialData?.start_date ?? ''));
 
 
 
@@ -61,15 +61,15 @@
 			// Edit mode: only send changed fields
 
 
-			if (description !== String(initialData['description'] ?? '')) data['description'] = description;
+			if (description !== String(initialData?.description ?? '')) data['description'] = description;
 
 
 
-			if (end_date !== String(initialData['end_date'] ?? '')) data['end_date'] = end_date;
+			if (end_date !== String(initialData?.end_date ?? '')) data['end_date'] = end_date;
 
 
 
-			if (start_date !== String(initialData['start_date'] ?? '')) data['start_date'] = start_date;
+			if (start_date !== String(initialData?.start_date ?? '')) data['start_date'] = start_date;
 
 
 		}

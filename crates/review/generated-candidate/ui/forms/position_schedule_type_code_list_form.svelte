@@ -6,6 +6,7 @@
 	import Input from '@community-os/ui/Input.svelte';
 	import Select from '@community-os/ui/Select.svelte';
 	import { api } from '$lib/api';
+	import type { PositionScheduleTypeCodeListResponse } from '#lib/api/types.ts';
 
 	type FormData = Record<string, unknown>;
 
@@ -14,11 +15,11 @@
 		apiPath: string;
 		routePath: string;
 		id?: string;
-		initialData?: Record<string, unknown>;
+		initialData?: PositionScheduleTypeCodeListResponse;
 		submitting?: boolean;
 	}
 
-	let { mode, apiPath, routePath, id = '', initialData = {}, submitting = $bindable(false) }: Props = $props();
+	let { mode, apiPath, routePath, id = '', initialData = undefined, submitting = $bindable(false) }: Props = $props();
 
 	let error = $state('');
 	let loading = $state(mode === 'edit');
@@ -26,15 +27,15 @@
 	// Form state
 
 
-	let code = $state(String(initialData['code'] ?? ''));
+	let code = $state(String(initialData?.code ?? ''));
 
 
 
-	let display_name = $state(String(initialData['display_name'] ?? ''));
+	let display_name = $state(String(initialData?.display_name ?? ''));
 
 
 
-	let sort_order = $state<string>(initialData['sort_order'] != null ? String(initialData['sort_order']) : '');
+	let sort_order = $state<string>(initialData?.sort_order != null ? String(initialData?.sort_order) : '');
 
 
 
@@ -52,7 +53,7 @@
 
 		{
 			const current = sort_order.trim();
-			const original = initialData['sort_order'] != null ? String(initialData['sort_order']) : '';
+			const original = initialData?.sort_order != null ? String(initialData?.sort_order) : '';
 			if (current !== original) payload['sort_order'] = current !== '' ? Number(current) : undefined;
 		}
 

@@ -12,6 +12,9 @@ import {
   deleteEntityViaApi,
   expectToast,
 } from '../../e2e/helpers';
+
+import type { CreateCandidateRequest } from '#lib/api/types.ts';
+
 import { CandidatePage } from './candidate.page';
 
 
@@ -23,9 +26,7 @@ const BASE_PATH = '/recruiting/candidate';
 const depIds: Record<string, string | string[]> = {};
 
 
-
-function testData(): Record<string, unknown> {
-
+function testData(): Partial<Record<keyof CreateCandidateRequest | 'code', unknown>> {
   return {
 
 

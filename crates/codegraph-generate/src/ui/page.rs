@@ -251,6 +251,7 @@ pub struct ChildSection {
     pub path_segment: String,
     pub domain: String,
     pub has_children: bool,
+    pub display_field: Option<String>,
     pub fields: Vec<UiField>,
     /// The child entity's testid vocabulary (issue #468 W3).
     pub tid: crate::ui::testids::TidMap,
