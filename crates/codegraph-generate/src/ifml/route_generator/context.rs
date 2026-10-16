@@ -1204,19 +1204,27 @@ pub(super) async fn page_component_context(
         None
     };
     let (submit_button, buttons) = button_context(c, button_mapping, submit.as_ref(), &events);
+    // Validation expressions carry model-authored quotes (`code != ""`);
+    // emitted into a double-quoted HTML attribute they must be escaped or
+    // the attribute terminates mid-expression (issue #468 W1b: the
+    // ruleregistryeditor page did exactly that).
+    let escape_attr = |s: String| s.replace('"', "&quot;");
     let data_validate = form.as_ref().map(|form| {
-        form.fields
-            .iter()
-            .filter(|f| !f.data_validate.is_empty())
-            .map(|f| f.data_validate.clone())
-            .collect::<Vec<_>>()
-            .join(" && ")
+        escape_attr(
+            form.fields
+                .iter()
+                .filter(|f| !f.data_validate.is_empty())
+                .map(|f| f.data_validate.clone())
+                .collect::<Vec<_>>()
+                .join(" && "),
+        )
     });
     let data_validate_message = form.as_ref().and_then(|form| {
         form.fields
             .iter()
             .find(|f| !f.data_validate.is_empty())
             .and_then(|f| f.message.clone())
+            .map(escape_attr)
     });
     let data_prop = if is_collection(c) || chart.is_some() {
         "data={data.items}".to_string()

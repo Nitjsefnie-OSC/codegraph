@@ -172,9 +172,17 @@ pub async fn ingest_ifml_model(
             ingest_container_contents(db, container, i, &vc_id).await?;
         }
 
-        // Ingest view components
+        // Ingest view components. View-level components persist under a
+        // view-namespaced identity (`{view}/{comp}`): the graph layer
+        // resolves every IFML edge endpoint and query by node name, so a
+        // bare name would fuse same-named components across views (every
+        // view's "history" would share one node, one event set, and one
+        // data binding). Events and data bindings hang off this id and
+        // inherit the namespace. Nested-container components stay bare —
+        // same-named nested containers deliberately pool their contents
+        // (one deduped container node).
         for comp in &view.components {
-            let _comp_id = ingest_view_component(db, comp, &vc_id).await?;
+            let _comp_id = ingest_view_component(db, comp, &vc_id, Some(&view.name)).await?;
             stats.components += 1;
         }
 
@@ -300,9 +308,10 @@ async fn ingest_container_contents(
     .await
     .map_err(Error::Graph)?;
 
-    // Ingest container's components
+    // Ingest container's components (bare names — nested-container
+    // components pool under the deduped container node by design).
     for comp in &container.components {
-        let comp_id = ingest_view_component(db, comp, &container_id).await?;
+        let comp_id = ingest_view_component(db, comp, &container_id, None).await?;
         let _ = comp_id;
     }
 
@@ -323,6 +332,7 @@ async fn ingest_view_component(
     db: &dyn GraphIngestor,
     comp: &ComponentDeclaration,
     parent_id: &str,
+    namespace: Option<&str>,
 ) -> Result<String> {
     let component_type = comp
         .component_type
@@ -397,8 +407,16 @@ async fn ingest_view_component(
             _ => None,
         });
 
+    // View-level components carry the owning view as a namespace; the
+    // stored name doubles as the globally-unique graph key every edge and
+    // query resolves against.
+    let stored_name = match namespace {
+        Some(view) => format!("{view}/{}", comp.name),
+        None => comp.name.clone(),
+    };
+
     let node = ViewComponentNode {
-        name: comp.name.clone(),
+        name: stored_name,
         component_type,
         mode,
         entity,
