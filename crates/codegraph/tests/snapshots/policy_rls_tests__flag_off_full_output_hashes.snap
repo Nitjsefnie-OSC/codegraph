@@ -696,7 +696,7 @@ ui/src/lib/stores/events_public_event.ts: 935cde273c0096cb066768214b54a43bdc6d5d
 ui/src/lib/stores/recruiting_application.ts: 30e506b100468060e9456641665bacd7dc0b30c685c80a33369cc141c75b9a69
 ui/src/lib/stores/recruiting_candidate.ts: 35be24a8c11fc13abf6f48dfdb35530f8f94efcd97195d7ec8f0d21f00a651cd
 ui/src/lib/stores/rsvp_rsvp.ts: 7c50f020ba1c4206b1b4346103191df2eb4e87d68bb36a1a9de68e9e77624d48
-ui/src/lib/supabase.ts: f5a038d97d4ac32d921ade392368c3e28a7499ce6a14e0e8311f1908a65757ec
+ui/src/lib/supabase.ts: 75208634f1fdcfd55a68426988782a0a0cae2ffc6f9d4c850e20453e78bbe830
 ui/src/lib/utils.ts: ce5a95bfbc2eea99955bc60b56f0f89027fe62a74ba1fc55915adb4978d3340c
 ui/src/routes/(app)/+layout.server.ts: be823f31a5b56399894f752daea5de86613d5c1834e9e8fa568e9abdbca208f9
 ui/src/routes/(app)/+layout.svelte: 7cadfbffd82aec94c76129fc77d5ea6a6f15e635bc65e9f1d2fc7f278162c4fb
