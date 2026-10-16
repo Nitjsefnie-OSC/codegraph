@@ -11,10 +11,14 @@ use super::pom::{PomFieldKind, PomWorkflowMethods, ViewPom};
 
 /// The `tests/pages/{view-kebab}-page.ts` content for one view.
 pub(super) fn render_pom_page(pom: &ViewPom) -> String {
+    let denial_presentation = pom.auth_enabled
+        && pom.denial_target.is_some()
+        && (pom.heading.is_some() || pom.primary_root.is_some());
     let needs_expect = pom.collections.iter().any(|c| c.workflow.is_some())
         || pom.forms.iter().any(|f| f.workflow.is_some())
         || pom.details.iter().any(|d| d.workflow.is_some())
-        || pom.flows.iter().any(|f| f.close_method.is_some());
+        || pom.flows.iter().any(|f| f.close_method.is_some())
+        || denial_presentation;
     let needs_ux_table = pom.collections.iter().any(|c| c.ux_table.is_some());
 
     let mut s = String::new();
@@ -95,6 +99,35 @@ pub(super) fn render_pom_page(pom: &ViewPom) -> String {
             "    await this.page.waitForURL('{}');\n  }}\n\n",
             js_string(denial)
         ));
+    }
+    if denial_presentation {
+        s.push_str("  /** The guarded surface must stay hidden from denied personas\n   * (issue #468 W5): neither the heading nor the primary root shows. */\n");
+        s.push_str("  async expectDeniedPresentation(reason: string): Promise<void> {\n");
+        if pom.heading.is_some() {
+            s.push_str("    await expect(this.heading(), reason).not.toBeVisible();\n");
+        }
+        if pom.primary_root.is_some() {
+            s.push_str("    await expect(this.primaryRoot(), reason).not.toBeVisible();\n");
+        }
+        s.push_str("  }\n\n");
+    }
+    if !pom.steps.is_empty() {
+        s.push_str("  /** Wizard steps (xor containers, issue #468 W5): the step's\n   * presentation surface, by container name. */\n");
+        s.push_str("  step(name: string): Locator {\n");
+        s.push_str("    const steps: Record<string, string> = {\n");
+        for step in &pom.steps {
+            s.push_str(&format!(
+                "      '{}': '{}',\n",
+                js_string(&step.name),
+                js_string(&step.testid)
+            ));
+        }
+        s.push_str("    };\n");
+        s.push_str("    const testid = steps[name];\n");
+        s.push_str("    if (!testid) {\n");
+        s.push_str("      throw new Error(`unknown wizard step '${name}'`);\n");
+        s.push_str("    }\n");
+        s.push_str("    return this.page.getByTestId(testid);\n  }\n\n");
     }
 
     // Collections.
@@ -304,6 +337,33 @@ pub(super) fn render_pom_page(pom: &ViewPom) -> String {
                 js_string(back)
             ));
         }
+    }
+
+    // Journey hop methods (issue #468 W5): the controls the
+    // `{view}.journey.spec.ts` walks drive, composed from the same
+    // accessors the specs use.
+    for step in &pom.journey_steps {
+        s.push_str("  /** Journey hop (issue #468 W5): the control the IFML event binds\n   * to, then the landing route. */\n");
+        s.push_str(&format!("  async {}(): Promise<void> {{\n", step.method));
+        for (fill, literal) in &step.fills {
+            s.push_str(&format!("    await this.{}({});\n", fill, literal));
+        }
+        if step.row {
+            s.push_str(&format!(
+                "    await this.{}Row().click();\n",
+                step.component
+            ));
+        }
+        if step.submit {
+            s.push_str(&format!(
+                "    await this.{}Submit().click();\n",
+                step.component
+            ));
+        }
+        s.push_str(&format!(
+            "    await this.page.waitForURL(new RegExp('{}'));\n  }}\n\n",
+            js_string(&step.pattern)
+        ));
     }
 
     while s.ends_with("\n\n") {

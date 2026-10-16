@@ -259,3 +259,84 @@ pub struct UxTimelineCheck {
     /// The fixture's value for the timeline `order_by` field, when present.
     pub order_literal: Option<String>,
 }
+
+// ── Navigation journey models (issue #468 W5, `ifml_e2e_auth`-gated) ────────
+
+/// The control an IFML navigate event binds to, as the fallback markup wires
+/// it: a collection's first navigate event drives its row click; a form's
+/// save/submit drives the submit control (after fixture fills). Events with
+/// no fallback control (row-menu disclosures, cancel/back on unmapped
+/// forms, details/chart events) never become hops.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JourneyHopKind {
+    Row,
+    Submit,
+}
+
+/// One drivable navigation hop: the event's control plus the landing URL.
+#[derive(Debug, Clone)]
+pub struct JourneyHop {
+    /// The component owning the control — names the POM accessors.
+    pub source_component: String,
+    pub kind: JourneyHopKind,
+    /// The view the hop lands on.
+    pub target_view: String,
+    /// `RegExp` source matching the landing URL (target route + bindings).
+    pub target_pattern: String,
+    /// API fixture seeded so the control has data (row hops); `None` for
+    /// submit hops.
+    pub seed: Option<Fixture>,
+    /// POM fill method + literal pairs a submit hop runs before clicking
+    /// (typed form fields); empty for row hops.
+    pub fills: Vec<(String, String)>,
+}
+
+/// One maximal navigate() path from a source view (issue #468 W5): a wizard
+/// reads as a walk — one journey per path, prefixes deduped by construction
+/// (the DFS only records leaves).
+#[derive(Debug)]
+pub struct JourneyPath {
+    /// The view sequence INCLUDING the source view; titles + persona gating
+    /// read from it. `steps.len() == views.len() - 1`.
+    pub views: Vec<String>,
+    /// One hop per edge, in walk order.
+    pub steps: Vec<JourneyStep>,
+}
+
+/// One step of a journey path: the hop payload plus the resolved arrival
+/// assertions (POM method on the source page class; the target surface the
+/// target page class actually exposes).
+#[derive(Debug)]
+pub struct JourneyStep {
+    pub hop: JourneyHop,
+    /// The POM method on the SOURCE view's page class driving the hop
+    /// (`journeyTo{Target}`), collision-suffixed like the flow methods.
+    pub method: String,
+    /// Whether an arrival surface assertion is rendered (the target page
+    /// class exposes one); `arrival_heading` picks `heading()` over
+    /// `primaryRoot()` (the collection convention).
+    pub arrival: bool,
+    pub arrival_heading: bool,
+    /// xor wizard step names asserted visible after arriving on an xor
+    /// target (`step('Name')`).
+    pub target_steps: Vec<String>,
+}
+
+/// One `{view}.journey.spec.ts` payload: the maximal navigate() walks from
+/// one source view, driven by one persona permitted on every walked view.
+#[derive(Debug)]
+pub struct ViewJourney {
+    pub view_name: String,
+    pub label: String,
+    /// The persona driving every path (`None` never renders — paths without
+    /// a permitted persona are dropped at assembly).
+    pub persona: Option<String>,
+    /// The source view's id param; set when the journey must open with a
+    /// seeded entity id.
+    pub open_param: Option<String>,
+    /// The API fixture seeding `open_param`.
+    pub open_seed: Option<Fixture>,
+    /// Row-data seeds (distinct entities across the journey's row hops).
+    pub seeds: Vec<Fixture>,
+    pub paths: Vec<JourneyPath>,
+}

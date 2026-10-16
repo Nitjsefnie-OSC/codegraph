@@ -69,6 +69,20 @@ const APP_IFML: &str = r#"domain "portal" { schema "portal"; }
 
 import "portal.actor";
 
+view "Home" {
+    label "Home";
+    landmark: true;
+
+    component "home_grid" {
+        type: list;
+        data: Request;
+        fields: [title, status];
+        pagination: true;
+
+        on select(row) -> navigate("RefundRequestList");
+    }
+}
+
 view "RequestList" {
     label "Requests";
     landmark: true;
@@ -99,7 +113,7 @@ view "RequestForm" {
             required: true;
         }
 
-        on save -> navigate("RequestList");
+        on save -> navigate("RequestWizard");
         on cancel -> navigate("RequestList");
     }
 }
@@ -113,6 +127,81 @@ view "ReviewQueue" {
         data: Request;
         fields: [title, status];
         pagination: true;
+    }
+}
+
+view "RefundRequestList" {
+    label "Refund Requests";
+
+    component "refund_grid" {
+        type: list;
+        data: Request;
+        fields: [title, status];
+        pagination: true;
+
+        on select(row) -> navigate("RefundRequestDetail", {
+            id: row.id
+        });
+    }
+}
+
+view "RefundRequestDetail" {
+    params { id: Uuid };
+    label "Refund Request";
+
+    component "refund_editor" {
+        type: form;
+        data: Request;
+        mode: edit;
+
+        field title -> input text {
+            required: true;
+        }
+
+        on save -> navigate("RefundRequestForm", {
+            id: params.id
+        });
+    }
+}
+
+view "RefundRequestForm" {
+    params { id: Uuid };
+    label "Edit Refund Request";
+
+    component "refund_form" {
+        type: form;
+        data: Request;
+        mode: edit;
+
+        field title -> input text {
+            required: true;
+        }
+    }
+}
+
+view "RequestWizard" {
+    label "Request Wizard";
+    xor: true;
+
+    container "Plan" {
+        default: true;
+
+        component "wizard_plan" {
+            type: form;
+            data: Request;
+
+            field title -> input text {
+                required: true;
+            }
+        }
+    }
+
+    container "Compare" {
+        component "wizard_compare" {
+            type: details;
+            data: Request;
+            fields: [title, status];
+        }
     }
 }
 "#;
@@ -377,5 +466,126 @@ async fn page_classes_gain_delete_and_cancel() {
     assert!(
         form_page.contains("Cancel"),
         "the form page class must expose a Cancel()-style method:\n{form_page}"
+    );
+}
+
+/// Issue #468 W5 (a): the navigate() graph becomes journey specs — one
+/// `{view}.journey.spec.ts` per source view, walking the maximal chain as
+/// steps that assert each hop's URL through the page classes.
+#[tokio::test]
+async fn journey_spec_walks_the_home_navigation_chain() {
+    let (_fixture, svelte) = generate_fixture().await;
+
+    let home = read(&svelte, "tests/journeys/home.journey.spec.ts");
+    assert!(
+        home.contains("journey: Home → RefundRequestList → RefundRequestDetail → RefundRequestForm"),
+        "the Home journey must walk the full chain as one test:\n{home}"
+    );
+    // Every hop drives through a page-class journey method — never a raw
+    // goto() or testid in the spec body.
+    assert!(
+        home.contains("await ui.journeyToRefundRequestList();"),
+        "the first hop must drive the source page class:\n{home}"
+    );
+    assert!(
+        home.contains("new RefundRequestListPage(page)"),
+        "arrival assertions drive the target page class:\n{home}"
+    );
+    assert!(
+        home.contains("toHaveURL(new RegExp('/refundrequestlist$'))"),
+        "steps must assert the target view's route:\n{home}"
+    );
+    assert!(
+        !home.contains("goto("),
+        "journeys walk by clicking, never goto():\n{home}"
+    );
+    // The hop methods live on the source page classes (auth-gated surface).
+    let home_page = read(&svelte, "tests/pages/home-page.ts");
+    assert!(
+        home_page.contains("async journeyToRefundRequestList()"),
+        "the source page class must carry the hop method:\n{home_page}"
+    );
+    assert!(
+        home_page.contains("waitForURL(new RegExp('/refundrequestlist$'))"),
+        "the hop method must wait for the landing route:\n{home_page}"
+    );
+
+    // Multi-hop chaining: the intermediate views get their own walks, and
+    // prefixes are not re-emitted as separate journeys.
+    let list = read(&svelte, "tests/journeys/refund-request-list.journey.spec.ts");
+    assert!(
+        list.contains("journeyToRefundRequestDetail")
+            && list.contains("journeyToRefundRequestForm"),
+        "the list journey must chain into the detail and form views:\n{list}"
+    );
+    assert!(
+        list.matches("test('journey:").count() == 1,
+        "one journey per maximal path (no prefix duplicates):\n{list}"
+    );
+}
+
+/// Issue #468 W5 (b): personas LACKING a guarded view's roles/capabilities
+/// get explicit gating tests — the denial redirect AND the hidden surface.
+#[tokio::test]
+async fn gating_spec_asserts_the_denied_persona_is_redirected() {
+    let (_fixture, svelte) = generate_fixture().await;
+
+    let queue = read(&svelte, "tests/ifml/review-queue.auth.spec.ts");
+    // The fixture policy: Admin holds ApproveRequest, Agent does not — a
+    // differing-access pair, so the gating family must render.
+    assert!(
+        queue.contains("test.describe('Review Queue gated from agent'"),
+        "the gating describe must name the denied persona:\n{queue}"
+    );
+    assert!(
+        queue.contains("asPersona(agent);"),
+        "the gating tests drive as the denied persona:\n{queue}"
+    );
+    assert!(
+        queue.contains("await ui.expectDenied();"),
+        "the gating test must assert the denial redirect:\n{queue}"
+    );
+    assert!(
+        queue.contains("await ui.expectDeniedPresentation('"),
+        "the gating test must assert the guarded surface stays hidden:\n{queue}"
+    );
+    assert!(
+        queue.contains("ApproveRequest gating"),
+        "the hidden-surface reason must name the gating capability:\n{queue}"
+    );
+
+    // The hidden-surface assertion resolves on the page class (issue #468
+    // W5 closed the missing-method gap for the whole auth family).
+    let queue_page = read(&svelte, "tests/pages/review-queue-page.ts");
+    assert!(
+        queue_page.contains("async expectDeniedPresentation(reason: string)"),
+        "the page class must render the hidden-surface assertion:\n{queue_page}"
+    );
+}
+
+/// Issue #468 W5 (c): xor wizard views expose a `step(name)` helper — one
+/// record entry per nested container — and journeys arriving on an xor
+/// target assert each step's visibility.
+#[tokio::test]
+async fn wizard_page_class_exposes_step_helpers() {
+    let (_fixture, svelte) = generate_fixture().await;
+
+    let wizard = read(&svelte, "tests/pages/request-wizard-page.ts");
+    assert!(
+        wizard.contains("step(name: string): Locator"),
+        "the xor view's page class must expose the step helper:\n{wizard}"
+    );
+    for container in ["Plan", "Compare"] {
+        assert!(
+            wizard.contains(&format!("'{container}':")),
+            "the step record must carry the {container} container:\n{wizard}"
+        );
+    }
+
+    // A journey arriving on the wizard asserts the steps through it.
+    let form_journey = read(&svelte, "tests/journeys/request-form.journey.spec.ts");
+    assert!(
+        form_journey.contains("wizard.step('Plan')") && form_journey.contains("wizard.step('Compare')"),
+        "the journey into the wizard must assert the wizard steps:\n{form_journey}"
     );
 }

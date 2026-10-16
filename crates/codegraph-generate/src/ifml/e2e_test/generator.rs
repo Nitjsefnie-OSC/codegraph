@@ -55,8 +55,15 @@ use codegraph_naming::to_kebab_case;
 /// `tests/e2e/personas.ts` fixtures, the `{view}.auth.spec.ts` family, the
 /// `tests/journeys/*.journey.spec.ts` specs, and the extended POM surface
 /// (`{comp}DeleteViaMenu`/`press{Comp}Cancel`) — and moves the persona
-/// coverage out of the base specs' inline `addInitScript` blocks. Flag off
-/// keeps every artifact byte-identical.
+/// coverage out of the base specs' inline `addInitScript` blocks. Issue
+/// #468 W5 extends the same flag-gated family with the navigation
+/// journeys (`{view}.journey.spec.ts`: the navigate() graph as chained
+/// steps asserting each landing URL + visible surface), the persona
+/// gating describes (denied personas hit the redirect AND a hidden
+/// surface; skipped with a comment without a differing-access persona
+/// pair), and the wizard POM surface (`step(name)` on xor views plus the
+/// `journeyTo{Target}` hop methods). Flag off keeps every artifact
+/// byte-identical.
 pub struct IfmlE2eTestGenerator {
     output_dir: PathBuf,
     framework: String,
@@ -281,52 +288,9 @@ impl GlobalGenerator for IfmlE2eTestGenerator {
             }
         }
 
-        // The POM plans (built once — the auth-spec assembly reads the same
-        // plan the page classes render from).
-        let spec_by_view: HashMap<&str, &ViewTestSpec> = specs
-            .iter()
-            .map(|spec| (spec.view_name.as_str(), spec))
-            .collect();
-        let pom_plans: Vec<(String, ViewPom)> = model
-            .view_containers
-            .iter()
-            .map(|vc| {
-                let spec = spec_by_view.get(vc.name.as_str()).copied();
-                let kebab = to_kebab_case(&vc.name);
-                let pom = super::pom::build_view_pom(
-                    config,
-                    self.mappings.as_ref(),
-                    vc,
-                    spec,
-                    ux_rules,
-                    &ux_plans,
-                    auth_enabled,
-                );
-                (kebab, pom)
-            })
-            .collect();
-        let pom_by_view: HashMap<&str, &ViewPom> = pom_plans
-            .iter()
-            .map(|(kebab, pom)| (kebab.as_str(), pom))
-            .collect();
-
-        // The auth family (issue #463): one `{view}.auth.spec.ts` per
-        // guarded view, built from the same payloads + POM plan.
-        let auth_specs = if auth_enabled {
-            model
-                .view_containers
-                .iter()
-                .filter_map(|vc| {
-                    let spec = spec_by_view.get(vc.name.as_str())?;
-                    let pom = pom_by_view.get(to_kebab_case(&vc.name).as_str())?;
-                    super::auth::build_auth_spec(vc, spec, pom)
-                })
-                .collect::<Vec<_>>()
-        } else {
-            Vec::new()
-        };
-
-        // The journeys (issue #463): workflow handoffs + the shell nav walk.
+        // The journeys (issue #463): workflow handoffs + the shell nav
+        // walk. Issue #468 W5 adds the per-view navigate() walks — built
+        // BEFORE the POM plans so the page classes carry the hop methods.
         let workflow_journeys = if auth_enabled {
             super::auth::build_workflow_journeys(
                 db,
@@ -343,6 +307,103 @@ impl GlobalGenerator for IfmlE2eTestGenerator {
             super::auth::build_shell_journey(&model, &personas)
         } else {
             None
+        };
+        let mut view_journeys = if auth_enabled {
+            self.build_view_journeys(
+                db,
+                config,
+                &project.identity.api_version,
+                &model,
+                &personas,
+            )
+            .await
+        } else {
+            Vec::new()
+        };
+
+        // The POM plans (built once — the auth-spec assembly reads the same
+        // plan the page classes render from). Journey hops (issue #468 W5)
+        // thread into the source views' plans; the method names are frozen
+        // in the journey payloads.
+        let mut journey_steps_by_view: HashMap<String, Vec<super::pom::PomJourneyStep>> =
+            HashMap::new();
+        for journey in &view_journeys {
+            for path in &journey.paths {
+                // A hop's method lives on the page class of the view it
+                // DEPARTS from (`path.views[i]`), not the journey source.
+                for (departure, step) in path.views.iter().zip(&path.steps) {
+                    let entry = journey_steps_by_view
+                        .entry(departure.clone())
+                        .or_default();
+                    if entry.iter().any(|s| s.method == step.method) {
+                        continue;
+                    }
+                    entry.push(super::pom::PomJourneyStep {
+                        method: step.method.clone(),
+                        component: step.hop.source_component.clone(),
+                        row: step.hop.kind == super::spec_payload::JourneyHopKind::Row,
+                        submit: step.hop.kind == super::spec_payload::JourneyHopKind::Submit,
+                        fills: step.hop.fills.clone(),
+                        pattern: step.hop.target_pattern.clone(),
+                    });
+                }
+            }
+        }
+        let spec_by_view: HashMap<&str, &ViewTestSpec> = specs
+            .iter()
+            .map(|spec| (spec.view_name.as_str(), spec))
+            .collect();
+        let pom_plans: Vec<(String, ViewPom)> = model
+            .view_containers
+            .iter()
+            .map(|vc| {
+                let spec = spec_by_view.get(vc.name.as_str()).copied();
+                let kebab = to_kebab_case(&vc.name);
+                let empty_steps = Vec::new();
+                let journey_steps = journey_steps_by_view
+                    .get(&vc.name)
+                    .unwrap_or(&empty_steps);
+                let pom = super::pom::build_view_pom(
+                    config,
+                    self.mappings.as_ref(),
+                    vc,
+                    spec,
+                    ux_rules,
+                    &ux_plans,
+                    auth_enabled,
+                    journey_steps,
+                );
+                (kebab, pom)
+            })
+            .collect();
+        let pom_by_view: HashMap<&str, &ViewPom> = pom_plans
+            .iter()
+            .map(|(kebab, pom)| (kebab.as_str(), pom))
+            .collect();
+
+        // Resolve the journeys' arrival assertions against the POM plans
+        // (the surfaces each target page class actually exposes).
+        let pom_refs_by_name: HashMap<String, &ViewPom> = pom_by_view
+            .iter()
+            .map(|(kebab, pom)| ((*kebab).to_string(), *pom))
+            .collect();
+        super::assembly::resolve_journey_arrivals(&mut view_journeys, &pom_refs_by_name);
+        view_journeys.retain(|journey| !journey.paths.is_empty());
+
+        // The auth family (issue #463): one `{view}.auth.spec.ts` per
+        // guarded view, built from the same payloads + POM plan.
+        let auth_specs = if auth_enabled {
+            model
+                .view_containers
+                .iter()
+                .filter_map(|vc| {
+                    let spec = spec_by_view.get(vc.name.as_str())?;
+                    let pom = pom_by_view.get(to_kebab_case(&vc.name).as_str())?;
+                    super::auth::build_auth_spec(vc, spec, pom)
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
         };
 
         let mut files: Vec<GeneratedFile> = specs
@@ -419,11 +480,24 @@ impl GlobalGenerator for IfmlE2eTestGenerator {
             });
         }
 
+        // The per-view navigate() walks (issue #468 W5).
+        for journey in &view_journeys {
+            files.push(GeneratedFile {
+                path: self.output_dir.join("tests").join("journeys").join(format!(
+                    "{}.journey.spec.ts",
+                    to_kebab_case(&journey.view_name)
+                )),
+                content: super::auth::render_view_journey(journey),
+            });
+        }
+
         // Journey stale sweep: flag off (or a lost journey) removes the
-        // file; the auth TS bootstrap likewise never lingers.
+        // file — workflow handoffs, the shell nav walk, AND the per-view
+        // navigate() walks; the auth TS bootstrap likewise never lingers.
         let active_journeys: HashSet<String> = if auth_enabled {
             super::auth::journey_file_names(&workflow_journeys)
                 .into_iter()
+                .chain(super::auth::view_journey_file_names(&view_journeys))
                 .collect()
         } else {
             HashSet::new()

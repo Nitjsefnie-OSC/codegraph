@@ -22,12 +22,20 @@
 //! - [`render_auth_spec`] — the `{view}.auth.spec.ts` family: persona
 //!   allow/deny through the fixtures, denial = redirect AND denial
 //!   presentation, unauthenticated/garbage-key behavior, and the per-
-//!   capability control-gating titles.
+//!   capability control-gating titles. Issue #468 W5 adds the gating
+//!   describes: personas LACKING the view's roles/capabilities are
+//!   asserted to hit the denial redirect AND find the guarded surface
+//!   hidden (`expectDeniedPresentation`) — rendered only when the policy
+//!   provides ≥2 personas with differing access, else a skip comment.
 //! - [`render_workflow_journey`] / [`render_shell_nav_journey`] — the IR
 //!   derived `tests/journeys/*.journey.spec.ts`: the workflow handoff
 //!   (persona A creates via the API, persona B transitions through the POM
 //!   transition map, state persisted verified via an API GET) and the
 //!   nav-click walk over the shell's `routes.ts` links.
+//! - [`render_view_journey`] (issue #468 W5) — the `{view}.journey.spec.ts`
+//!   family: each maximal navigate() path from a view as one walk whose
+//!   hops drive the control the event binds to (page classes only) and
+//!   assert the landing URL + visible surface, xor wizard steps included.
 //!
 //! Roles/capabilities ride the SAME resolution the route generator's guard
 //! code renders from (`PolicyContext` effective permits), so the test-side
@@ -44,7 +52,7 @@ use super::fixtures::{
     Fixture, codelist_fixture_value, fixture_entries, js_string, schema_backed_api,
 };
 use super::pom::ViewPom;
-use super::spec_payload::{PersonaTest, pick_transition};
+use super::spec_payload::{JourneyStep, PersonaTest, ViewJourney, pick_transition};
 
 // ── Personas ─────────────────────────────────────────────────────────────────
 
@@ -312,6 +320,17 @@ pub(crate) struct AuthTestSpec {
     pub denial_presentation: bool,
     pub personas: Vec<PersonaTest>,
     pub required_capabilities: Vec<String>,
+    /// Persona-gate coverage (issue #468 W5): present only when the policy
+    /// provides ≥2 personas with DIFFERING access (at least one permitted,
+    /// one denied) — the denied side then gets its explicit gating tests.
+    pub gate: Option<GatePlan>,
+}
+
+/// The denied personas of one guarded view.
+#[derive(Debug, Clone)]
+pub(crate) struct GatePlan {
+    /// `(persona id, actor)` pairs lacking the view's roles/capabilities.
+    pub denied: Vec<(String, String)>,
 }
 
 /// Build the auth payload for one guarded view from its spec payloads and
@@ -325,12 +344,24 @@ pub(crate) fn build_auth_spec(
         return None;
     }
     pom.denial_target.as_ref()?;
+    // Gating coverage only when access actually differs across personas
+    // (issue #468 W5): with no permitted/denied split a deny assertion
+    // would be vacuous.
+    let permitted = spec.personas.iter().filter(|p| p.permitted).count();
+    let denied: Vec<(String, String)> = spec
+        .personas
+        .iter()
+        .filter(|p| !p.permitted)
+        .map(|p| (persona_id(&p.actor), p.actor.clone()))
+        .collect();
+    let gate = (permitted > 0 && !denied.is_empty()).then_some(GatePlan { denied });
     Some(AuthTestSpec {
         view_name: vc.name.clone(),
         label: spec.label.clone(),
         denial_presentation: pom.primary_root.is_some() || pom.heading.is_some(),
         personas: spec.personas.clone(),
         required_capabilities: vc.requires.clone(),
+        gate,
     })
 }
 
@@ -345,6 +376,13 @@ pub(crate) fn render_auth_spec(spec: &AuthTestSpec) -> String {
         let id = persona_id(&persona.actor);
         if !used.contains(&id) {
             used.push(id);
+        }
+    }
+    if let Some(gate) = &spec.gate {
+        for (id, _) in &gate.denied {
+            if !used.contains(id) {
+                used.push(id.clone());
+            }
         }
     }
     let mut s = String::new();
@@ -471,6 +509,56 @@ pub(crate) fn render_auth_spec(spec: &AuthTestSpec) -> String {
             capability_done = true;
         }
         s.push_str("});\n\n");
+    }
+
+    // Persona gating (issue #468 W5): personas LACKING the view's
+    // roles/capabilities are asserted to hit the load guard's denial
+    // redirect AND to find the guarded surface hidden — the allow side is
+    // the per-persona describe above.
+    match &spec.gate {
+        Some(gate) => {
+            for (id, actor) in &gate.denied {
+                s.push_str(&format!(
+                    "test.describe('{} gated from {}', () => {{\n",
+                    js_string(&spec.label),
+                    id
+                ));
+                s.push_str(&format!("\tasPersona({id});\n"));
+                s.push_str(&format!(
+                    "\ttest('{} is gated from {}', async ({{ page }}) => {{\n",
+                    id,
+                    js_string(&spec.label)
+                ));
+                s.push_str(&format!("\t\tconst ui = new {class}(page);\n"));
+                s.push_str("\t\tawait ui.open();\n");
+                s.push_str("\t\tawait ui.expectDenied();\n");
+                if spec.denial_presentation {
+                    let reason = match spec.required_capabilities.first() {
+                        Some(capability) => format!(
+                            "actor {} is denied — {} gating",
+                            js_string(actor),
+                            js_string(capability)
+                        ),
+                        None => format!(
+                            "actor {} is denied by the view guard",
+                            js_string(actor)
+                        ),
+                    };
+                    s.push_str(&format!(
+                        "\t\tawait ui.expectDeniedPresentation('{reason}');\n"
+                    ));
+                }
+                s.push_str("\t});\n");
+                s.push_str("});\n\n");
+            }
+        }
+        None => {
+            s.push_str(
+                "// Gating coverage (issue #468 W5) skipped: the policy provides no\n\
+                 // persona pair with differing access for this view — a deny\n\
+                 // assertion here would be vacuous.\n\n",
+            );
+        }
     }
 
     while s.ends_with("\n\n") {
@@ -788,4 +876,169 @@ pub(crate) fn journey_file_names(journeys: &[WorkflowJourney]) -> Vec<String> {
     names.sort();
     names.dedup();
     names
+}
+
+// ── {view}.journey.spec.ts (issue #468 W5) ───────────────────────────────────
+
+/// Render a view's `{view}.journey.spec.ts`: each maximal navigate() path
+/// as one walk — every hop drives the control the IFML event binds to
+/// through the source page class, then asserts the landing URL and the
+/// target's visible surface (xor wizard steps included).
+pub(crate) fn render_view_journey(journey: &ViewJourney) -> String {
+    let source_class = format!("{}Page", to_pascal_case(&journey.view_name));
+    let source_kebab = to_kebab_case(&journey.view_name);
+    let mut s = String::new();
+    s.push_str("// Generated by codegraph. DO NOT EDIT.\n");
+    s.push_str(&format!(
+        "//\n// IFML navigation journeys for view {} (issue #468 W5): the view's\n\
+         // navigate() graph walked as steps — every hop clicks the control the\n\
+         // event binds to through the page classes, then asserts the landing\n\
+         // route and its visible surface. Chains cap at 4 hops; prefixes of\n\
+         // longer walks are not repeated.\n\n",
+        journey.view_name
+    ));
+    s.push_str("import { expect, test } from '@playwright/test';\n\n");
+    let persona = journey
+        .persona
+        .as_deref()
+        .expect("journey payloads always carry a permitted persona");
+    s.push_str(&format!(
+        "import {{ asPersona, {persona} }} from '../e2e/personas';\n"
+    ));
+
+    // Page-class imports: the source class plus every walked target class,
+    // in walk order.
+    let mut classes: Vec<(String, String)> = vec![(source_class.clone(), source_kebab)];
+    for step in journey.paths.iter().flat_map(|p| &p.steps) {
+        let class = format!("{}Page", to_pascal_case(&step.hop.target_view));
+        let kebab = to_kebab_case(&step.hop.target_view);
+        if !classes.iter().any(|(c, _)| *c == class) {
+            classes.push((class, kebab));
+        }
+    }
+    for (class, kebab) in &classes {
+        s.push_str(&format!(
+            "import {{ {class} }} from '../pages/{kebab}-page';\n"
+        ));
+    }
+    s.push('\n');
+
+    s.push_str(&format!(
+        "test.describe('{} journeys', () => {{\n",
+        js_string(&journey.label)
+    ));
+    for path in &journey.paths {
+        let destination = path.views.last().cloned().unwrap_or_default();
+        let title = path.views.join(" → ");
+        s.push_str(&format!(
+            "\ttest.describe('walks to {destination}', () => {{\n"
+        ));
+        s.push_str(&format!("\t\tasPersona({persona});\n"));
+        s.push_str(&format!(
+            "\t\ttest('journey: {title}', async ({{ page{request} }}) => {{\n",
+            request = if journey.open_seed.is_some() || !journey.seeds.is_empty() {
+                ", request"
+            } else {
+                ""
+            }
+        ));
+
+        // Row-data seeds: fire-and-create with an ok assertion (the row
+        // hops need rows to click).
+        for (index, seed) in journey.seeds.iter().enumerate() {
+            s.push_str(&format!(
+                "\t\t\tconst rowSeed{index} = await request.post('{}', {{ data: {} }});\n",
+                seed.base_path,
+                seed.data_literal()
+            ));
+            s.push_str(
+                &format!("\t\t\texpect(rowSeed{index}.ok(), 'journey fixture entity should be created').toBeTruthy();\n"),
+            );
+        }
+
+        // The open seed (param'd source views) captures its id for open().
+        if let (Some(param), Some(seed)) = (&journey.open_param, &journey.open_seed) {
+            s.push_str(&format!(
+                "\t\t\tconst seeded = await (await request.post('{}', {{ data: {} }})).json();\n",
+                seed.base_path,
+                seed.data_literal()
+            ));
+            s.push_str("\t\t\tconst seededId = String(seeded.data?.id ?? seeded.id);\n");
+            s.push_str(&format!("\t\t\tlet ui = new {source_class}(page);\n"));
+            s.push_str(&format!(
+                "\t\t\tawait ui.open({{ {param}: seededId }});\n"
+            ));
+        } else {
+            s.push_str(&format!("\t\t\tlet ui = new {source_class}(page);\n"));
+            s.push_str("\t\t\tawait ui.open();\n");
+        }
+
+        // The hops: drive via the page class of the view each hop DEPARTS
+        // from (the walking `ui` rebinds mid-walk), then assert the landing
+        // surface through the target page class.
+        let mut current_view = journey.view_name.clone();
+        for (departure, step) in path.views.iter().zip(&path.steps) {
+            let JourneyStep {
+                hop,
+                method,
+                arrival,
+                arrival_heading,
+                target_steps,
+            } = step;
+            if *departure != current_view {
+                let departure_class = format!("{}Page", to_pascal_case(departure));
+                s.push_str(&format!("\t\t\tui = new {departure_class}(page);\n"));
+                current_view = departure.clone();
+            }
+            s.push_str(&format!("\t\t\tawait ui.{method}();\n"));
+            s.push_str(&format!(
+                "\t\t\tawait expect(page).toHaveURL(new RegExp('{}'));\n",
+                js_string(&hop.target_pattern)
+            ));
+            if *arrival || !target_steps.is_empty() {
+                let target_class = format!("{}Page", to_pascal_case(&hop.target_view));
+                let var = journey_page_var(&hop.target_view);
+                s.push_str(&format!(
+                    "\t\t\tconst {var} = new {target_class}(page);\n"
+                ));
+                if *arrival {
+                    if *arrival_heading {
+                        s.push_str(&format!(
+                            "\t\t\tawait expect({var}.heading()).toBeVisible();\n"
+                        ));
+                    } else {
+                        s.push_str(&format!(
+                            "\t\t\tawait expect({var}.primaryRoot()).toBeVisible();\n"
+                        ));
+                    }
+                }
+            }
+            for name in target_steps {
+                let var = journey_page_var(&hop.target_view);
+                s.push_str(&format!(
+                    "\t\t\tawait expect({var}.step('{}')).toBeVisible();\n",
+                    js_string(name)
+                ));
+            }
+        }
+        s.push_str("\t\t});\n");
+        s.push_str("\t});\n");
+    }
+    s.push_str("});\n");
+    s
+}
+
+/// A short in-spec variable for a walked page class (`refund_request_list`
+/// for `RefundRequestList`).
+fn journey_page_var(view_name: &str) -> String {
+    to_kebab_case(view_name).replace('-', "_")
+}
+
+/// The view-journey file names (relative to the svelte output root) for
+/// one model — the stale-sweep keep-set.
+pub(crate) fn view_journey_file_names(journeys: &[ViewJourney]) -> Vec<String> {
+    journeys
+        .iter()
+        .map(|j| format!("{}.journey.spec.ts", to_kebab_case(&j.view_name)))
+        .collect()
 }
