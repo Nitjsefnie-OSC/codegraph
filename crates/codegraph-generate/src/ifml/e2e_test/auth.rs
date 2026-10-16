@@ -220,7 +220,10 @@ pub(crate) fn render_personas(personas: &[PersonaSpec]) -> String {
     s.push_str("// __USER_ROLES__ / __USER_CAPABILITIES__ seeding; suites bind a persona\n");
     s.push_str("// with asPersona() at describe scope, journeys use personaContext().\n\n");
     s.push_str("import { existsSync, readFileSync } from 'node:fs';\n");
-    s.push_str("import { join } from 'node:path';\n");
+    s.push_str("import { dirname, join } from 'node:path';\n");
+    s.push_str("import { fileURLToPath } from 'node:url';\n");
+    s.push_str("// ESM package: __dirname is not defined (issue #468 W1b integration).\n");
+    s.push_str("const __dirname = dirname(fileURLToPath(import.meta.url));\n");
     s.push_str("import { test, type Browser, type BrowserContext } from '@playwright/test';\n\n");
     s.push_str("export interface PersonaSpec {\n\tid: string;\n\tactor: string;\n\troles: string[];\n\tcapabilities: string[];\n}\n\n");
     s.push_str("const PERSONAS: Record<string, PersonaSpec> = {\n");
