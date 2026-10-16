@@ -895,6 +895,141 @@ fn owner_crud_test_data_is_key_typed_to_the_create_request() {
     );
 }
 
+// ── Slice E2: type-driven test-data sentinels (untagged-enum 422s) ──────
+//
+// The generated API body is `#[serde(untagged)] enum CreateXBody` — one
+// mistyped field (e.g. a NUMERIC column sent as `'Test Full Time
+// Equivalent'`) rejects EVERY variant with `data did not match any
+// variant`. Sentinels must be derived from the field's pg column type.
+
+/// A DATE column (the temporal scalar sibling of `timestamp`).
+fn date_field(name: &str, is_required: bool) -> PropertyNode {
+    PropertyNode {
+        is_id: false,
+        rust_field_type: "NaiveDate".into(),
+        ..scalar(name, "DATE", is_required)
+    }
+}
+
+#[test]
+fn numeric_columns_get_numeric_sentinels_not_text() {
+    // The reported crewbase 422 shape: FTE (pg NUMERIC) sent as
+    // 'Test Full Time Equivalent'.
+    let job = schema("JobType", "job", "Job", "core", "job");
+    let engine = MockEngine::builder()
+        .with_schema(job)
+        .with_properties(
+            "JobType",
+            vec![
+                scalar("title", "TEXT", true),
+                numeric("full_time_equivalent", "NUMERIC(5,2)", true),
+                numeric("headcount", "INTEGER", true),
+            ],
+        )
+        .build();
+    let config = config(&[("core", "JobType")]);
+
+    let content = owner_crud(&engine, &config, "JobType", "core");
+
+    assert!(
+        content.contains("'full_time_equivalent': 42.5,"),
+        "NUMERIC column must emit the decimal sentinel:\n{content}"
+    );
+    assert!(
+        !content.contains("'Test Full Time Equivalent'"),
+        "a NUMERIC column must never get the readable text sentinel:\n{content}"
+    );
+    assert!(
+        content.contains("'headcount': 42,"),
+        "INTEGER column must emit the integer sentinel:\n{content}"
+    );
+    assert!(!content.contains("'Test Headcount'"), "{content}");
+}
+
+#[test]
+fn date_and_timestamp_columns_get_iso_sentinels() {
+    let job = schema("JobType", "job", "Job", "core", "job");
+    let engine = MockEngine::builder()
+        .with_schema(job)
+        .with_properties(
+            "JobType",
+            vec![
+                scalar("title", "TEXT", true),
+                date_field("effective_date", true),
+                timestamp("opened_at", true),
+            ],
+        )
+        .build();
+    let config = config(&[("core", "JobType")]);
+
+    let content = owner_crud(&engine, &config, "JobType", "core");
+
+    assert!(
+        content.contains("'effective_date': '2026-01-15',"),
+        "DATE column must emit the date sentinel:\n{content}"
+    );
+    assert!(
+        content.contains("'opened_at': '2026-01-15T08:00:00Z',"),
+        "TIMESTAMPTZ column must emit the datetime sentinel:\n{content}"
+    );
+    assert!(
+        !content.contains("'Test Effective Date'") && !content.contains("'Test Opened At'"),
+        "temporal columns must never get the readable text sentinel:\n{content}"
+    );
+    assert!(
+        !content.contains("'2025-01-15") && !content.contains("'2025-06-"),
+        "the retired 2025 sentinels must be gone:\n{content}"
+    );
+}
+
+#[test]
+fn range_and_typed_array_columns_get_shape_correct_literals() {
+    let booking = schema("BookingType", "booking", "Booking", "core", "booking");
+    let engine = MockEngine::builder()
+        .with_schema(booking)
+        .with_properties(
+            "BookingType",
+            vec![
+                scalar("title", "TEXT", true),
+                with_pg(scalar("validity", "String", true), "DATERANGE"),
+                with_pg(scalar("window", "String", true), "TSTZRANGE"),
+                with_pg(scalar("tags", "Vec<String>", true), "TEXT[]"),
+                with_pg(numeric("scores", "INTEGER[]", true), "INTEGER[]"),
+            ],
+        )
+        .build();
+    let config = config(&[("core", "BookingType")]);
+
+    let content = owner_crud(&engine, &config, "BookingType", "core");
+
+    assert!(
+        content.contains("'validity': '[2026-01-01,2026-12-31)',"),
+        "DATERANGE must emit the half-open date-range literal:\n{content}"
+    );
+    assert!(
+        content.contains("'window': '[2026-01-01T00:00:00Z,2026-12-31T23:59:59Z)',"),
+        "TSTZRANGE must emit the half-open instant-range literal:\n{content}"
+    );
+    assert!(
+        content.contains("'scores': [42],"),
+        "INTEGER[] must emit a numeric array:\n{content}"
+    );
+    // The retired closed-bracket instant range is gone.
+    assert!(
+        !content.contains("2025-12-31T23:59:59Z]"),
+        "range literals must be half-open:\n{content}"
+    );
+}
+
+/// A `scalar` retyped to a specific pg column type (ranges / typed arrays).
+fn with_pg(mut prop: PropertyNode, pg_type: &str) -> PropertyNode {
+    prop.pg_column_type = pg_type.into();
+    if pg_type.ends_with("[]") {
+        prop.is_array = true;
+    }
+    prop
+}
+
 // ── Slice F: ux-rules spec emission + per-block gating (issue #302) ─────
 
 /// A codelist-backed column (CodelistReference prop + graph enum values).
@@ -1446,11 +1581,12 @@ fn ux_spec_alignment_and_format_blocks_reference_plan_columns() {
 
     assert!(content.contains("numeric columns right-align"), "{content}");
     // Money/quantity/time-point expectations run through the kernel's
-    // Intl mirror — the SAME formatters the page computes.
-    assert!(content.contains("'money', 42)"), "{content}");
+    // Intl mirror — the SAME formatters the page computes. Money is a
+    // NUMERIC column → the type-driven 42.5 sentinel (not the integer 42).
+    assert!(content.contains("'money', 42.5)"), "{content}");
     assert!(content.contains("'quantity', 42)"), "{content}");
     assert!(
-        content.contains("'time-point', '2025-01-15T10:30:00Z')"),
+        content.contains("'time-point', '2026-01-15T08:00:00Z')"),
         "{content}"
     );
     // The readable lead column assertion pins column order row 17.
