@@ -367,8 +367,10 @@ pub(crate) fn build_auth_spec(
 
 /// Render a view's `{view}.auth.spec.ts`: the unauthenticated/garbage-key
 /// behavior, the persona allow/deny tests through the `asPersona` fixtures,
-/// and the per-capability gating titles.
-pub(crate) fn render_auth_spec(spec: &AuthTestSpec) -> String {
+/// and the per-capability gating titles. `personas_import` is the module
+/// specifier for the personas fixture (issue #468 W1b integrated mode moves
+/// it to `./support/personas`; standalone is `../e2e/personas`).
+pub(crate) fn render_auth_spec(spec: &AuthTestSpec, personas_import: &str) -> String {
     let class = format!("{}Page", to_pascal_case(&spec.view_name));
     let kebab = to_kebab_case(&spec.view_name);
     let mut used: Vec<String> = Vec::new();
@@ -399,7 +401,7 @@ pub(crate) fn render_auth_spec(spec: &AuthTestSpec) -> String {
         all.push("asPersona".to_string());
         all.join(", ")
     };
-    s.push_str(&format!("import {{ {imports} }} from '../e2e/personas';\n"));
+    s.push_str(&format!("import {{ {imports} }} from '{personas_import}';\n"));
     s.push_str(&format!(
         "import {{ {class} }} from '../pages/{kebab}-page';\n\n"
     ));
@@ -707,8 +709,9 @@ pub(crate) fn build_shell_journey(
     })
 }
 
-/// Render `{entity-kebab}-workflow.journey.spec.ts`.
-pub(crate) fn render_workflow_journey(journey: &WorkflowJourney) -> String {
+/// Render `{entity-kebab}-workflow.journey.spec.ts`. `personas_import` is
+/// the personas fixture module specifier (see [`render_auth_spec`]).
+pub(crate) fn render_workflow_journey(journey: &WorkflowJourney, personas_import: &str) -> String {
     let class = format!("{}Page", to_pascal_case(&journey.view_name));
     let kebab = to_kebab_case(&journey.view_name);
     let component = &journey.component;
@@ -735,7 +738,7 @@ pub(crate) fn render_workflow_journey(journey: &WorkflowJourney) -> String {
     ));
     s.push_str("import { expect, test } from '@playwright/test';\n\n");
     s.push_str(&format!(
-        "import {{ apiKeyFor, personaContext, {}, {} }} from '../e2e/personas';\n",
+        "import {{ apiKeyFor, personaContext, {}, {} }} from '{personas_import}';\n",
         journey.creator, journey.driver
     ));
     s.push_str(&format!(
@@ -813,8 +816,9 @@ pub(crate) fn render_workflow_journey(journey: &WorkflowJourney) -> String {
     s
 }
 
-/// Render `shell-nav.journey.spec.ts`.
-pub(crate) fn render_shell_nav_journey(journey: &ShellNavJourney) -> String {
+/// Render `shell-nav.journey.spec.ts`. `personas_import` is the personas
+/// fixture module specifier (see [`render_auth_spec`]).
+pub(crate) fn render_shell_nav_journey(journey: &ShellNavJourney, personas_import: &str) -> String {
     let class = format!("{}Page", to_pascal_case(&journey.view_name));
     let kebab = to_kebab_case(&journey.view_name);
     let mut s = String::new();
@@ -826,9 +830,9 @@ pub(crate) fn render_shell_nav_journey(journey: &ShellNavJourney) -> String {
     s.push_str("import { expect, test } from '@playwright/test';\n\n");
     match &journey.persona {
         Some(persona) => s.push_str(&format!(
-            "import {{ asPersona, {persona} }} from '../e2e/personas';\n"
+            "import {{ asPersona, {persona} }} from '{personas_import}';\n"
         )),
-        None => s.push_str("import { asPersona } from '../e2e/personas';\n"),
+        None => s.push_str(&format!("import {{ asPersona }} from '{personas_import}';\n")),
     }
     s.push_str("import { routeMap } from '../../src/lib/routes';\n");
     s.push_str(&format!(
@@ -883,8 +887,9 @@ pub(crate) fn journey_file_names(journeys: &[WorkflowJourney]) -> Vec<String> {
 /// Render a view's `{view}.journey.spec.ts`: each maximal navigate() path
 /// as one walk — every hop drives the control the IFML event binds to
 /// through the source page class, then asserts the landing URL and the
-/// target's visible surface (xor wizard steps included).
-pub(crate) fn render_view_journey(journey: &ViewJourney) -> String {
+/// target's visible surface (xor wizard steps included). `personas_import`
+/// is the personas fixture module specifier (see [`render_auth_spec`]).
+pub(crate) fn render_view_journey(journey: &ViewJourney, personas_import: &str) -> String {
     let source_class = format!("{}Page", to_pascal_case(&journey.view_name));
     let source_kebab = to_kebab_case(&journey.view_name);
     let mut s = String::new();
@@ -903,7 +908,7 @@ pub(crate) fn render_view_journey(journey: &ViewJourney) -> String {
         .as_deref()
         .expect("journey payloads always carry a permitted persona");
     s.push_str(&format!(
-        "import {{ asPersona, {persona} }} from '../e2e/personas';\n"
+        "import {{ asPersona, {persona} }} from '{personas_import}';\n"
     ));
 
     // Page-class imports: the source class plus every walked target class,

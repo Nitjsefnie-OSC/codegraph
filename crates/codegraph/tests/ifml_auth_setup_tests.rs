@@ -7,14 +7,14 @@
 //!   one API key per human actor via `public.create_api_key` (psql over
 //!   `DATABASE_URL`) and writes `.auth/{persona}.json` (apiKey, roles,
 //!   capabilities); `playwright.config.ts` wires it as `globalSetup`;
-//! - `tests/e2e/personas.ts` — per-persona `test.use(...)` fixtures carrying
-//!   the storage state, the Bearer header, and the `__USER_ROLES__` /
-//!   `__USER_CAPABILITIES__` seeding in ONE place (the per-spec inline
-//!   `addInitScript` stubs disappear from the base specs);
+//! - `tests/ifml/support/personas.ts` — per-persona `test.use(...)` fixtures
+//!   carrying the storage state, the Bearer header, and the
+//!   `__USER_ROLES__` / `__USER_CAPABILITIES__` seeding in ONE place (the
+//!   per-spec inline `addInitScript` stubs disappear from the base specs);
 //! - `{view}.auth.spec.ts` — the auth family: unauthenticated/garbage-key
 //!   behavior, denial = redirect AND denial presentation, and control-gating
 //!   visibility per capability;
-//! - `tests/journeys/*.journey.spec.ts` — IR-derived journeys: the workflow
+//! - `tests/ifml/*.journey.spec.ts` — IR-derived journeys: the workflow
 //!   handoff (persona A creates → persona B transitions via the POM
 //!   transition map → state persisted via GET) and the nav-click journey
 //!   through the shell (`routes.ts` links clicked, not `open()`);
@@ -288,7 +288,9 @@ fn run_args<'a>(
     }
 }
 
-/// Generate the fixture and return the emitted svelte test tree.
+/// Generate the fixture and return the emitted INTEGRATED ui test tree
+/// (issue #468 W1b: the workspace default profile builds the entity ui app
+/// alongside the IFML generators).
 async fn generate_fixture() -> (Fixture, PathBuf) {
     let fixture = write_fixture();
     let output = fixture.root.path().join("generated");
@@ -296,7 +298,7 @@ async fn generate_fixture() -> (Fixture, PathBuf) {
     codegraph::driver::run(run_args(&fixture, &frameworks, &output))
         .await
         .expect("pipeline run must succeed");
-    (fixture, output.join("svelte"))
+    (fixture, output.join("ui"))
 }
 
 fn read(base: &Path, rel: &str) -> String {
@@ -304,13 +306,17 @@ fn read(base: &Path, rel: &str) -> String {
         .unwrap_or_else(|e| panic!("expected {rel} to be emitted: {e}"))
 }
 
-/// `tests/e2e/auth.setup.ts`: the globalSetup provisioning one API key per
-/// human actor and writing the per-persona storage files.
+/// `tests/ifml/support/auth.setup.ts`: the globalSetup provisioning one API
+/// key per human actor and writing the per-persona storage files.
+/// INTEGRATED mode (issue #468 W1b): the workspace default profile carries
+/// the entity ui generators, so the IFML tree integrates into `ui/` and the
+/// bootstrap lives under `tests/ifml/support/` — clear of the entity suite's
+/// `tests/e2e/` fixtures.
 #[tokio::test]
 async fn auth_setup_provisions_api_keys_per_persona() {
-    let (_fixture, svelte) = generate_fixture().await;
+    let (_fixture, ui) = generate_fixture().await;
 
-    let setup = read(&svelte, "tests/e2e/auth.setup.ts");
+    let setup = read(&ui, "tests/ifml/support/auth.setup.ts");
     assert!(
         setup.contains("create_api_key"),
         "auth.setup.ts must provision keys via public.create_api_key:\n{setup}"
@@ -332,25 +338,32 @@ async fn auth_setup_provisions_api_keys_per_persona() {
         "auth.setup.ts must derive capabilities from the policy context:\n{setup}"
     );
 
-    let config = read(&svelte, "playwright.config.ts");
+    // Integrated mode: the ui tree's entity-owned playwright config runs —
+    // the IFML config itself is suppressed. The entity config must carry the
+    // ifml project so the IFML specs ride the same playwright run.
+    let config = read(&ui, "playwright.config.ts");
     assert!(
-        config.contains("globalSetup"),
-        "playwright.config.ts must wire the auth globalSetup:\n{config}"
+        config.contains("name: 'ifml'") && config.contains("/ifml\\/.+\\.spec\\.ts/"),
+        "the integrated playwright config must carry the ifml project:\n{config}"
     );
     assert!(
-        config.contains("tests/e2e/auth.setup.ts"),
-        "playwright.config.ts must point globalSetup at tests/e2e/auth.setup.ts:\n{config}"
+        !ui.join("tests").join("e2e").join("auth.setup.ts").exists(),
+        "the IFML bootstrap must not collide with the entity tests/e2e tree"
+    );
+    assert!(
+        !ui.join("tests").join("e2e").join("personas.ts").exists(),
+        "the IFML personas module must not collide with tests/e2e/fixtures/personas.ts"
     );
 }
 
-/// `tests/e2e/personas.ts`: per-persona `test.use` fixtures — storage state,
-/// Bearer header, and role/capability seeding in one place; the per-spec
-/// inline `addInitScript` stubs are gone from the base specs.
+/// `tests/ifml/support/personas.ts`: per-persona `test.use` fixtures —
+/// storage state, Bearer header, and role/capability seeding in one place;
+/// the per-spec inline `addInitScript` stubs are gone from the base specs.
 #[tokio::test]
 async fn persona_fixture_replaces_inline_init_script_stubs() {
-    let (_fixture, svelte) = generate_fixture().await;
+    let (_fixture, ui) = generate_fixture().await;
 
-    let personas = read(&svelte, "tests/e2e/personas.ts");
+    let personas = read(&ui, "tests/ifml/support/personas.ts");
     assert!(
         personas.contains("test.use"),
         "personas.ts must expose test.use helpers:\n{personas}"
@@ -374,7 +387,7 @@ async fn persona_fixture_replaces_inline_init_script_stubs() {
         "tests/ifml/request-list.spec.ts",
         "tests/ifml/review-queue.spec.ts",
     ] {
-        let body = read(&svelte, spec);
+        let body = read(&ui, spec);
         assert!(
             !body.contains("addInitScript"),
             "{spec} must drive personas through the fixture, not inline addInitScript:\n{body}"
@@ -386,10 +399,10 @@ async fn persona_fixture_replaces_inline_init_script_stubs() {
 /// denial = redirect AND denial presentation, control-gating per capability.
 #[tokio::test]
 async fn auth_specs_assert_denial_and_control_gating() {
-    let (_fixture, svelte) = generate_fixture().await;
+    let (_fixture, ui) = generate_fixture().await;
 
     // Capability-guarded view: Admin passes, Agent is denied.
-    let queue = read(&svelte, "tests/ifml/review-queue.auth.spec.ts");
+    let queue = read(&ui, "tests/ifml/review-queue.auth.spec.ts");
     assert!(
         queue.contains("redirect"),
         "the auth spec must assert the denial redirect:\n{queue}"
@@ -408,7 +421,7 @@ async fn auth_specs_assert_denial_and_control_gating() {
     );
 
     // Role-guarded view: the roles check has its own auth spec coverage.
-    let list = read(&svelte, "tests/ifml/request-list.auth.spec.ts");
+    let list = read(&ui, "tests/ifml/request-list.auth.spec.ts");
     assert!(
         list.contains("agent"),
         "the roles-guarded view's auth spec must exercise the denied persona:\n{list}"
@@ -419,9 +432,9 @@ async fn auth_specs_assert_denial_and_control_gating() {
 /// through the shell.
 #[tokio::test]
 async fn journey_specs_cover_workflow_handoff_and_shell_nav() {
-    let (_fixture, svelte) = generate_fixture().await;
+    let (_fixture, ui) = generate_fixture().await;
 
-    let workflow = read(&svelte, "tests/journeys/request-workflow.journey.spec.ts");
+    let workflow = read(&ui, "tests/ifml/request-workflow.journey.spec.ts");
     assert!(
         workflow.contains("admin") && workflow.contains("agent"),
         "the workflow journey must hand off between two personas:\n{workflow}"
@@ -435,7 +448,7 @@ async fn journey_specs_cover_workflow_handoff_and_shell_nav() {
         "the workflow journey's create step must authenticate via the persona API key:\n{workflow}"
     );
 
-    let nav = read(&svelte, "tests/journeys/shell-nav.journey.spec.ts");
+    let nav = read(&ui, "tests/ifml/shell-nav.journey.spec.ts");
     assert!(
         nav.contains("routes"),
         "the nav journey must click through the shell's routes.ts links:\n{nav}"
@@ -450,9 +463,9 @@ async fn journey_specs_cover_workflow_handoff_and_shell_nav() {
 /// the overflow menu + confirm, and form cancel.
 #[tokio::test]
 async fn page_classes_gain_delete_and_cancel() {
-    let (_fixture, svelte) = generate_fixture().await;
+    let (_fixture, ui) = generate_fixture().await;
 
-    let list_page = read(&svelte, "tests/pages/request-list-page.ts");
+    let list_page = read(&ui, "tests/pages/request-list-page.ts");
     assert!(
         list_page.contains("deleteViaMenu"),
         "the list page class must delete via UxTable.deleteViaMenu:\n{list_page}"
@@ -462,7 +475,7 @@ async fn page_classes_gain_delete_and_cancel() {
         "the list page class must expose a Delete()-style method:\n{list_page}"
     );
 
-    let form_page = read(&svelte, "tests/pages/request-form-page.ts");
+    let form_page = read(&ui, "tests/pages/request-form-page.ts");
     assert!(
         form_page.contains("Cancel"),
         "the form page class must expose a Cancel()-style method:\n{form_page}"
@@ -474,9 +487,9 @@ async fn page_classes_gain_delete_and_cancel() {
 /// steps that assert each hop's URL through the page classes.
 #[tokio::test]
 async fn journey_spec_walks_the_home_navigation_chain() {
-    let (_fixture, svelte) = generate_fixture().await;
+    let (_fixture, ui) = generate_fixture().await;
 
-    let home = read(&svelte, "tests/journeys/home.journey.spec.ts");
+    let home = read(&ui, "tests/ifml/home.journey.spec.ts");
     assert!(
         home.contains("journey: Home → RefundRequestList → RefundRequestDetail → RefundRequestForm"),
         "the Home journey must walk the full chain as one test:\n{home}"
@@ -500,7 +513,7 @@ async fn journey_spec_walks_the_home_navigation_chain() {
         "journeys walk by clicking, never goto():\n{home}"
     );
     // The hop methods live on the source page classes (auth-gated surface).
-    let home_page = read(&svelte, "tests/pages/home-page.ts");
+    let home_page = read(&ui, "tests/pages/home-page.ts");
     assert!(
         home_page.contains("async journeyToRefundRequestList()"),
         "the source page class must carry the hop method:\n{home_page}"
@@ -512,7 +525,7 @@ async fn journey_spec_walks_the_home_navigation_chain() {
 
     // Multi-hop chaining: the intermediate views get their own walks, and
     // prefixes are not re-emitted as separate journeys.
-    let list = read(&svelte, "tests/journeys/refund-request-list.journey.spec.ts");
+    let list = read(&ui, "tests/ifml/refund-request-list.journey.spec.ts");
     assert!(
         list.contains("journeyToRefundRequestDetail")
             && list.contains("journeyToRefundRequestForm"),
@@ -528,9 +541,9 @@ async fn journey_spec_walks_the_home_navigation_chain() {
 /// get explicit gating tests — the denial redirect AND the hidden surface.
 #[tokio::test]
 async fn gating_spec_asserts_the_denied_persona_is_redirected() {
-    let (_fixture, svelte) = generate_fixture().await;
+    let (_fixture, ui) = generate_fixture().await;
 
-    let queue = read(&svelte, "tests/ifml/review-queue.auth.spec.ts");
+    let queue = read(&ui, "tests/ifml/review-queue.auth.spec.ts");
     // The fixture policy: Admin holds ApproveRequest, Agent does not — a
     // differing-access pair, so the gating family must render.
     assert!(
@@ -556,7 +569,7 @@ async fn gating_spec_asserts_the_denied_persona_is_redirected() {
 
     // The hidden-surface assertion resolves on the page class (issue #468
     // W5 closed the missing-method gap for the whole auth family).
-    let queue_page = read(&svelte, "tests/pages/review-queue-page.ts");
+    let queue_page = read(&ui, "tests/pages/review-queue-page.ts");
     assert!(
         queue_page.contains("async expectDeniedPresentation(reason: string)"),
         "the page class must render the hidden-surface assertion:\n{queue_page}"
@@ -568,9 +581,9 @@ async fn gating_spec_asserts_the_denied_persona_is_redirected() {
 /// target assert each step's visibility.
 #[tokio::test]
 async fn wizard_page_class_exposes_step_helpers() {
-    let (_fixture, svelte) = generate_fixture().await;
+    let (_fixture, ui) = generate_fixture().await;
 
-    let wizard = read(&svelte, "tests/pages/request-wizard-page.ts");
+    let wizard = read(&ui, "tests/pages/request-wizard-page.ts");
     assert!(
         wizard.contains("step(name: string): Locator"),
         "the xor view's page class must expose the step helper:\n{wizard}"
@@ -583,7 +596,7 @@ async fn wizard_page_class_exposes_step_helpers() {
     }
 
     // A journey arriving on the wizard asserts the steps through it.
-    let form_journey = read(&svelte, "tests/journeys/request-form.journey.spec.ts");
+    let form_journey = read(&ui, "tests/ifml/request-form.journey.spec.ts");
     assert!(
         form_journey.contains("wizard.step('Plan')") && form_journey.contains("wizard.step('Compare')"),
         "the journey into the wizard must assert the wizard steps:\n{form_journey}"

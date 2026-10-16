@@ -791,7 +791,7 @@ fn view_journey_spec_walks_hops_and_arrivals() {
         }],
     };
 
-    let rendered = super::auth::render_view_journey(&journey);
+    let rendered = super::auth::render_view_journey(&journey, "../e2e/personas");
     assert!(rendered.contains("import { asPersona, admin } from '../e2e/personas';"));
     assert!(rendered.contains("asPersona(admin);"));
     assert!(rendered.contains("test('journey: CustomerList → CustomerDetail → CustomerEdit'"));
@@ -848,7 +848,7 @@ fn auth_spec_renders_gating_family_and_skip_comment() {
     let rendered = super::auth::render_auth_spec(&spec(vec![
         personas(true),
         personas(false),
-    ], true));
+    ], true), "../e2e/personas");
     assert!(rendered.contains("test.describe('Review Queue gated from agent'"), "{rendered}");
     assert!(rendered.contains("asPersona(agent);"));
     assert!(rendered.contains("await ui.expectDenied();"));
@@ -857,7 +857,7 @@ fn auth_spec_renders_gating_family_and_skip_comment() {
     ));
 
     // No differing access: the skip comment, never a gating describe.
-    let skipped = super::auth::render_auth_spec(&spec(vec![personas(true)], false));
+    let skipped = super::auth::render_auth_spec(&spec(vec![personas(true)], false), "../e2e/personas");
     assert!(skipped.contains("Gating coverage (issue #468 W5) skipped"), "{skipped}");
     assert!(!skipped.contains("gated from"));
 }

@@ -3809,3 +3809,26 @@ fn guard_template_renders_from_ast_gated() {
         "expr_ir ON must render the lowered guard: {rendered}"
     );
 }
+
+/// Issue #468 W1b: integrated mode scopes the shell layout to the `(views)`
+/// route group (never the entity app's root layout), while standalone keeps
+/// the historical `src/routes/+layout.svelte` path.
+#[test]
+fn route_layout_honors_the_route_root() {
+    let tmp = tempfile::tempdir().unwrap();
+    let standalone = IfmlRouteGenerator::new(tmp.path(), "svelte");
+    assert_eq!(
+        standalone.route_layout(),
+        Some(std::path::PathBuf::from("src/routes/+layout.svelte"))
+    );
+
+    let integrated =
+        IfmlRouteGenerator::new(tmp.path(), "svelte").with_route_root(super::ROUTE_GROUP);
+    assert_eq!(
+        integrated.route_layout(),
+        Some(std::path::PathBuf::from("src/routes/(views)/+layout.svelte"))
+    );
+
+    let react = IfmlRouteGenerator::new(tmp.path(), "react").with_route_root(super::ROUTE_GROUP);
+    assert_eq!(react.route_layout(), None, "layout is svelte-only");
+}

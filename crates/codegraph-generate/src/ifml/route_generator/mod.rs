@@ -43,6 +43,12 @@ pub(crate) use workflow::workflow_for_entity;
 /// (`fields_with_types`), re-exported for conformance testing (issue #201).
 pub use super::control_core::control_for_field;
 
+/// The SvelteKit route group the view pages live under in integrated mode
+/// (issue #468 W1b): a sibling of the entity ui app's `(app)`/`(auth)`
+/// groups, so the entity auth-guard layout does not wrap views — views gate
+/// themselves via their +page.ts guards. Route groups never appear in URLs.
+pub const ROUTE_GROUP: &str = "(views)";
+
 pub struct IfmlRouteGenerator {
     output_dir: PathBuf,
     framework: String,
@@ -60,16 +66,32 @@ impl IfmlRouteGenerator {
         }
     }
 
+    /// Integrated-mode layout (issue #468 W1b): view pages land under the
+    /// SvelteKit route group (`src/routes/(views)/{view}/+page.svelte`).
+    /// URL routes, the navigation map, and the `$lib` helpers are unchanged.
+    pub fn with_route_root(mut self, route_root: &str) -> Self {
+        self.output_paths = super::output_paths::OutputPaths::for_framework_with_route_root(
+            &self.framework,
+            Some(route_root),
+        );
+        self
+    }
+
     pub fn with_mappings(mut self, mappings: Option<IfmlComponentMappings>) -> Self {
         self.mappings = mappings;
         self
     }
 
     /// Framework layout path for the landmark shell; `None` for frameworks
-    /// without a layout convention in this slice.
+    /// without a layout convention in this slice. Integrated mode scopes the
+    /// shell layout to the route group (`src/routes/(views)/+layout.svelte`)
+    /// so it never wraps — or collides with — the entity app's own layouts.
     fn route_layout(&self) -> Option<PathBuf> {
         match self.framework.as_str() {
-            "svelte" => Some(PathBuf::from("src/routes/+layout.svelte")),
+            "svelte" => Some(match self.output_paths.route_root() {
+                Some(group) => PathBuf::from(format!("src/routes/{group}/+layout.svelte")),
+                None => PathBuf::from("src/routes/+layout.svelte"),
+            }),
             _ => None,
         }
     }

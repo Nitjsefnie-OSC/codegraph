@@ -68,7 +68,34 @@ pub struct IfmlE2eTestGenerator {
     output_dir: PathBuf,
     framework: String,
     pub(super) mappings: Option<IfmlComponentMappings>,
+    /// Integrated mode (issue #468 W1b): the specs share the entity ui
+    /// app's playwright run, so the IFML tree moves under `tests/ifml/` —
+    /// journeys included — and the auth bootstrap lands in
+    /// `tests/ifml/support/` instead of `tests/e2e/` (no collision with the
+    /// entity suite's `tests/e2e/fixtures/personas.ts`).
+    integrated: bool,
 }
+
+/// Where the auth-bootstrap family lives, relative to the output root.
+struct SupportPaths {
+    auth_setup: &'static str,
+    personas: &'static str,
+    /// The import specifier the IFML specs/journeys use for the personas
+    /// module (relative to `tests/ifml/`).
+    personas_import: &'static str,
+}
+
+const STANDALONE_SUPPORT: SupportPaths = SupportPaths {
+    auth_setup: "tests/e2e/auth.setup.ts",
+    personas: "tests/e2e/personas.ts",
+    personas_import: "../e2e/personas",
+};
+
+const INTEGRATED_SUPPORT: SupportPaths = SupportPaths {
+    auth_setup: "tests/ifml/support/auth.setup.ts",
+    personas: "tests/ifml/support/personas.ts",
+    personas_import: "./support/personas",
+};
 
 impl IfmlE2eTestGenerator {
     pub fn new(output_dir: &Path, framework: &str) -> Self {
@@ -76,12 +103,40 @@ impl IfmlE2eTestGenerator {
             output_dir: output_dir.to_path_buf(),
             framework: framework.to_string(),
             mappings: None,
+            integrated: false,
         }
     }
 
     pub fn with_mappings(mut self, mappings: Option<IfmlComponentMappings>) -> Self {
         self.mappings = mappings;
         self
+    }
+
+    /// Integrated mode (issue #468 W1b): journeys co-locate with the specs
+    /// under `tests/ifml/` and the auth bootstrap moves to
+    /// `tests/ifml/support/`.
+    pub fn with_integration(mut self) -> Self {
+        self.integrated = true;
+        self
+    }
+
+    fn support(&self) -> &'static SupportPaths {
+        if self.integrated {
+            &INTEGRATED_SUPPORT
+        } else {
+            &STANDALONE_SUPPORT
+        }
+    }
+
+    /// Journey specs: standalone they live in their own `tests/journeys/`
+    /// directory; integrated they join the specs under `tests/ifml/` so the
+    /// single ui playwright config's `ifml` project picks them up.
+    fn journeys_dir(&self) -> PathBuf {
+        if self.integrated {
+            self.output_dir.join("tests").join("ifml")
+        } else {
+            self.output_dir.join("tests").join("journeys")
+        }
     }
 
     pub(super) fn selectors(
@@ -261,6 +316,11 @@ impl GlobalGenerator for IfmlE2eTestGenerator {
                     if !active_auth_specs.contains(name) {
                         let _ = std::fs::remove_file(&path);
                     }
+                    continue;
+                }
+                if name.ends_with(".journey.spec.ts") {
+                    // Journeys are kept/swept by the journeys pass below
+                    // (integrated mode co-locates them in this directory).
                     continue;
                 }
                 if !active_specs.contains(name) {
@@ -456,38 +516,41 @@ impl GlobalGenerator for IfmlE2eTestGenerator {
                     "{}.auth.spec.ts",
                     to_kebab_case(&auth_spec.view_name)
                 )),
-                content: super::auth::render_auth_spec(auth_spec),
+                content: super::auth::render_auth_spec(auth_spec, self.support().personas_import),
             });
         }
 
+        let journeys_dir = self.journeys_dir();
         for journey in &workflow_journeys {
             files.push(GeneratedFile {
-                path: self.output_dir.join("tests").join("journeys").join(format!(
+                path: journeys_dir.join(format!(
                     "{}-workflow.journey.spec.ts",
                     to_kebab_case(&journey.entity)
                 )),
-                content: super::auth::render_workflow_journey(journey),
+                content: super::auth::render_workflow_journey(
+                    journey,
+                    self.support().personas_import,
+                ),
             });
         }
         if let Some(journey) = &shell_journey {
             files.push(GeneratedFile {
-                path: self
-                    .output_dir
-                    .join("tests")
-                    .join("journeys")
-                    .join("shell-nav.journey.spec.ts"),
-                content: super::auth::render_shell_nav_journey(journey),
+                path: journeys_dir.join("shell-nav.journey.spec.ts"),
+                content: super::auth::render_shell_nav_journey(
+                    journey,
+                    self.support().personas_import,
+                ),
             });
         }
 
         // The per-view navigate() walks (issue #468 W5).
         for journey in &view_journeys {
             files.push(GeneratedFile {
-                path: self.output_dir.join("tests").join("journeys").join(format!(
+                path: journeys_dir.join(format!(
                     "{}.journey.spec.ts",
                     to_kebab_case(&journey.view_name)
                 )),
-                content: super::auth::render_view_journey(journey),
+                content: super::auth::render_view_journey(journey, self.support().personas_import),
             });
         }
 
@@ -502,7 +565,7 @@ impl GlobalGenerator for IfmlE2eTestGenerator {
         } else {
             HashSet::new()
         };
-        let journeys_dir = self.output_dir.join("tests").join("journeys");
+        let journeys_dir = self.journeys_dir();
         if journeys_dir.is_dir()
             && let Ok(entries) = std::fs::read_dir(&journeys_dir)
         {
@@ -517,7 +580,8 @@ impl GlobalGenerator for IfmlE2eTestGenerator {
             }
         }
         if !auth_enabled {
-            for rel in ["tests/e2e/auth.setup.ts", "tests/e2e/personas.ts"] {
+            let support = self.support();
+            for rel in [support.auth_setup, support.personas] {
                 let path = self.output_dir.join(rel);
                 if path.exists() {
                     let _ = std::fs::remove_file(&path);
@@ -539,41 +603,42 @@ impl GlobalGenerator for IfmlE2eTestGenerator {
         }
 
         // The auth bootstrap (issue #463): per-persona API-key provisioning
-        // + the shared persona fixtures.
+        // + the shared persona fixtures. Integrated mode keeps the family
+        // out of the entity suite's `tests/e2e/` tree (issue #468 W1b).
         if auth_enabled && !personas.is_empty() {
+            let support = self.support();
             files.push(GeneratedFile {
-                path: self
-                    .output_dir
-                    .join("tests")
-                    .join("e2e")
-                    .join("auth.setup.ts"),
+                path: self.output_dir.join(support.auth_setup),
                 content: super::auth::render_auth_setup(&personas),
             });
             files.push(GeneratedFile {
-                path: self
-                    .output_dir
-                    .join("tests")
-                    .join("e2e")
-                    .join("personas.ts"),
+                path: self.output_dir.join(support.personas),
                 content: super::auth::render_personas(&personas),
             });
         }
 
-        let config_path = self.output_dir.join("playwright.config.ts");
-        if !config_path.exists() {
-            let global_setup =
-                (auth_enabled && !personas.is_empty()).then_some("tests/e2e/auth.setup.ts");
-            files.push(GeneratedFile {
-                path: config_path,
-                content: playwright_config(global_setup).to_string(),
-            });
-        }
-        let package_path = self.output_dir.join("package.json");
-        if !package_path.exists() {
-            files.push(GeneratedFile {
-                path: package_path,
-                content: package_json().to_string(),
-            });
+        // Standalone mode owns its harness files (if-absent, so a real app's
+        // hand-edits survive). Integrated mode NEVER emits them: the entity
+        // scaffold's playwright.config.ts + package.json are authoritative,
+        // and an if-absent check here would race the scaffold on a fresh ui
+        // tree (issue #468 W1b).
+        if !self.integrated {
+            let config_path = self.output_dir.join("playwright.config.ts");
+            if !config_path.exists() {
+                let global_setup = (auth_enabled && !personas.is_empty())
+                    .then_some("tests/e2e/auth.setup.ts");
+                files.push(GeneratedFile {
+                    path: config_path,
+                    content: playwright_config(global_setup).to_string(),
+                });
+            }
+            let package_path = self.output_dir.join("package.json");
+            if !package_path.exists() {
+                files.push(GeneratedFile {
+                    path: package_path,
+                    content: package_json().to_string(),
+                });
+            }
         }
 
         Ok(files)
