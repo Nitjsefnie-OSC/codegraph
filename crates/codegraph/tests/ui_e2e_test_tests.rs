@@ -8,8 +8,9 @@
 //! - A: scalar same-domain + cross-domain `.schema.json` refs resolve
 //! - B: array refs assign an array id and testData sends the array
 //! - C: required-only transitive closure is ordered leaf-first with FK wiring
-//! - D: unsatisfiable/cyclic required deps throw; optional refs are not created;
-//!   cleanup is reversed and array-aware
+//! - D: unsatisfiable required deps throw; required-FK cycles (self, mutual,
+//!   longer) are BROKEN instead of aborting the whole describe block;
+//!   optional refs are not created; cleanup is reversed and array-aware
 
 use std::path::Path;
 
@@ -251,10 +252,17 @@ fn after_all_block(content: &str) -> &str {
 }
 
 fn before_all_block(content: &str) -> &str {
-    match content.find("test.beforeAll") {
-        Some(idx) => &content[idx..],
-        None => "",
-    }
+    let Some(start) = content.find("test.beforeAll") else {
+        return "";
+    };
+    // Bounded slice: the main-entity creates in the test bodies also call
+    // createEntityAsAcme, so assertions scoped to `beforeAll` must stop at
+    // the next hook.
+    let end = content[start..]
+        .find("test.afterAll")
+        .map(|off| start + off)
+        .unwrap_or(content.len());
+    &content[start..end]
 }
 
 // ── Slice A: scalar refs resolve via graph + `.schema.json` fallback ────
@@ -503,7 +511,10 @@ fn unsatisfiable_required_field_throws() {
 }
 
 #[test]
-fn required_cycle_throws() {
+fn required_mutual_cycle_is_broken_with_an_omitted_leg() {
+    // A requires B, B requires A: the setup must NOT abort — the DFS breaks
+    // the cycle at its last-discovered leg (A's `b_id`), so A is created
+    // first without it and B fills `a_id` from the created A.
     let b = schema("BType", "b", "B", "hr", "b");
     let a = schema("AType", "a", "A", "hr", "a");
     let engine = MockEngine::builder()
@@ -531,12 +542,164 @@ fn required_cycle_throws() {
     let content = owner_crud(&engine, &config, "AType", "hr");
 
     assert!(
-        content.contains("throw new Error("),
-        "required cycle must throw loudly:\n{content}"
+        !content.contains("required dependency cycle detected"),
+        "mutual cycle must not abort the setup anymore:\n{content}"
+    );
+    let before = before_all_block(&content);
+    assert!(
+        before.contains(
+            "// fixture: breaking required-FK cycle BType -> AType -> BType by omitting 'b_id' on AType"
+        ),
+        "the break must be named in a comment:\n{before}"
+    );
+    // Both participants are created; the omitted leg is the break-point's.
+    assert!(
+        before.contains("createEntityAsAcme(orgContext, '/hr/a'")
+            && before.contains("createEntityAsAcme(orgContext, '/hr/b'"),
+        "both cycle participants must be created:\n{before}"
     );
     assert!(
-        content.to_lowercase().contains("cycle"),
-        "throw message must mention the cycle:\n{content}"
+        !before.contains("'b_id': depIds['b_id']") && before.contains("'a_id': depIds['a_id']"),
+        "exactly the break-point leg (b_id on A) must be omitted:\n{before}"
+    );
+    // A (break-point) is created before B; B fills its a_id from depIds.
+    let a_idx = before
+        .find("depIds['a_id'] = dep_")
+        .expect("A dep must be created");
+    let b_idx = before
+        .find("depIds['b_id'] = dep_")
+        .expect("B dep must be created");
+    assert!(a_idx < b_idx, "break-point must be created first:\n{before}");
+    // If the API genuinely requires the omitted FK, the create 4xxs — the
+    // emitted catch must rethrow with a message naming the cycle, not pass.
+    assert!(
+        before.contains("cycle-break create for 'a_id' failed"),
+        "break-point create failure must surface a clear error:\n{before}"
+    );
+    assert!(
+        before.contains("make one ref optional in the model"),
+        "the error must point at the modeling fix:\n{before}"
+    );
+}
+
+#[test]
+fn self_reference_leg_is_omitted_not_thrown() {
+    // Job.job_id → Job (parent job): the base case of cycle breaking. The
+    // closure must not recurse on the self-edge, no dep step is created, and
+    // the conditional testData spread simply omits the leg.
+    let job = schema("JobType", "job", "Job", "hr", "job");
+    let engine = MockEngine::builder()
+        .with_schema(job.clone())
+        .with_ref_target("job", "JobType", job)
+        .with_properties(
+            "JobType",
+            vec![
+                scalar("name", "TEXT", true),
+                entity_ref("job", "hr/json/job.schema.json", false, true),
+            ],
+        )
+        .build();
+    let config = config(&[("hr", "JobType")]);
+
+    let content = owner_crud(&engine, &config, "JobType", "hr");
+
+    assert!(
+        !content.contains("required dependency cycle detected"),
+        "self-reference must not abort the setup anymore:\n{content}"
+    );
+    let before = before_all_block(&content);
+    assert!(
+        !before.contains("createEntityAsAcme(orgContext, '/hr/job'"),
+        "no dep step may be created for the self-reference:\n{before}"
+    );
+    assert!(
+        !before.contains("breaking required-FK cycle"),
+        "a self-reference is omitted silently, not 'broken':\n{before}"
+    );
+    assert!(
+        content.contains("...(depIds['job_id'] ? { 'job_id': depIds['job_id'] } : {}),"),
+        "the conditional spread stays — the leg is set only if Job is \
+         created transitively as someone else's dep:\n{content}"
+    );
+}
+
+#[test]
+fn three_entity_cycle_creates_in_working_order_with_one_omitted_leg() {
+    // A -> B -> C -> A: the DFS breaks exactly one leg (the last-discovered,
+    // A's `b_id`) and still orders the remaining creates leaf-first:
+    // A (break-point, no b_id) → C (fills a_id) → B (fills c_id).
+    let b = schema("BType", "b", "B", "hr", "b");
+    let c = schema("CType", "c", "C", "hr", "c");
+    let a = schema("AType", "a", "A", "hr", "a");
+    let engine = MockEngine::builder()
+        .with_schema(a.clone())
+        .with_schema(b.clone())
+        .with_schema(c.clone())
+        .with_ref_target("b", "AType", b)
+        .with_ref_target("c", "BType", c)
+        .with_ref_target("a", "CType", a)
+        .with_properties(
+            "AType",
+            vec![
+                scalar("name", "TEXT", true),
+                entity_ref("b", "hr/json/b.schema.json", false, true),
+            ],
+        )
+        .with_properties(
+            "BType",
+            vec![
+                scalar("name", "TEXT", true),
+                entity_ref("c", "hr/json/c.schema.json", false, true),
+            ],
+        )
+        .with_properties(
+            "CType",
+            vec![
+                scalar("name", "TEXT", true),
+                entity_ref("a", "hr/json/a.schema.json", false, true),
+            ],
+        )
+        .build();
+    let config = config(&[("hr", "AType"), ("hr", "BType"), ("hr", "CType")]);
+
+    let content = owner_crud(&engine, &config, "AType", "hr");
+
+    assert!(
+        !content.contains("required dependency cycle detected"),
+        "three-entity cycle must not abort the setup anymore:\n{content}"
+    );
+    let before = before_all_block(&content);
+    let break_comments = before.matches("breaking required-FK cycle").count();
+    assert_eq!(
+        break_comments, 1,
+        "exactly one leg must be broken:\n{before}"
+    );
+    assert!(
+        before.contains(
+            "// fixture: breaking required-FK cycle BType -> CType -> AType -> BType by omitting 'b_id' on AType"
+        ),
+        "the break comment must name the full cycle path:\n{before}"
+    );
+    // Working creation order with the break-point first.
+    let a_idx = before
+        .find("depIds['a_id'] = dep_")
+        .expect("A dep must be created");
+    let c_idx = before
+        .find("depIds['c_id'] = dep_")
+        .expect("C dep must be created");
+    let b_idx = before
+        .find("depIds['b_id'] = dep_")
+        .expect("B dep must be created");
+    assert!(
+        a_idx < c_idx && c_idx < b_idx,
+        "creates must run A (break-point) → C → B:\n{before}"
+    );
+    // Exactly one omitted leg: A's b_id is gone, the other two FKs wire up.
+    assert!(
+        !before.contains("'b_id': depIds['b_id']")
+            && before.contains("'a_id': depIds['a_id']")
+            && before.contains("'c_id': depIds['c_id']"),
+        "exactly the break-point leg (b_id on A) must be omitted:\n{before}"
     );
 }
 

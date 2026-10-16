@@ -15,6 +15,22 @@ pub struct EntityRefDep {
     pub is_array: bool,
 }
 
+/// One broken required-FK leg on a dependency step (cycle breaking).
+///
+/// Required-FK cycles no longer abort the `beforeAll` setup: the DFS breaks
+/// the cycle at its last-discovered leg by omitting that FK from the create
+/// body. If the API genuinely requires the FK, the create 4xxs and the
+/// emitted spec throws with a message naming the cycle — a modeling error.
+#[derive(Debug, Clone, Serialize)]
+pub struct CycleBreakCtx {
+    /// FK column omitted from this step's create body.
+    pub fk: String,
+    /// Entity title whose create omits the FK (the first-created participant).
+    pub on_entity: String,
+    /// The discovery path of the cycle, e.g. `Job -> Task -> Job`.
+    pub cycle_path: String,
+}
+
 /// One entity creation step in the dependency `beforeAll`.
 /// Steps are ordered leaf-first so an entity's FK deps already exist.
 #[derive(Debug, Serialize)]
@@ -34,6 +50,12 @@ pub struct DependencyStep {
     /// (warn + leave the FK unset) because such rows may pre-exist via seed
     /// data; required-FK entities still fail their own create loudly.
     pub optional: bool,
+    /// Required-FK legs omitted from `fk_map` to break a dependency cycle.
+    /// Empty unless this step participates in a required-FK cycle.
+    pub cycle_breaks: Vec<CycleBreakCtx>,
+    /// Pre-joined `cycle_path`s of `cycle_breaks` (`"; "` separated) for the
+    /// break-point failure message — the template engine has no `map` filter.
+    pub cycle_break_paths: String,
 }
 
 /// Configuration for generated include E2E tests.
