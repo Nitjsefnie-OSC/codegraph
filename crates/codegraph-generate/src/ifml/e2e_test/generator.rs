@@ -196,13 +196,22 @@ impl GlobalGenerator for IfmlE2eTestGenerator {
         };
         let mut ux_specs: Vec<(String, UxViewTest)> = Vec::new();
         let human_actors: Vec<String> = if auth_enabled || model.policy.is_some() {
-            db.get_actors()
+            let mut names: Vec<String> = db
+                .get_actors()
                 .await
                 .map_err(crate::error::Error::Graph)?
                 .into_iter()
                 .filter(|actor| actor.kind.as_deref() != Some("agent"))
                 .map(|actor| actor.name)
-                .collect()
+                .collect();
+            // Actors repeat across per-domain policies (every .actor
+            // re-imports the core ladder — the PolicyContext dedup fixed
+            // the capability map, this fixes the list): one persona per
+            // name, or the gating specs emit duplicate titles and
+            // Playwright aborts the run (issue #468).
+            names.sort();
+            names.dedup();
+            names
         } else {
             Vec::new()
         };
