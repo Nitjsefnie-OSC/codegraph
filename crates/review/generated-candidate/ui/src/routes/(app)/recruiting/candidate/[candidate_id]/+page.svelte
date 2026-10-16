@@ -17,7 +17,8 @@
 
 	import { onMount } from 'svelte';
 	import { entityNavigation, pushChild, popTo, resetNavigation, markDirty, clearDirty } from '#lib/stores/entity-navigation.ts';
-	import { apiGet, apiPost, apiDelete } from '#lib/api/client.ts';
+	import { apiGet } from '#lib/api/client.ts';
+	import ChildSection from '#lib/components/ChildSection.svelte';
 
 	import { TimeAgo } from '@crewbase/entities';
 	import { toast } from 'svelte-sonner';
@@ -41,21 +42,11 @@
 	let transitioning = $state(false);
 
 
-	let expandedSections = $state(new Set<string>());
 
 	let distribution_guidelinesItems = $state<DistributionGuidelinesResponse[]>([]);
 
 	let qualificationItems = $state<QualificationResponse[]>([]);
 
-
-	function toggleSection(name: string) {
-		expandedSections = new Set(expandedSections);
-		if (expandedSections.has(name)) {
-			expandedSections.delete(name);
-		} else {
-			expandedSections.add(name);
-		}
-	}
 
 	async function loadChildren() {
 
@@ -75,14 +66,6 @@
 
 	}
 
-	function startAddChild(domain: string, pathSegment: string) {
-		goto(`/${domain}/${pathSegment}/new?parent_id=${item.id}`);
-	}
-
-	function editChild(domain: string, pathSegment: string, childId: string) {
-		goto(`/${domain}/${pathSegment}/${childId}/edit`);
-	}
-
 	function manageChild(domain: string, pathSegment: string, childId: string) {
 		pushChild(
 			{
@@ -98,16 +81,6 @@
 			}
 		);
 		goto(`/${domain}/${pathSegment}/${childId}`);
-	}
-
-	async function deleteChild(domain: string, pathSegment: string, childId: string) {
-		try {
-			await apiDelete(`/${domain}/${pathSegment}/${childId}`);
-			toast.success(m.common_child_deleted());
-			await loadChildren();
-		} catch (e) {
-			toast.error(m.common_delete_failed({ error: (e as Error).message }));
-		}
 	}
 
 	onMount(() => {
@@ -413,155 +386,59 @@
 		</Card.Header>
 		<Card.Content class="space-y-2">
 
-			<!-- Child section accordion for DistributionGuidelines (DistributionGuidelines) -->
-<!-- Included from detail_page.tera inside the child_sections loop -->
+			<ChildSection
+				items={distribution_guidelinesItems}
+				label="DistributionGuidelines"
+				moduleName="distribution_guidelines"
+				domain="recruiting"
+				pathSegment="distribution-guidelines"
+				parentId={item.id}
+				displayField="start_date"
+				childSectionTid="child-section-distribution_guidelines"
+				addBtnTid="child-section-distribution_guidelines-add-btn"
+				actionsTid="distribution_guidelines-actions"
+				actionsMenuTid="distribution_guidelines-actions-menu"
+				actionEditTid="distribution_guidelines-action-edit"
+				actionDeleteTid="distribution_guidelines-action-delete"
+				manageBtnTid="manage-distribution_guidelines-btn"
+				hasChildren=false
+				deleteDialogTid="distribution_guidelines-delete-dialog"
+				deleteDialogConfirmTid="distribution_guidelines-delete-dialog-confirm"
 
-<div class="border rounded-lg overflow-hidden">
-	<!-- Collapsible header -->
-	<button
-		class="flex w-full items-center justify-between px-4 py-3 text-sm font-medium bg-muted/50 hover:bg-muted transition-colors"
-		onclick={() => toggleSection('distribution_guidelines')}
-		data-testid="child-section-distribution_guidelines"
-		type="button"
-	>
-		<span class="flex items-center gap-2">
-			<span>DistributionGuidelines</span>
-			<span class="text-xs text-muted-foreground font-normal">
-				({distribution_guidelinesItems.length})
-			</span>
-		</span>
-		<span class="text-muted-foreground">
-			{expandedSections.has('distribution_guidelines') ? '▼' : '▶'}
-		</span>
-	</button>
+				menuActions={[]}
+				primaryActions={[]}
+				confirmDelete={false}
 
-	<!-- Expanded content -->
-	{#if expandedSections.has('distribution_guidelines')}
-		<div class="p-4 space-y-3">
-			<!-- Add button -->
-			<div class="flex justify-end">
-				<button
-					class="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-accent transition-colors"
-					onclick={() => startAddChild('recruiting', 'distribution-guidelines')}
-					data-testid="child-section-distribution_guidelines-add-btn"
-					type="button"
-				>
-					+ Add
-				</button>
-			</div>
+				onRefresh={loadChildren}
+				onManage={manageChild}
+			/>
 
-			<!-- Items list -->
-			{#if distribution_guidelinesItems.length === 0}
-				<p class="text-sm text-muted-foreground text-center py-4">No items yet.</p>
-			{:else}
-				<ul class="divide-y divide-border rounded-md border">
-					{#each distribution_guidelinesItems as child (child.id)}
-						{@const label = (child as Record<string, unknown>)['start_date'] ?? child.id}
-						<li class="flex items-center justify-between px-3 py-2 text-sm">
-							<span class="truncate text-foreground">
-								{label}
-							</span>
-							<div class="flex shrink-0 items-center gap-1 ml-2">
-								<button
-									class="rounded px-2 py-1 text-xs hover:bg-accent transition-colors"
-									onclick={() => editChild('recruiting', 'distribution-guidelines', child.id)}
-									type="button"
-								>
-									Edit
-								</button>
-								<button
-									class="rounded px-2 py-1 text-xs text-destructive hover:bg-destructive/10 transition-colors"
-									onclick={() => deleteChild('recruiting', 'distribution-guidelines', child.id)}
-									type="button"
-								>
-									Delete
-								</button>
-								
-							</div>
-						</li>
-					{/each}
-				</ul>
-			{/if}
-		</div>
-	{/if}
-</div>
+			<ChildSection
+				items={qualificationItems}
+				label="Qualification"
+				moduleName="qualification"
+				domain="recruiting"
+				pathSegment="qualification"
+				parentId={item.id}
+				displayField="qualification_name"
+				childSectionTid="child-section-qualification"
+				addBtnTid="child-section-qualification-add-btn"
+				actionsTid="qualification-actions"
+				actionsMenuTid="qualification-actions-menu"
+				actionEditTid="qualification-action-edit"
+				actionDeleteTid="qualification-action-delete"
+				manageBtnTid="manage-qualification-btn"
+				hasChildren=false
+				deleteDialogTid="qualification-delete-dialog"
+				deleteDialogConfirmTid="qualification-delete-dialog-confirm"
 
+				menuActions={[]}
+				primaryActions={[]}
+				confirmDelete={false}
 
-
-			<!-- Child section accordion for Qualification (Qualification) -->
-<!-- Included from detail_page.tera inside the child_sections loop -->
-
-<div class="border rounded-lg overflow-hidden">
-	<!-- Collapsible header -->
-	<button
-		class="flex w-full items-center justify-between px-4 py-3 text-sm font-medium bg-muted/50 hover:bg-muted transition-colors"
-		onclick={() => toggleSection('qualification')}
-		data-testid="child-section-qualification"
-		type="button"
-	>
-		<span class="flex items-center gap-2">
-			<span>Qualification</span>
-			<span class="text-xs text-muted-foreground font-normal">
-				({qualificationItems.length})
-			</span>
-		</span>
-		<span class="text-muted-foreground">
-			{expandedSections.has('qualification') ? '▼' : '▶'}
-		</span>
-	</button>
-
-	<!-- Expanded content -->
-	{#if expandedSections.has('qualification')}
-		<div class="p-4 space-y-3">
-			<!-- Add button -->
-			<div class="flex justify-end">
-				<button
-					class="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-accent transition-colors"
-					onclick={() => startAddChild('recruiting', 'qualification')}
-					data-testid="child-section-qualification-add-btn"
-					type="button"
-				>
-					+ Add
-				</button>
-			</div>
-
-			<!-- Items list -->
-			{#if qualificationItems.length === 0}
-				<p class="text-sm text-muted-foreground text-center py-4">No items yet.</p>
-			{:else}
-				<ul class="divide-y divide-border rounded-md border">
-					{#each qualificationItems as child (child.id)}
-						{@const label = (child as Record<string, unknown>)['qualification_name'] ?? child.id}
-						<li class="flex items-center justify-between px-3 py-2 text-sm">
-							<span class="truncate text-foreground">
-								{label}
-							</span>
-							<div class="flex shrink-0 items-center gap-1 ml-2">
-								<button
-									class="rounded px-2 py-1 text-xs hover:bg-accent transition-colors"
-									onclick={() => editChild('recruiting', 'qualification', child.id)}
-									type="button"
-								>
-									Edit
-								</button>
-								<button
-									class="rounded px-2 py-1 text-xs text-destructive hover:bg-destructive/10 transition-colors"
-									onclick={() => deleteChild('recruiting', 'qualification', child.id)}
-									type="button"
-								>
-									Delete
-								</button>
-								
-							</div>
-						</li>
-					{/each}
-				</ul>
-			{/if}
-		</div>
-	{/if}
-</div>
-
-
+				onRefresh={loadChildren}
+				onManage={manageChild}
+			/>
 
 		</Card.Content>
 	</Card.Root>

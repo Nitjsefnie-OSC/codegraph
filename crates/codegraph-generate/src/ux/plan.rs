@@ -63,8 +63,8 @@ use super::dimension::{DimensionHints, infer_dimension_with_hints};
 /// | `{module}-table` | `ui/list_page.tera:372` | crud spec `:190`, ux spec, POM |
 /// | `{module}-sort-{field}` | `ui/list_page.tera:379` | ux spec sort blocks |
 /// | `{module}-pagination` | `ui/list_page.tera:447` | ux spec hydration waits, POM |
-/// | `{module}-delete-dialog` | `ui/list_page.tera`, `ui/child_section.tera` | ux spec, POM |
-/// | `{module}-delete-dialog-confirm` | `ui/list_page.tera`, `ui/child_section.tera` | ux spec delete flow, POM |
+/// | `{module}-delete-dialog` | `ui/list_page.tera`, `ui/child_section_component.tera` | ux spec, POM |
+/// | `{module}-delete-dialog-confirm` | `ui/list_page.tera`, `ui/child_section_component.tera` | ux spec delete flow, POM |
 /// | `{module}-form` | `ui/entity_form.tera:140` | validation/crud specs, POM |
 /// | `{module}-cancel-btn` | `ui/entity_form.tera:255` | POM cancel flow |
 /// | `{module}-submit-btn` | `ui/entity_form.tera:258` | crud spec `:204`, POM submit |
