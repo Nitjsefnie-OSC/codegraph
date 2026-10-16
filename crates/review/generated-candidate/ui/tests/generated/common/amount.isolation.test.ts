@@ -25,7 +25,7 @@ const depIds: Record<string, string | string[]> = {};
 function testData(): Partial<Record<keyof CreateAmountRequest | 'code', unknown>> {
   return {
     'currency': 'USD',
-    'value': 77,
+    'value': 42.5,
 
 
   };

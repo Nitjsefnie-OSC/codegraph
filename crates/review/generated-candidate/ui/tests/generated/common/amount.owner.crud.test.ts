@@ -23,7 +23,7 @@ const depIds: Record<string, string | string[]> = {};
 function testData(): Partial<Record<keyof CreateAmountRequest | 'code', unknown>> {
   return {
     'currency': 'USD',
-    'value': 42,
+    'value': 42.5,
 
 
   };
@@ -32,7 +32,7 @@ function testData(): Partial<Record<keyof CreateAmountRequest | 'code', unknown>
 function updatedData(): Partial<Record<keyof CreateAmountRequest | 'code', unknown>> {
   return {
     'currency': 'AUD',
-    'value': 99,
+    'value': 99.5,
 
 
   };

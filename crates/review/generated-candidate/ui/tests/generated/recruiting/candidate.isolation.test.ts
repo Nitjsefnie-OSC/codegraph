@@ -24,12 +24,12 @@ const depIds: Record<string, string | string[]> = {};
 
 function testData(): Partial<Record<keyof CreateCandidateRequest | 'code', unknown>> {
   return {
-    'birth_date': '2025-03-10',
+    'birth_date': '2026-01-15',
     'family_name': 'ACME Isolation Family Name',
     'given_name': 'ACME Isolation Given Name',
     // 'application_process_history': ValueObject — omit, serde default
     'candidate_id': 'ACME Isolation Candidate Id',
-    'compensation_expectation': 77,
+    'compensation_expectation': 42.5,
     'compensation_expectation_currency': 'USD',
     // 'distribution_guidelines': ValueObject — omit, serde default
     'external_identifier': { value: 'ACME Isolation External Identifier' },

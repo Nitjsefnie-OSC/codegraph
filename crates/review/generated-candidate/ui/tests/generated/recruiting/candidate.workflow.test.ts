@@ -30,7 +30,7 @@ function testData(): Partial<Record<keyof CreateCandidateRequest | 'code', unkno
   return {
 
 
-    'birth_date': '2025-01-15',
+    'birth_date': '2026-01-15',
 
 
 
@@ -50,7 +50,7 @@ function testData(): Partial<Record<keyof CreateCandidateRequest | 'code', unkno
 
 
 
-    'compensation_expectation': 42,
+    'compensation_expectation': 42.5,
 
 
 

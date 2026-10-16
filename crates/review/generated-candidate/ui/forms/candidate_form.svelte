@@ -94,7 +94,7 @@
 	let position_titles = $state<string[]>(
 		Array.isArray(initialData?.position_titles)
 			? initialData?.position_titles as string[]
-			: ['']
+			: []
 	);
 
 
@@ -102,7 +102,7 @@
 	let qualifications = $state<string[]>(
 		Array.isArray(initialData?.qualifications)
 			? initialData?.qualifications as string[]
-			: ['']
+			: []
 	);
 
 

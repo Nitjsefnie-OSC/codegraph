@@ -25,8 +25,8 @@ const depIds: Record<string, string | string[]> = {};
 function testData(): Partial<Record<keyof CreateDistributionBaseRequest | 'code', unknown>> {
   return {
     'description': 'ACME Isolation Description',
-    'end_date': '2025-03-10',
-    'start_date': '2025-03-10',
+    'end_date': '2026-01-15',
+    'start_date': '2026-01-15',
 
 
   };

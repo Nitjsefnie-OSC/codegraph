@@ -25,9 +25,9 @@ const depIds: Record<string, string | string[]> = {};
 function testData(): Partial<Record<keyof CreatePublicEventRequest | 'code', unknown>> {
   return {
     'is_published': true,
-    'capacity': 77,
+    'capacity': 42,
     'title': 'ACME Isolation Title',
-    'birth_date': '2025-03-10',
+    'birth_date': '2026-01-15',
     'family_name': 'ACME Isolation Family Name',
     'given_name': 'ACME Isolation Given Name',
 

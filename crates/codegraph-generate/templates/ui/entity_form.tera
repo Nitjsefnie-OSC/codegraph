@@ -36,7 +36,7 @@
 	let {{ field.name }} = $state<Record<string, unknown>[]>(
 		Array.isArray(initialData?.{{ field.name }})
 			? (initialData?.{{ field.name }} as Record<string, unknown>[])
-			: [{}]
+			: []
 	);
 {% elif field.structured_sub_fields | length > 0 %}
 	let {{ field.name }} = $state<Record<string, unknown>>(
@@ -48,7 +48,7 @@
 	let {{ field.name }} = $state<string[]>(
 		Array.isArray(initialData?.{{ field.name }})
 			? initialData?.{{ field.name }} as string[]
-			: ['']
+			: []
 	);
 {% elif field.is_array and field.is_codelist %}
 	let {{ field.name }} = $state(Array.isArray(initialData?.{{ field.name }}) ? ((initialData?.{{ field.name }} as {code:string}[])[0]?.code ?? '') : String(initialData?.{{ field.name }} ?? ''));

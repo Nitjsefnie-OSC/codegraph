@@ -34,7 +34,7 @@
 	let descriptions = $state<string[]>(
 		Array.isArray(initialData?.descriptions)
 			? initialData?.descriptions as string[]
-			: ['']
+			: []
 	);
 
 

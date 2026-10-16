@@ -22,12 +22,12 @@ const depIds: Record<string, string | string[]> = {};
 
 function testData(): Partial<Record<keyof CreateCandidateRequest | 'code', unknown>> {
   return {
-    'birth_date': '2025-01-15',
+    'birth_date': '2026-01-15',
     'family_name': 'Test Family Name',
     'given_name': 'Test Given Name',
     // 'application_process_history': ValueObject — omit, serde default
     'candidate_id': 'Test Candidate Id',
-    'compensation_expectation': 42,
+    'compensation_expectation': 42.5,
     'compensation_expectation_currency': 'USD',
     // 'distribution_guidelines': ValueObject — omit, serde default
     'external_identifier': { value: `Test External Identifier-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` },
@@ -46,12 +46,12 @@ function testData(): Partial<Record<keyof CreateCandidateRequest | 'code', unkno
 
 function updatedData(): Partial<Record<keyof CreateCandidateRequest | 'code', unknown>> {
   return {
-    'birth_date': '2025-06-20',
+    'birth_date': '2026-06-20',
     'family_name': 'Updated Family Name',
     'given_name': 'Updated Given Name',
     // 'application_process_history': ValueObject — omit, serde default
     'candidate_id': 'Updated Candidate Id',
-    'compensation_expectation': 99,
+    'compensation_expectation': 99.5,
     'compensation_expectation_currency': 'AUD',
     // 'distribution_guidelines': ValueObject — omit, serde default
     'external_identifier': { value: `Updated External Identifier-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` },

@@ -37,11 +37,11 @@ function testData(): Partial<Record<keyof CreatePayRunRequest | 'code', unknown>
 
 
 
-    'run_date': '2025-01-15',
+    'run_date': '2026-01-15',
 
 
 
-    'total_amount': 42,
+    'total_amount': 42.5,
 
 
 
@@ -61,11 +61,11 @@ function updatedData(): Partial<Record<keyof CreatePayRunRequest | 'code', unkno
 
 
 
-    'run_date': '2025-06-20',
+    'run_date': '2026-06-20',
 
 
 
-    'total_amount': 99,
+    'total_amount': 99.5,
 
 
 

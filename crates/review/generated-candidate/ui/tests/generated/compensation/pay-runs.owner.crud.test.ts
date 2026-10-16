@@ -23,8 +23,8 @@ const depIds: Record<string, string | string[]> = {};
 function testData(): Partial<Record<keyof CreatePayRunRequest | 'code', unknown>> {
   return {
     'pay_run_id': 'Test Pay Run Id',
-    'run_date': '2025-01-15',
-    'total_amount': 42,
+    'run_date': '2026-01-15',
+    'total_amount': 42.5,
     'total_amount_currency': 'USD',
 
 
@@ -34,8 +34,8 @@ function testData(): Partial<Record<keyof CreatePayRunRequest | 'code', unknown>
 function updatedData(): Partial<Record<keyof CreatePayRunRequest | 'code', unknown>> {
   return {
     'pay_run_id': 'Updated Pay Run Id',
-    'run_date': '2025-06-20',
-    'total_amount': 99,
+    'run_date': '2026-06-20',
+    'total_amount': 99.5,
     'total_amount_currency': 'AUD',
 
 

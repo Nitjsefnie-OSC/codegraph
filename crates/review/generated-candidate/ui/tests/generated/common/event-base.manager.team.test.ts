@@ -25,7 +25,7 @@ function testData(): Partial<Record<keyof CreateEventBaseRequest | 'code', unkno
   return {
     'capacity': 42,
     'title': 'Test Title',
-    'birth_date': '2025-01-15',
+    'birth_date': '2026-01-15',
     'family_name': 'Test Family Name',
     'given_name': 'Test Given Name',
 

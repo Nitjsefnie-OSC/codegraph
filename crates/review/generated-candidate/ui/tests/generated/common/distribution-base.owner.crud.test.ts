@@ -23,8 +23,8 @@ const depIds: Record<string, string | string[]> = {};
 function testData(): Partial<Record<keyof CreateDistributionBaseRequest | 'code', unknown>> {
   return {
     'description': 'Test Description',
-    'end_date': '2025-01-15',
-    'start_date': '2025-01-15',
+    'end_date': '2026-01-15',
+    'start_date': '2026-01-15',
 
 
   };
@@ -33,8 +33,8 @@ function testData(): Partial<Record<keyof CreateDistributionBaseRequest | 'code'
 function updatedData(): Partial<Record<keyof CreateDistributionBaseRequest | 'code', unknown>> {
   return {
     'description': 'Updated Description',
-    'end_date': '2025-06-20',
-    'start_date': '2025-06-20',
+    'end_date': '2026-06-20',
+    'start_date': '2026-06-20',
 
 
   };

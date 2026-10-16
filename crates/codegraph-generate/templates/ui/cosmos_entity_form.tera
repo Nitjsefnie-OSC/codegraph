@@ -36,7 +36,7 @@
 	let {{ field.name }} = $state<string[]>(
 		Array.isArray(initialData?.{{ field.name }})
 			? initialData?.{{ field.name }} as string[]
-			: ['']
+			: []
 	);
 {% elif field.structured_sub_fields | length > 0 and field.is_array %}
 	let {{ field.name }} = $state<Record<string, unknown>[]>(

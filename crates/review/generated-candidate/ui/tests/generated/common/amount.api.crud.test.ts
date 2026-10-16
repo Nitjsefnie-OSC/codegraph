@@ -37,7 +37,7 @@ function testData(): Partial<Record<keyof CreateAmountRequest | 'code', unknown>
 
 
 
-    'value': 42,
+    'value': 42.5,
 
 
 
@@ -53,7 +53,7 @@ function updatedData(): Partial<Record<keyof CreateAmountRequest | 'code', unkno
 
 
 
-    'value': 99,
+    'value': 99.5,
 
 
 

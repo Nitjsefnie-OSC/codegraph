@@ -22,8 +22,8 @@ const depIds: Record<string, string | string[]> = {};
 
 function testData(): Partial<Record<keyof CreateEffectiveDateRequest | 'code', unknown>> {
   return {
-    'valid_from': '2025-01-15',
-    'valid_to': '2025-01-15',
+    'valid_from': '2026-01-15',
+    'valid_to': '2026-01-15',
 
 
   };
@@ -31,8 +31,8 @@ function testData(): Partial<Record<keyof CreateEffectiveDateRequest | 'code', u
 
 function updatedData(): Partial<Record<keyof CreateEffectiveDateRequest | 'code', unknown>> {
   return {
-    'valid_from': '2025-06-20',
-    'valid_to': '2025-06-20',
+    'valid_from': '2026-06-20',
+    'valid_to': '2026-06-20',
 
 
   };

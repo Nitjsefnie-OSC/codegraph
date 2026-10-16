@@ -26,7 +26,7 @@ function testData(): Partial<Record<keyof CreateRsvpRequest | 'code', unknown>> 
   return {
     // 'event': ValueObject — omit, serde default
     'status': 'Confirmed',
-    'timestamp': '2025-03-10T09:00:00Z',
+    'timestamp': '2026-01-15T08:00:00Z',
 
 
   };

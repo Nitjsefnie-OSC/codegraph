@@ -24,7 +24,7 @@ const depIds: Record<string, string | string[]> = {};
 function testData(): Partial<Record<keyof CreateApplicationRequest | 'code', unknown>> {
   return {
     'application_id': 'Test Application Id',
-    'applied_date': '2025-01-15',
+    'applied_date': '2026-01-15',
     // 'candidate_id': entity ref — emitted by _dep_setup.tera
     'status': 'Applied',
 

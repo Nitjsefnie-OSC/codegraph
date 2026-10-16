@@ -23,12 +23,12 @@ const depIds: Record<string, string | string[]> = {};
 
 function testData(): Partial<Record<keyof CreateCandidateRequest | 'code', unknown>> {
   return {
-    'birth_date': '2025-01-15',
+    'birth_date': '2026-01-15',
     'family_name': 'Test Family Name',
     'given_name': 'Test Given Name',
     // 'application_process_history': ValueObject — omit, serde default
     'candidate_id': 'Test Candidate Id',
-    'compensation_expectation': 42,
+    'compensation_expectation': 42.5,
     'compensation_expectation_currency': 'USD',
     // 'distribution_guidelines': ValueObject — omit, serde default
     'external_identifier': { value: 'Test External Identifier' },

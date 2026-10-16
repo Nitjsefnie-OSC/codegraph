@@ -23,7 +23,7 @@ const depIds: Record<string, string | string[]> = {};
 
 function testData(): Partial<Record<keyof CreatePersonBaseRequest | 'code', unknown>> {
   return {
-    'birth_date': '2025-01-15',
+    'birth_date': '2026-01-15',
     'family_name': 'Test Family Name',
     'given_name': 'Test Given Name',
 

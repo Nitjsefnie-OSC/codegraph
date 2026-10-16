@@ -37,11 +37,11 @@ function testData(): Partial<Record<keyof CreateDistributionBaseRequest | 'code'
 
 
 
-    'end_date': '2025-01-15',
+    'end_date': '2026-01-15',
 
 
 
-    'start_date': '2025-01-15',
+    'start_date': '2026-01-15',
 
 
 
@@ -57,11 +57,11 @@ function updatedData(): Partial<Record<keyof CreateDistributionBaseRequest | 'co
 
 
 
-    'end_date': '2025-06-20',
+    'end_date': '2026-06-20',
 
 
 
-    'start_date': '2025-06-20',
+    'start_date': '2026-06-20',
 
 
 

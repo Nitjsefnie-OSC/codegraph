@@ -25,8 +25,8 @@ const depIds: Record<string, string | string[]> = {};
 function testData(): Partial<Record<keyof CreatePayRunRequest | 'code', unknown>> {
   return {
     'pay_run_id': 'ACME Isolation Pay Run Id',
-    'run_date': '2025-03-10',
-    'total_amount': 77,
+    'run_date': '2026-01-15',
+    'total_amount': 42.5,
     'total_amount_currency': 'USD',
 
 

@@ -503,6 +503,10 @@ async fn run_boot_and_tests(
         for (domain, port) in &upstreams {
             gw_cmd.env(gateway_env_name(domain), format!("http://127.0.0.1:{port}"));
         }
+        // The UI is cross-origin (vite preview :5173 -> gateway :8787);
+        // without the allowlist every browser write fails "Failed to
+        // fetch" (issue #468; mirrors the e2e suite's Axum path).
+        gw_cmd.env("CORS_ALLOWED_ORIGINS", config.ui_url());
         gw_cmd.current_dir(&config.root_dir);
         let gateway = ManagedProcess::spawn(
             gw_cmd,
