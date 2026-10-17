@@ -49,7 +49,7 @@ function testData(): Partial<Record<keyof CreateCandidateRequest | 'code', unkno
 
 
 
-    'candidate_id': 'Test Candidate Id',
+    // 'candidate_id': entity ref — emitted by _dep_setup.tera
 
 
 
@@ -102,6 +102,8 @@ function testData(): Partial<Record<keyof CreateCandidateRequest | 'code', unkno
 
 
 
+    ...(depIds['candidate_id'] ? { 'candidate_id': depIds['candidate_id'] } : {}),
+
   };
 }
 
@@ -125,7 +127,7 @@ function updatedData(): Partial<Record<keyof CreateCandidateRequest | 'code', un
 
 
 
-    'candidate_id': 'Updated Candidate Id',
+    // 'candidate_id': entity ref — emitted by _dep_setup.tera
 
 
 
@@ -178,11 +180,27 @@ function updatedData(): Partial<Record<keyof CreateCandidateRequest | 'code', un
 
 
 
+    ...(depIds['candidate_id'] ? { 'candidate_id': depIds['candidate_id'] } : {}),
+
   };
 }
 
 test.describe('Candidate CRUD', () => {
 
+
+  test.beforeAll(async ({ orgContext }) => {
+
+
+
+
+  });
+
+  test.afterAll(async ({ orgContext }) => {
+
+const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
+
+
+  });
 
 
   test('list page loads with table', async ({ ownerPage: page }) => {
@@ -222,7 +240,7 @@ test.describe('Candidate CRUD', () => {
 
 
 
-    await ui.fillCandidateId(String(data['candidate_id']));
+    await ui.fillCandidateId(String(data['candidate_id'] ?? ''));
 
 
 
@@ -506,7 +524,7 @@ test.describe('Candidate CRUD', () => {
 
 
 
-    await ui.fillCandidateId(String(data['candidate_id']));
+    await ui.fillCandidateId(String(data['candidate_id'] ?? ''));
 
 
 

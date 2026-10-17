@@ -638,3 +638,53 @@ async fn single_persona_policy_skips_gating_with_comment() {
         "no gating describe may render without a denied persona:\n{queue}"
     );
 }
+
+/// Issue #468 hydration: integrated mode emits the `(views)` role-hydration
+/// layouts (session → BaseJump account → policy tokens → `__USER_ROLES__`);
+/// standalone keeps the disjoint tree free of them — byte-identical output,
+/// no hydration file at the default route root either.
+#[tokio::test]
+async fn hydration_layouts_are_integrated_only() {
+    // Integrated flag-on: the hydration pair rides the route generator.
+    let (_root, ui) = generate_flag_on().await;
+
+    let server = read(&ui, "src/routes/(views)/+layout.server.ts");
+    assert!(
+        server.contains("get_accounts"),
+        "the integrated server layout derives roles from the BaseJump session:\n{server}"
+    );
+    assert!(
+        server.contains("const OWNER_ROLE_TOKENS: string[] = ['Admin', 'admin'];")
+            && server.contains("const MEMBER_ROLE_TOKENS: string[] = ['Agent', 'agent'];"),
+        "the mapping convention (first/last policy actor fallback) is pinned:\n{server}"
+    );
+    assert!(
+        !server.contains("redirect("),
+        "no redirect: persona contexts have no session by design:\n{server}"
+    );
+    let universal = read(&ui, "src/routes/(views)/+layout.ts");
+    assert!(
+        universal.contains("__USER_ROLES__"),
+        "the universal layout hydrates the guard surface:\n{universal}"
+    );
+
+    // Standalone twin: the disjoint svelte tree gains NO hydration layout —
+    // not under the route group (which doesn't exist there) and not at the
+    // default route root.
+    let fixture = write_fixture(PORTAL_ACTOR, STANDALONE_PROFILES_TOML);
+    let output = fixture.root.path().join("generated");
+    let frameworks = vec!["svelte".to_string()];
+    codegraph::driver::run(run_args(&fixture, &frameworks, &output))
+        .await
+        .expect("standalone run must succeed");
+    let svelte = output.join("svelte");
+    assert!(
+        !svelte.join("src/routes/(views)").exists(),
+        "standalone mode must not create the (views) route group"
+    );
+    assert!(
+        !svelte.join("src/routes/+layout.server.ts").exists()
+            && !svelte.join("src/routes/+layout.ts").exists(),
+        "standalone output stays byte-identical — no hydration layouts"
+    );
+}

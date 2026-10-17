@@ -27,7 +27,7 @@ function testData(): Partial<Record<keyof CreateCandidateRequest | 'code', unkno
     'family_name': 'Test Family Name',
     'given_name': 'Test Given Name',
     // 'application_process_history': ValueObject — omit, serde default
-    'candidate_id': 'Test Candidate Id',
+    // 'candidate_id': entity ref — emitted by _dep_setup.tera
     'compensation_expectation': 42.5,
     'compensation_expectation_currency': 'USD',
     // 'distribution_guidelines': ValueObject — omit, serde default
@@ -41,6 +41,8 @@ function testData(): Partial<Record<keyof CreateCandidateRequest | 'code', unkno
     'status': 'active',
     'uri': 'Test Uri',
 
+
+    ...(depIds['candidate_id'] ? { 'candidate_id': depIds['candidate_id'] } : {}),
 
   };
 }
@@ -57,6 +59,12 @@ test.describe('Candidate Employee View', () => {
     createdId = entity.id as string;
 });
 
+
+  test.afterAll(async ({ orgContext }) => {
+
+const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
+
+  });
 
 
 

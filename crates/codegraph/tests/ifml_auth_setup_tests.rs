@@ -204,6 +204,18 @@ view "RequestWizard" {
         }
     }
 }
+
+view "AgentBoard" {
+    label "Agent Board";
+    roles: [agent];
+
+    component "agent_grid" {
+        type: list;
+        data: Request;
+        fields: [title, status];
+        pagination: true;
+    }
+}
 "#;
 
 const DOMAINS_TOML: &str = r#"
@@ -600,5 +612,83 @@ async fn wizard_page_class_exposes_step_helpers() {
     assert!(
         form_journey.contains("wizard.step('Plan')") && form_journey.contains("wizard.step('Compare')"),
         "the journey into the wizard must assert the wizard steps:\n{form_journey}"
+    );
+}
+
+/// Issue #468 hydration follow-up: in integrated mode the `(views)` group
+/// carries the role-hydration layouts — the server load derives role tokens
+/// from the session's BaseJump account_role (the same get_accounts source
+/// the entity `(app)` guard layout reads), and the universal load publishes
+/// them onto `globalThis.__USER_ROLES__` BEFORE the child +page.ts guards
+/// run. Mapping convention: the fixture policy has no Owner/Member actor,
+/// so owner falls back to the FIRST policy actor (Admin) and member to the
+/// LAST (Agent); each mapping carries the policy token AND its snake_case
+/// form. The server load never redirects — persona contexts carry no
+/// session on purpose and must reach the guarded pages.
+#[tokio::test]
+async fn hydration_layouts_map_basejump_roles_to_policy_tokens() {
+    let (_fixture, ui) = generate_fixture().await;
+
+    let server = read(&ui, "src/routes/(views)/+layout.server.ts");
+    assert!(
+        server.contains("get_accounts") && server.contains("account_role"),
+        "the server layout must derive roles from the BaseJump account:\n{server}"
+    );
+    assert!(
+        server.contains("const OWNER_ROLE_TOKENS: string[] = ['Admin', 'admin'];"),
+        "owner maps to the first policy actor (token + snake form):\n{server}"
+    );
+    assert!(
+        server.contains("const MEMBER_ROLE_TOKENS: string[] = ['Agent', 'agent'];"),
+        "member maps to the last policy actor (token + snake form):\n{server}"
+    );
+    assert!(
+        !server.contains("redirect("),
+        "the hydration layout must NOT redirect — personas have no session \
+         by design and the client guards deny instead:\n{server}"
+    );
+    assert!(
+        server.contains("roles: null"),
+        "a sessionless visit hydrates nothing (roles: null):\n{server}"
+    );
+
+    let universal = read(&ui, "src/routes/(views)/+layout.ts");
+    assert!(
+        universal.contains("(globalThis as any).__USER_ROLES__ = data.roles;"),
+        "the universal layout must publish roles onto the guard surface:\n{universal}"
+    );
+    assert!(
+        universal.contains("if (typeof window !== 'undefined' && data.roles) {"),
+        "null roles must never clobber persona init-script seeding:\n{universal}"
+    );
+}
+
+/// The persona fixtures seed BOTH token forms, so a snake_case-guarded view
+/// (`roles: [agent]`, the crewbase convention) admits the Agent persona and
+/// denies the rest — the allow/deny pair the gating specs assert.
+#[tokio::test]
+async fn persona_seeding_matches_snake_case_role_guards() {
+    let (_fixture, ui) = generate_fixture().await;
+
+    let personas = read(&ui, "tests/ifml/support/personas.ts");
+    assert!(
+        personas.contains("roles: ['Agent', 'agent']"),
+        "personas must seed the policy token AND its snake_case form:\n{personas}"
+    );
+    assert!(
+        personas.contains("roles: ['Admin', 'admin']"),
+        "{personas}"
+    );
+
+    // The guard admits the agent persona (its seeded token matches the
+    // snake_case view role) and gates the admin persona out.
+    let board = read(&ui, "tests/ifml/agent-board.auth.spec.ts");
+    assert!(
+        board.contains("test.describe('Agent Board as agent'"),
+        "the snake-token view must admit the agent persona:\n{board}"
+    );
+    assert!(
+        board.contains("test.describe('Agent Board gated from admin'"),
+        "the owner-tier persona must be gated from the member-tier view:\n{board}"
     );
 }

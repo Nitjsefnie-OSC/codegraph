@@ -438,7 +438,15 @@ impl IfmlE2eTestGenerator {
                 .find(|(name, _)| name == actor)
                 .map(|(_, caps)| caps.clone())
                 .unwrap_or_default();
-            let roles_ok = vc.roles.is_empty() || vc.roles.iter().any(|role| role == actor);
+            // View role tokens may be authored as the actor name verbatim
+            // or as its snake_case form (crewbase's `roles: [member]` vs
+            // actor `Member`) — match either, mirroring the hydration
+            // convention.
+            let roles_ok = vc.roles.is_empty()
+                || vc
+                    .roles
+                    .iter()
+                    .any(|role| super::super::route_generator::role_token_matches(role, actor));
             let caps_ok = vc.requires.is_empty() || vc.requires.iter().any(|c| caps.contains(c));
             tests.push(PersonaTest {
                 actor: actor.clone(),
@@ -1024,8 +1032,10 @@ fn path_persona(
                 let Some(vc) = target_of(model, name) else {
                     return true;
                 };
-                let roles_ok =
-                    vc.roles.is_empty() || vc.roles.contains(&p.actor);
+                let roles_ok = vc.roles.is_empty()
+                    || vc.roles.iter().any(|role| {
+                        super::super::route_generator::role_token_matches(role, &p.actor)
+                    });
                 let caps_ok = vc.requires.is_empty()
                     || vc.requires.iter().any(|cap| p.capabilities.contains(cap));
                 roles_ok && caps_ok

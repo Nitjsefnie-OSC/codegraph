@@ -48,6 +48,7 @@ use codegraph_naming::{to_kebab_case, to_pascal_case};
 use super::super::api_paths::id_param_from;
 use super::super::context::{IfmlModel, IfmlViewContainer};
 use super::super::route_generator::workflow_for_entity;
+use super::super::route_generator::{actor_role_tokens, role_token_matches};
 use super::fixtures::{
     Fixture, codelist_fixture_value, fixture_entries, js_string, schema_backed_api,
 };
@@ -83,7 +84,10 @@ pub(crate) fn persona_id(name: &str) -> String {
 
 /// The personas for one model: policy-driven per human actor (effective
 /// permits from the same `PolicyContext` the route guards render), else one
-/// per view role with empty capabilities.
+/// per view role with empty capabilities. Roles seed BOTH forms of the
+/// actor token — the policy token (`ROLE_CAPABILITIES` key for `can()`)
+/// and its snake_case form (the token the `.ifml` `roles:` guards compare,
+/// e.g. crewbase's `roles: [member]` vs actor `Member`).
 pub(crate) fn build_personas(model: &IfmlModel, human_actors: &[String]) -> Vec<PersonaSpec> {
     match &model.policy {
         Some(policy) => policy
@@ -93,7 +97,7 @@ pub(crate) fn build_personas(model: &IfmlModel, human_actors: &[String]) -> Vec<
             .map(|(name, caps)| PersonaSpec {
                 id: persona_id(name),
                 actor: name.clone(),
-                roles: vec![name.clone()],
+                roles: actor_role_tokens(name),
                 capabilities: caps.clone(),
             })
             .collect(),
@@ -607,7 +611,11 @@ fn journey_persona(
     excluded: Option<&str>,
 ) -> Option<String> {
     let permitted = |p: &PersonaSpec| {
-        let roles_ok = vc.roles.is_empty() || vc.roles.contains(&p.actor);
+        let roles_ok = vc.roles.is_empty()
+            || vc
+                .roles
+                .iter()
+                .any(|role| role_token_matches(role, &p.actor));
         let caps_ok =
             vc.requires.is_empty() || vc.requires.iter().any(|c| p.capabilities.contains(c));
         roles_ok && caps_ok

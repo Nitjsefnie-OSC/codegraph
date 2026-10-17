@@ -23,11 +23,13 @@ const depIds: Record<string, string | string[]> = {};
 
 function testData(): Partial<Record<keyof CreatePayRunRequest | 'code', unknown>> {
   return {
-    'pay_run_id': 'Test Pay Run Id',
+    // 'pay_run_id': entity ref — emitted by _dep_setup.tera
     'run_date': '2026-01-15',
     'total_amount': 42.5,
     'total_amount_currency': 'USD',
 
+
+    ...(depIds['pay_run_id'] ? { 'pay_run_id': depIds['pay_run_id'] } : {}),
 
   };
 }
@@ -44,6 +46,12 @@ test.describe('PayRun Manager Team', () => {
     createdId = entity.id as string;
 });
 
+
+  test.afterAll(async ({ orgContext }) => {
+
+const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
+
+  });
 
 
 

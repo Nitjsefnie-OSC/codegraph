@@ -18,6 +18,7 @@ use self::workflow::js_quote;
 use super::querier::{IfmlGraphQuerier, IfmlQuerier};
 
 mod context;
+mod hydration;
 mod load;
 mod render;
 mod roles;
@@ -25,6 +26,8 @@ mod roles;
 mod tests;
 mod ux;
 mod workflow;
+
+pub(crate) use hydration::{actor_role_tokens, role_token_matches};
 
 pub use context::{
     ControlGateContext, LayoutSvelteContext, PageComponentContext, PageLoadComponentContext,
@@ -94,6 +97,26 @@ impl IfmlRouteGenerator {
             }),
             _ => None,
         }
+    }
+
+    /// Integrated mode (issue #468 W1b): the registry scopes the route
+    /// generator to the `(views)` route group exactly when the IFML tree
+    /// integrates into the entity ui app; standalone plans keep the default
+    /// route root. The generator therefore derives the mode from its own
+    /// paths — no builder threading needed.
+    pub(crate) fn integrated(&self) -> bool {
+        self.output_paths.route_root() == Some(ROUTE_GROUP)
+    }
+
+    /// The role-hydration layouts (issue #468): integrated mode only, and
+    /// only when at least one view is guarded (something must read the
+    /// role surface). Standalone stays byte-identical.
+    fn hydration(&self, model: &super::context::IfmlModel) -> Option<Vec<GeneratedFile>> {
+        if !self.integrated() {
+            return None;
+        }
+        let group = self.output_paths.route_root()?;
+        hydration::hydration_files(&self.output_dir, group, model)
     }
 
     /// Layout render context when a landmark view exists and a `shell`
@@ -239,6 +262,10 @@ impl GlobalGenerator for IfmlRouteGenerator {
 
         if let Some(roles_helper) = self.roles_helper(&model) {
             files.push(roles_helper);
+        }
+
+        if let Some(hydration) = self.hydration(&model) {
+            files.extend(hydration);
         }
 
         if let Some(ctx) = self.layout_context(&model) {

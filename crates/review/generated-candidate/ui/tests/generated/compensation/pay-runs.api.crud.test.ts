@@ -33,7 +33,7 @@ function testData(): Partial<Record<keyof CreatePayRunRequest | 'code', unknown>
   return {
 
 
-    'pay_run_id': 'Test Pay Run Id',
+    // 'pay_run_id': entity ref — emitted by _dep_setup.tera
 
 
 
@@ -50,6 +50,8 @@ function testData(): Partial<Record<keyof CreatePayRunRequest | 'code', unknown>
 
 
 
+    ...(depIds['pay_run_id'] ? { 'pay_run_id': depIds['pay_run_id'] } : {}),
+
   };
 }
 
@@ -57,7 +59,7 @@ function updatedData(): Partial<Record<keyof CreatePayRunRequest | 'code', unkno
   return {
 
 
-    'pay_run_id': 'Updated Pay Run Id',
+    // 'pay_run_id': entity ref — emitted by _dep_setup.tera
 
 
 
@@ -74,11 +76,27 @@ function updatedData(): Partial<Record<keyof CreatePayRunRequest | 'code', unkno
 
 
 
+    ...(depIds['pay_run_id'] ? { 'pay_run_id': depIds['pay_run_id'] } : {}),
+
   };
 }
 
 test.describe('PayRun CRUD', () => {
 
+
+  test.beforeAll(async ({ orgContext }) => {
+
+
+
+
+  });
+
+  test.afterAll(async ({ orgContext }) => {
+
+const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
+
+
+  });
 
 
   test('list page loads with table', async ({ ownerPage: page }) => {
@@ -102,7 +120,7 @@ test.describe('PayRun CRUD', () => {
 
 
 
-    await ui.fillPayRunId(String(data['pay_run_id']));
+    await ui.fillPayRunId(String(data['pay_run_id'] ?? ''));
 
 
 
@@ -230,7 +248,7 @@ test.describe('PayRun CRUD', () => {
 
 
 
-    await ui.fillPayRunId(String(data['pay_run_id']));
+    await ui.fillPayRunId(String(data['pay_run_id'] ?? ''));
 
 
 

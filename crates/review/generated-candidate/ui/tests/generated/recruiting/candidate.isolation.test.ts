@@ -28,7 +28,7 @@ function testData(): Partial<Record<keyof CreateCandidateRequest | 'code', unkno
     'family_name': 'ACME Isolation Family Name',
     'given_name': 'ACME Isolation Given Name',
     // 'application_process_history': ValueObject — omit, serde default
-    'candidate_id': 'ACME Isolation Candidate Id',
+    // 'candidate_id': entity ref — emitted by _dep_setup.tera
     'compensation_expectation': 42.5,
     'compensation_expectation_currency': 'USD',
     // 'distribution_guidelines': ValueObject — omit, serde default
@@ -42,6 +42,8 @@ function testData(): Partial<Record<keyof CreateCandidateRequest | 'code', unkno
     'status': 'active',
     'uri': 'ACME Isolation Uri',
 
+
+    ...(depIds['candidate_id'] ? { 'candidate_id': depIds['candidate_id'] } : {}),
 
   };
 }
@@ -65,6 +67,12 @@ test.describe('Candidate Cross-Org Isolation', () => {
     acmeEntityId = entity.id as string;
 });
 
+
+  test.afterAll(async ({ orgContext }) => {
+
+const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
+
+  });
 
 
 
