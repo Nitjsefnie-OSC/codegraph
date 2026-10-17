@@ -34,6 +34,9 @@ const depIds: Record<string, string | string[]> = {};
 function testData(): {% if has_create %}Partial<Record<keyof Create{{ entity_name }}Request | 'code', unknown>>{% else %}Record<string, unknown>{% endif %} {
   return {
 {%- for field in create_fields %}
+{%- if convention_ref_gaps is containing(pat=field.name) %}
+    // fixture: convention ref '{{ field.name }}' has no creatable target
+{%- endif %}
 {%- if field.nested_type_name %}
     {%- if field.is_array %}
     '{{ field.name }}': [],

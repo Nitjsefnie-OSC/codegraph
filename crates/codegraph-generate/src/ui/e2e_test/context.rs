@@ -129,6 +129,12 @@ pub struct UiE2eTestContext {
     /// Actionable messages when a required dep cannot be satisfied.
     pub dependency_errors: Vec<String>,
     pub has_entity_ref_deps: bool,
+    /// Required `_id` columns the name convention claims that have NO
+    /// creatable entity target (no matching schema, or the target has no
+    /// create API). `testData` keeps their text sentinel and the payload
+    /// templates emit `// fixture: convention ref '<field>' has no creatable
+    /// target` next to it, naming the gap.
+    pub convention_ref_gaps: Vec<String>,
     /// Child sections (child entities) displayed on the detail page
     pub child_sections: Vec<ChildSection>,
     pub has_child_sections: bool,

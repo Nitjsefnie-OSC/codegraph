@@ -872,6 +872,151 @@ fn unresolved_required_uuid_emits_valid_uuid_literal() {
     );
 }
 
+// ── Slice F: TEXT-typed convention FKs (the crewbase `worker_id` shape) ──
+//
+// A required `_id` column the model declares as a plain string (mox
+// `String workerId` → pg TEXT, no `format: uuid`) is still a name-derived
+// entity ref: it must flow through the SAME path as schema refs — omitted
+// from testData, dep-created in beforeAll, conditional spread in the
+// payload — instead of falling through to the `'Test Worker Id'` text
+// sentinel (the 422 class: one mistyped field rejects every variant of the
+// untagged `CreateXBody` enum).
+
+/// A plain TEXT `_id` column with no `$ref`/graph edge and no uuid format.
+fn text_fk(name: &str, is_required: bool) -> PropertyNode {
+    PropertyNode {
+        rust_field_type: "String".into(),
+        ..scalar(name, "TEXT", is_required)
+    }
+}
+
+#[test]
+fn text_convention_fk_flows_through_the_schema_ref_path() {
+    let widget = schema("WidgetType", "widget", "Widget", "hr", "widget");
+    let holder = schema("HolderType", "holder", "Holder", "hr", "holder");
+    let engine = MockEngine::builder()
+        .with_schema(widget)
+        .with_schema(holder)
+        .with_properties("WidgetType", vec![scalar("name", "TEXT", true)])
+        .with_properties(
+            "HolderType",
+            vec![scalar("name", "TEXT", true), text_fk("widget_id", true)],
+        )
+        .build();
+    let config = config(&[("hr", "WidgetType"), ("hr", "HolderType")]);
+
+    let content = owner_crud(&engine, &config, "HolderType", "hr");
+
+    // Dep-created in beforeAll, leaf-first (the target before the payload).
+    let before_all = before_all_block(&content);
+    assert!(
+        before_all.contains("createEntityAsAcme(orgContext, '/hr/widget'"),
+        "text convention FK must dep-create its target:\n{before_all}"
+    );
+    assert!(
+        before_all.contains("depIds['widget_id'] = dep_"),
+        "the dep step must fill the convention ref's depIds key:\n{before_all}"
+    );
+    // Conditional spread in the payload; NO text sentinel anywhere.
+    assert!(
+        content.contains(
+            "...(depIds['widget_id'] ? { 'widget_id': depIds['widget_id'] } : {}),"
+        ),
+        "testData must emit the entity-ref spread for the convention ref:\n{content}"
+    );
+    assert!(
+        !content.contains("'Test Widget Id'"),
+        "resolved convention FK must not emit a text sentinel:\n{content}"
+    );
+    assert!(
+        content.contains("// 'widget_id': entity ref — emitted by _dep_setup.tera"),
+        "testData must omit the field exactly like a schema ref:\n{content}"
+    );
+}
+
+#[test]
+fn text_convention_fk_without_creatable_target_keeps_sentinel_and_names_gap() {
+    let widget = schema("WidgetType", "widget", "Widget", "hr", "widget");
+    let holder = schema("HolderType", "holder", "Holder", "hr", "holder");
+    let engine = MockEngine::builder()
+        .with_schema(widget)
+        .with_schema(holder)
+        .with_properties("WidgetType", vec![scalar("name", "TEXT", true)])
+        .with_properties(
+            "HolderType",
+            vec![scalar("name", "TEXT", true), text_fk("widget_id", true)],
+        )
+        .build();
+    // The target entity has NO create operation — nothing to dep-create.
+    let toml = r#"
+[defaults]
+operations = ["create", "read", "update", "delete", "list"]
+
+[domains.hr]
+label = "hr"
+schema_dir = "hr"
+postgres_schema = "hr"
+entities = ["WidgetType", "HolderType"]
+
+[domains.hr.entity_config.WidgetType]
+role = "root"
+operations = ["read", "list"]
+
+[domains.hr.entity_config.HolderType]
+role = "root"
+"#;
+    let config = parse_domain_config_str(toml).unwrap();
+
+    let content = owner_crud(&engine, &config, "HolderType", "hr");
+
+    assert!(
+        !before_all_block(&content).contains("createEntityAsAcme(orgContext, '/hr/widget'"),
+        "an uncreatable target must not be dep-created:\n{content}"
+    );
+    assert!(
+        !content.contains("depIds['widget_id']"),
+        "an uncreatable target must not produce a dep or a spread:\n{content}"
+    );
+    assert!(
+        content.contains("'Test Widget Id'"),
+        "the text sentinel is kept for an uncreatable target:\n{content}"
+    );
+    assert!(
+        content.contains("// fixture: convention ref 'widget_id' has no creatable target"),
+        "the emitted payload must name the gap:\n{content}"
+    );
+}
+
+#[test]
+fn text_convention_fk_with_no_matching_entity_names_gap() {
+    // `widget_id` present, but NO widget entity exists anywhere — the name
+    // convention claims a target that is not schema-backed.
+    let holder = schema("HolderType", "holder", "Holder", "hr", "holder");
+    let engine = MockEngine::builder()
+        .with_schema(holder)
+        .with_properties(
+            "HolderType",
+            vec![scalar("name", "TEXT", true), text_fk("widget_id", true)],
+        )
+        .build();
+    let config = config(&[("hr", "HolderType")]);
+
+    let content = owner_crud(&engine, &config, "HolderType", "hr");
+
+    assert!(
+        content.contains("'Test Widget Id'"),
+        "no target schema — the sentinel is kept:\n{content}"
+    );
+    assert!(
+        content.contains("// fixture: convention ref 'widget_id' has no creatable target"),
+        "the emitted payload must name the gap:\n{content}"
+    );
+    assert!(
+        !content.contains("depIds['widget_id']"),
+        "no target schema — no dep:\n{content}"
+    );
+}
+
 // ── Payload typing (issue #468 W2): payloads are keyed to the request ───
 
 #[test]

@@ -122,6 +122,8 @@ pub(super) async fn build_required_dependencies(
         // Required plain-uuid FK columns on the dependency (e.g. `party.case_id`
         // when creating a `Claim` whose closure pulls in `Party`) must also be
         // resolved by convention so the transitive closure stays complete.
+        // Every resolved target stays marked here regardless of creatability:
+        // targets without a create route become tolerant `optional` dep steps.
         let mut dep_fields = dep_fields;
         apply_convention_refs(db, config, &target_domain, &props, &mut dep_fields).await;
 
