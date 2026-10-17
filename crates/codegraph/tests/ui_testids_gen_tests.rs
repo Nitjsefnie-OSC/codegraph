@@ -73,10 +73,6 @@ fn scalar(name: &str, pg_type: &str, is_required: bool) -> PropertyNode {
     }
 }
 
-/// A plain `format: uuid` scalar column that is NOT a `$ref`/graph edge —
-/// e.g. `party.case_id`. The residual defect: these were never resolved as
-/// entity refs and serialized as `'Test Case Id'` literals.
-
 fn config() -> codegraph_config::DomainConfig {
     parse_domain_config_str(
         "[defaults]\noperations = [\"create\", \"read\", \"update\", \"delete\", \"list\"]\n\n\
