@@ -76,40 +76,6 @@ fn scalar(name: &str, pg_type: &str, is_required: bool) -> PropertyNode {
 /// A plain `format: uuid` scalar column that is NOT a `$ref`/graph edge —
 /// e.g. `party.case_id`. The residual defect: these were never resolved as
 /// entity refs and serialized as `'Test Case Id'` literals.
-fn plain_uuid(name: &str, is_required: bool) -> PropertyNode {
-    PropertyNode {
-        is_id: false,
-        name: name.into(),
-        prop_type: "string".into(),
-        description: None,
-        format: Some("uuid".into()),
-        is_required,
-        is_nullable: !is_required,
-        is_array: false,
-        min_items: None,
-        max_items: None,
-        pattern: None,
-        min_length: None,
-        max_length: None,
-        minimum: None,
-        maximum: None,
-        pg_column_name: name.into(),
-        pg_column_type: "UUID".into(),
-        rust_field_name: name.into(),
-        rust_field_type: "Uuid".into(),
-        sea_orm_type: "Uuid".into(),
-        render_strategy: "direct_column".into(),
-        ref_target: None,
-        classification: Some("primitive_wrapper".into()),
-        projection: None,
-        classification_kind: None,
-        ui_override_detail: None,
-        ui_override_list_cell: None,
-        ui_override_form: None,
-        ui_override_inline: None,
-        type_expr: None,
-    }
-}
 
 fn config() -> codegraph_config::DomainConfig {
     parse_domain_config_str(
