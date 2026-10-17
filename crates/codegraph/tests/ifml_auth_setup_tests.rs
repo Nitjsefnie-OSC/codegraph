@@ -503,7 +503,9 @@ async fn journey_spec_walks_the_home_navigation_chain() {
 
     let home = read(&ui, "tests/ifml/home.journey.spec.ts");
     assert!(
-        home.contains("journey: Home → RefundRequestList → RefundRequestDetail → RefundRequestForm"),
+        home.contains(
+            "journey: Home → RefundRequestList → RefundRequestDetail → RefundRequestForm"
+        ),
         "the Home journey must walk the full chain as one test:\n{home}"
     );
     // Every hop drives through a page-class journey method — never a raw
@@ -610,7 +612,8 @@ async fn wizard_page_class_exposes_step_helpers() {
     // A journey arriving on the wizard asserts the steps through it.
     let form_journey = read(&ui, "tests/ifml/request-form.journey.spec.ts");
     assert!(
-        form_journey.contains("wizard.step('Plan')") && form_journey.contains("wizard.step('Compare')"),
+        form_journey.contains("wizard.step('Plan')")
+            && form_journey.contains("wizard.step('Compare')"),
         "the journey into the wizard must assert the wizard steps:\n{form_journey}"
     );
 }
@@ -675,10 +678,7 @@ async fn persona_seeding_matches_snake_case_role_guards() {
         personas.contains("roles: ['Agent', 'agent']"),
         "personas must seed the policy token AND its snake_case form:\n{personas}"
     );
-    assert!(
-        personas.contains("roles: ['Admin', 'admin']"),
-        "{personas}"
-    );
+    assert!(personas.contains("roles: ['Admin', 'admin']"), "{personas}");
 
     // The guard admits the agent persona (its seeded token matches the
     // snake_case view role) and gates the admin persona out.

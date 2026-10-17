@@ -292,10 +292,7 @@ fn post_order_visit(
                     .get(child_key)
                     .map(|n| n.title.clone())
                     .unwrap_or_else(|| child_key.clone());
-                let path_start = stack
-                    .iter()
-                    .position(|k| k == child_key)
-                    .unwrap_or(0);
+                let path_start = stack.iter().position(|k| k == child_key).unwrap_or(0);
                 let mut cycle_path: Vec<String> = stack[path_start..]
                     .iter()
                     .map(|k| {
@@ -317,9 +314,7 @@ fn post_order_visit(
                 ));
                 continue;
             }
-            post_order_visit(
-                child_key, nodes, visited, visiting, stack, order, breaks,
-            );
+            post_order_visit(child_key, nodes, visited, visiting, stack, order, breaks);
         }
     }
     stack.pop();

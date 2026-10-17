@@ -408,7 +408,9 @@ pub(crate) fn render_auth_spec(spec: &AuthTestSpec, personas_import: &str) -> St
         all.push("asPersona".to_string());
         all.join(", ")
     };
-    s.push_str(&format!("import {{ {imports} }} from '{personas_import}';\n"));
+    s.push_str(&format!(
+        "import {{ {imports} }} from '{personas_import}';\n"
+    ));
     s.push_str(&format!(
         "import {{ {class} }} from '../pages/{kebab}-page';\n\n"
     ));
@@ -548,10 +550,7 @@ pub(crate) fn render_auth_spec(spec: &AuthTestSpec, personas_import: &str) -> St
                             js_string(actor),
                             js_string(capability)
                         ),
-                        None => format!(
-                            "actor {} is denied by the view guard",
-                            js_string(actor)
-                        ),
+                        None => format!("actor {} is denied by the view guard", js_string(actor)),
                     };
                     s.push_str(&format!(
                         "\t\tawait ui.expectDeniedPresentation('{reason}');\n"
@@ -843,7 +842,9 @@ pub(crate) fn render_shell_nav_journey(journey: &ShellNavJourney, personas_impor
         Some(persona) => s.push_str(&format!(
             "import {{ asPersona, {persona} }} from '{personas_import}';\n"
         )),
-        None => s.push_str(&format!("import {{ asPersona }} from '{personas_import}';\n")),
+        None => s.push_str(&format!(
+            "import {{ asPersona }} from '{personas_import}';\n"
+        )),
     }
     s.push_str("import { routeMap } from '../../src/lib/routes';\n");
     s.push_str(&format!(
@@ -981,9 +982,7 @@ pub(crate) fn render_view_journey(journey: &ViewJourney, personas_import: &str) 
             ));
             s.push_str("\t\t\tconst seededId = String(seeded.data?.id ?? seeded.id);\n");
             s.push_str(&format!("\t\t\tlet ui = new {source_class}(page);\n"));
-            s.push_str(&format!(
-                "\t\t\tawait ui.open({{ {param}: seededId }});\n"
-            ));
+            s.push_str(&format!("\t\t\tawait ui.open({{ {param}: seededId }});\n"));
         } else {
             s.push_str(&format!("\t\t\tlet ui = new {source_class}(page);\n"));
             s.push_str("\t\t\tawait ui.open();\n");
@@ -1014,9 +1013,7 @@ pub(crate) fn render_view_journey(journey: &ViewJourney, personas_import: &str) 
             if *arrival || !target_steps.is_empty() {
                 let target_class = format!("{}Page", to_pascal_case(&hop.target_view));
                 let var = journey_page_var(&hop.target_view);
-                s.push_str(&format!(
-                    "\t\t\tconst {var} = new {target_class}(page);\n"
-                ));
+                s.push_str(&format!("\t\t\tconst {var} = new {target_class}(page);\n"));
                 if *arrival {
                     if *arrival_heading {
                         s.push_str(&format!(

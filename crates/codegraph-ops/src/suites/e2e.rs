@@ -451,7 +451,10 @@ async fn e2e_start_services(
             cmd.env("PUBLIC_API_KEY", key);
         }
         // Same Supabase SSR requirement as the ui suite (issue #468).
-        cmd.env("PUBLIC_SUPABASE_URL", crate::suites::ui::supabase_base_url(config));
+        cmd.env(
+            "PUBLIC_SUPABASE_URL",
+            crate::suites::ui::supabase_base_url(config),
+        );
         cmd.env("PUBLIC_SUPABASE_ANON_KEY", &config.anon_key);
         let mut proc =
             match ManagedProcess::spawn(cmd, "SvelteKit preview", Path::new(SVELTEKIT_LOG)) {

@@ -297,7 +297,9 @@ async fn ui_form_generator_produces_form_component() {
         "Form should import the typed Response from '#lib/api/types.ts'"
     );
     assert!(
-        files[0].content.contains("initialData?: CandidateResponse;"),
+        files[0]
+            .content
+            .contains("initialData?: CandidateResponse;"),
         "initialData prop should be typed as the entity Response"
     );
     assert!(
@@ -809,7 +811,11 @@ async fn ui_type_generator_produces_types_file() {
         .await
         .unwrap();
 
-    assert_eq!(files.len(), 2, "Should produce types.ts + format.ts (issue #468 W2)");
+    assert_eq!(
+        files.len(),
+        2,
+        "Should produce types.ts + format.ts (issue #468 W2)"
+    );
     assert!(
         files[0].path.to_string_lossy().contains("types.ts"),
         "Should have types.ts"

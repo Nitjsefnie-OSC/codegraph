@@ -1027,10 +1027,16 @@ entities = []
             &journey_steps,
         );
         let rendered = render_pom_page(&on);
-        assert!(rendered.contains("step(name: string): Locator"), "{rendered}");
+        assert!(
+            rendered.contains("step(name: string): Locator"),
+            "{rendered}"
+        );
         assert!(rendered.contains("'Plan': 'editor-form'"), "{rendered}");
         assert!(rendered.contains("'Compare': 'info-details'"), "{rendered}");
-        assert!(rendered.contains("async journeyToRequestWizard()"), "{rendered}");
+        assert!(
+            rendered.contains("async journeyToRequestWizard()"),
+            "{rendered}"
+        );
         assert!(
             rendered.contains("await this.fillEditorTitle('Test title');")
                 && rendered.contains("await this.editorSubmit().click();"),
@@ -1057,8 +1063,7 @@ entities = []
             "{guarded_rendered}"
         );
         assert!(
-            guarded_rendered
-                .contains("await expect(this.heading(), reason).not.toBeVisible();"),
+            guarded_rendered.contains("await expect(this.heading(), reason).not.toBeVisible();"),
             "{guarded_rendered}"
         );
 
@@ -1074,7 +1079,10 @@ entities = []
             &[],
         );
         let off_rendered = render_pom_page(&off);
-        assert!(!off_rendered.contains("step(name: string)"), "{off_rendered}");
+        assert!(
+            !off_rendered.contains("step(name: string)"),
+            "{off_rendered}"
+        );
         assert!(!off_rendered.contains("journeyTo"), "{off_rendered}");
         assert!(
             !off_rendered.contains("expectDeniedPresentation"),

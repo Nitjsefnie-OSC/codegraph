@@ -226,11 +226,7 @@ impl EntityGenerator for UiE2eTestGenerator {
         let mut creatable_convention_refs: std::collections::HashSet<String> =
             std::collections::HashSet::new();
         for res in &convention_refs {
-            let target_domain = res
-                .target
-                .domain
-                .clone()
-                .unwrap_or_else(|| domain.clone());
+            let target_domain = res.target.domain.clone().unwrap_or_else(|| domain.clone());
             let target_operations =
                 resolve_entity_operations(db, config, &target_domain, &res.target.title).await;
             if target_operations.iter().any(|op| op == "create") {
@@ -292,8 +288,7 @@ impl EntityGenerator for UiE2eTestGenerator {
         let convention_ref_gaps: Vec<String> = create_fields
             .iter()
             .filter(|f| {
-                !creatable_convention_refs.contains(&f.name)
-                    && is_convention_ref_gap(f, &all_props)
+                !creatable_convention_refs.contains(&f.name) && is_convention_ref_gap(f, &all_props)
             })
             .map(|f| f.name.clone())
             .collect();

@@ -366,8 +366,14 @@ pub async fn collect_ui_fields(
     Ok(fields)
 }
 
-const PREFERRED_DISPLAY_FIELDS: [&str; 6] =
-    ["display_name", "full_name", "name", "title", "label", "code"];
+const PREFERRED_DISPLAY_FIELDS: [&str; 6] = [
+    "display_name",
+    "full_name",
+    "name",
+    "title",
+    "label",
+    "code",
+];
 
 const NON_DISPLAY_FIELD_NAMES: [&str; 4] = ["id", "created_at", "updated_at", "deleted_at"];
 
@@ -592,10 +598,7 @@ mod display_field_tests {
             resolve_display_field(&fields).as_deref(),
             Some("display_name")
         );
-        let fields = vec![
-            field("name", "string", true),
-            field("code", "string", true),
-        ];
+        let fields = vec![field("name", "string", true), field("code", "string", true)];
         assert_eq!(resolve_display_field(&fields).as_deref(), Some("name"));
     }
 
@@ -639,7 +642,10 @@ mod display_field_tests {
 
     #[test]
     fn none_when_no_readable_field_exists() {
-        let fields = vec![field("id", "string", true), field("quantity", "number", true)];
+        let fields = vec![
+            field("id", "string", true),
+            field("quantity", "number", true),
+        ];
         assert_eq!(resolve_display_field(&fields), None);
         assert_eq!(resolve_display_field(&[]), None);
     }

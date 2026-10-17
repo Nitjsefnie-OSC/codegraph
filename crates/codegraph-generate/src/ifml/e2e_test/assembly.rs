@@ -620,9 +620,8 @@ impl IfmlE2eTestGenerator {
             if hops.is_empty() {
                 continue;
             }
-            let Some((open_param, open_seed)) = self
-                .journey_open_seed(db, config, api_version, vc)
-                .await
+            let Some((open_param, open_seed)) =
+                self.journey_open_seed(db, config, api_version, vc).await
             else {
                 // A param'd source view without a seedable entity cannot be
                 // opened reliably — no journey.
@@ -652,30 +651,28 @@ impl IfmlE2eTestGenerator {
                                 String::new()
                             } else {
                                 let pair = seen_pairs
-                                    .entry((
-                                        hop.target_view.clone(),
-                                        hop.source_component.clone(),
-                                    ))
+                                    .entry((hop.target_view.clone(), hop.source_component.clone()))
                                     .or_default();
                                 *pair += 1;
                                 if *pair == 1 {
                                     format!("From{}", to_pascal_case(&hop.source_component))
                                 } else {
-                                    format!(
-                                        "From{}{}",
-                                        to_pascal_case(&hop.source_component),
-                                        pair
-                                    )
+                                    format!("From{}{}", to_pascal_case(&hop.source_component), pair)
                                 }
                             };
                             if let Some(seed) = &hop.seed {
-                                let already = seeds.iter().any(|s: &Fixture| s.base_path == seed.base_path);
+                                let already = seeds
+                                    .iter()
+                                    .any(|s: &Fixture| s.base_path == seed.base_path);
                                 if !already {
                                     seeds.push(seed.clone());
                                 }
                             }
-                            let target_assert_heading =
-                                view_primary_is_collection(model, &hop.target_view, self.mappings.as_ref());
+                            let target_assert_heading = view_primary_is_collection(
+                                model,
+                                &hop.target_view,
+                                self.mappings.as_ref(),
+                            );
                             JourneyStep {
                                 method: format!(
                                     "journeyTo{}{}",
@@ -746,8 +743,7 @@ impl IfmlE2eTestGenerator {
                     // assertions live there).
                     continue;
                 }
-                let save_or_submit =
-                    matches!(event.event_type.as_str(), "save" | "submit");
+                let save_or_submit = matches!(event.event_type.as_str(), "save" | "submit");
                 let pattern = url_pattern(&view_route(target), binding);
                 let hop = if is_collection(c) && !save_or_submit {
                     if first_navigate_used {
@@ -761,8 +757,7 @@ impl IfmlE2eTestGenerator {
                     let Some(entity) = c.entity.as_deref() else {
                         continue;
                     };
-                    let Some(api) = schema_backed_api(db, config, entity, api_version).await
-                    else {
+                    let Some(api) = schema_backed_api(db, config, entity, api_version).await else {
                         continue;
                     };
                     if !api.has_create {
@@ -788,8 +783,7 @@ impl IfmlE2eTestGenerator {
                     let Some(entity) = c.entity.as_deref() else {
                         continue;
                     };
-                    let Some(api) = schema_backed_api(db, config, entity, api_version).await
-                    else {
+                    let Some(api) = schema_backed_api(db, config, entity, api_version).await else {
                         continue;
                     };
                     if !api.has_create && !api.has_update {
@@ -1119,10 +1113,7 @@ mod journey_tests {
         hops.insert("B".to_string(), vec![hop("A"), hop("C")]);
         hops.insert("C".to_string(), vec![hop("A")]);
         let paths = journey_paths("A", &hops);
-        let views: Vec<Vec<String>> = paths
-            .iter()
-            .map(|(views, _)| views.clone())
-            .collect();
+        let views: Vec<Vec<String>> = paths.iter().map(|(views, _)| views.clone()).collect();
         assert_eq!(
             views,
             vec![vec!["A".to_string(), "B".to_string(), "C".to_string()]],
@@ -1135,13 +1126,7 @@ mod journey_tests {
     #[test]
     fn journey_paths_cap_depth() {
         let mut hops: HashMap<String, Vec<JourneyHop>> = HashMap::new();
-        for (from, to) in [
-            ("A", "B"),
-            ("B", "C"),
-            ("C", "D"),
-            ("D", "E"),
-            ("E", "F"),
-        ] {
+        for (from, to) in [("A", "B"), ("B", "C"), ("C", "D"), ("D", "E"), ("E", "F")] {
             hops.insert(from.to_string(), vec![hop(to)]);
         }
         let paths = journey_paths("A", &hops);

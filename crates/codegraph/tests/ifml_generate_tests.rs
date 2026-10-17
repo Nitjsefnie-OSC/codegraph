@@ -435,11 +435,9 @@ view "RewardEditor" {
     .await
     .unwrap();
 
-    let dashboard = std::fs::read_to_string(
-        output
-            .join("svelte/src/routes/activitydashboard/+page.svelte"),
-    )
-    .unwrap();
+    let dashboard =
+        std::fs::read_to_string(output.join("svelte/src/routes/activitydashboard/+page.svelte"))
+            .unwrap();
     assert_eq!(
         dashboard.matches("function comp_history_create").count(),
         1,
@@ -460,21 +458,18 @@ view "RewardEditor" {
         "must not render the other domain's fields: {dashboard}"
     );
 
-    let form_page = std::fs::read_to_string(
-        output.join("svelte/src/routes/activityform/+page.svelte"),
-    )
-    .unwrap();
+    let form_page =
+        std::fs::read_to_string(output.join("svelte/src/routes/activityform/+page.svelte"))
+            .unwrap();
     assert!(
         form_page.contains("data-testid=\"recorder-form\"")
             && form_page.contains("comp_recorder_cancel"),
         "the view's own second component still renders: {form_page}"
     );
 
-    let compensation_page = std::fs::read_to_string(
-        output
-            .join("svelte/src/routes/compensationhistory/+page.svelte"),
-    )
-    .unwrap();
+    let compensation_page =
+        std::fs::read_to_string(output.join("svelte/src/routes/compensationhistory/+page.svelte"))
+            .unwrap();
     assert_eq!(
         compensation_page
             .matches("function comp_history_select")

@@ -60,24 +60,23 @@ pub fn run_structural_gates(output_dir: &Path, project: &ProjectConfig) -> Resul
         // The module must exist for the POM imports to resolve.
         let module = output_dir.join("ui/src/lib/testids.ts");
         if !module.is_file() {
-            return Err(Error::Config(format!(
+            return Err(Error::Config(
                 "structural_gates: ui/src/lib/testids.ts is missing but \
                  testid_module is on — add the `ui_testids` generator to the \
                  profile's [ui] generators"
-            )));
+                    .to_string(),
+            ));
         }
     }
 
     let mut violations: Vec<String> = Vec::new();
     let mut total = 0usize;
-    walk(output_dir, output_dir, project, &mut violations, &mut total);
+    walk(output_dir, output_dir, &mut violations, &mut total);
 
     if total == 0 {
         return Ok(());
     }
-    let mut msg = format!(
-        "structural_gates: {total} violation(s) in the generated tree:"
-    );
+    let mut msg = format!("structural_gates: {total} violation(s) in the generated tree:");
     for v in violations.iter().take(10) {
         msg.push('\n');
         msg.push_str(v);
@@ -88,13 +87,7 @@ pub fn run_structural_gates(output_dir: &Path, project: &ProjectConfig) -> Resul
     Err(Error::Config(msg))
 }
 
-fn walk(
-    root: &Path,
-    dir: &Path,
-    project: &ProjectConfig,
-    violations: &mut Vec<String>,
-    total: &mut usize,
-) {
+fn walk(root: &Path, dir: &Path, violations: &mut Vec<String>, total: &mut usize) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -103,10 +96,13 @@ fn walk(
         if path.is_dir() {
             // Generated node_modules/target trees are not pipeline output.
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if matches!(name, "node_modules" | "target" | ".graph-cache" | ".svelte-kit") {
+            if matches!(
+                name,
+                "node_modules" | "target" | ".graph-cache" | ".svelte-kit"
+            ) {
                 continue;
             }
-            walk(root, &path, project, violations, total);
+            walk(root, &path, violations, total);
             continue;
         }
         let Some(rel) = path.strip_prefix(root).ok().map(|p| p.to_path_buf()) else {
@@ -123,10 +119,7 @@ fn walk(
                     continue;
                 }
                 if !gate.path_contains.is_empty()
-                    && !gate
-                        .path_contains
-                        .iter()
-                        .any(|frag| rel_str.contains(frag))
+                    && !gate.path_contains.iter().any(|frag| rel_str.contains(frag))
                 {
                     continue;
                 }
@@ -175,7 +168,11 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let page = dir.path().join("ui/src/routes/(app)/hr/task/+page.svelte");
         std::fs::create_dir_all(page.parent().unwrap()).unwrap();
-        std::fs::write(&page, "<div data-testid=\"task-delete-confirm-confirm\"></div>").unwrap();
+        std::fs::write(
+            &page,
+            "<div data-testid=\"task-delete-confirm-confirm\"></div>",
+        )
+        .unwrap();
         let err = run_structural_gates(dir.path(), &project(true, false))
             .expect_err("double-confirm must fail");
         assert!(format!("{err}").contains("no-double-confirm"), "{err}");
@@ -198,7 +195,11 @@ mod tests {
         );
 
         // Resolving through the module passes.
-        std::fs::write(&pom, "const t = `[data-testid=\"${testids.person.table}\"]`;").unwrap();
+        std::fs::write(
+            &pom,
+            "const t = `[data-testid=\"${testids.person.table}\"]`;",
+        )
+        .unwrap();
         assert!(run_structural_gates(dir.path(), &project(true, true)).is_ok());
     }
 

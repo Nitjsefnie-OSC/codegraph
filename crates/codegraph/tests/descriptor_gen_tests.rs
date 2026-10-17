@@ -104,16 +104,18 @@ fn test_descriptor_display_field_resolution_and_id_fallback() {
     let output = tera.render("ui/descriptor.tera", &ctx).unwrap();
 
     assert!(
-        output.contains(
-            "ref: { entity: 'OwnerType', domain: 'testing', displayField: 'full_name' }"
-        ),
+        output
+            .contains("ref: { entity: 'OwnerType', domain: 'testing', displayField: 'full_name' }"),
         "resolved ref display field must render:\n{output}"
     );
     assert!(
         output.contains("ref: { entity: 'WorkerType', domain: 'testing', displayField: 'id' }"),
         "unresolved ref display field must fall back to 'id':\n{output}"
     );
-    assert!(!output.contains("'display_name'"), "the hardcoded 'display_name' must be gone:\n{output}");
+    assert!(
+        !output.contains("'display_name'"),
+        "the hardcoded 'display_name' must be gone:\n{output}"
+    );
     assert!(
         output.contains("inline: false,\n      displayField: 'title',"),
         "resolved child displayField must render:\n{output}"
@@ -122,7 +124,10 @@ fn test_descriptor_display_field_resolution_and_id_fallback() {
         output.contains("inline: false,\n      displayField: 'id',"),
         "unresolved child displayField must fall back to 'id':\n{output}"
     );
-    assert!(!output.contains("displayField: null"), "displayField must stay a string:\n{output}");
+    assert!(
+        !output.contains("displayField: null"),
+        "displayField must stay a string:\n{output}"
+    );
 }
 
 #[test]

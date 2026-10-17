@@ -884,12 +884,7 @@ fn check_ifml_files(ifml_files: &[PathBuf]) -> (usize, usize) {
                 let policy_imports: Vec<String> = model
                     .imports
                     .iter()
-                    .filter(|raw| {
-                        matches!(
-                            raw.rsplit('.').next(),
-                            Some("actor") | Some("json")
-                        )
-                    })
+                    .filter(|raw| matches!(raw.rsplit('.').next(), Some("actor") | Some("json")))
                     .cloned()
                     .collect();
                 let policy =

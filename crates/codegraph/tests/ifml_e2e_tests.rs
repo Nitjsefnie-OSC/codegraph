@@ -669,18 +669,22 @@ view "RewardEditor" {
         .await
         .unwrap();
     assert_eq!(wellness_events.len(), 2, "{wellness_events:?}");
-    assert!(wellness_events.iter().all(|e| e
-        .name
-        .starts_with("comp_ActivityDashboard/history_")));
+    assert!(
+        wellness_events
+            .iter()
+            .all(|e| e.name.starts_with("comp_ActivityDashboard/history_"))
+    );
 
     let compensation_events = engine
         .get_ifml_events("comp:CompensationHistory/history")
         .await
         .unwrap();
     assert_eq!(compensation_events.len(), 2, "{compensation_events:?}");
-    assert!(compensation_events.iter().all(|e| e
-        .name
-        .starts_with("comp_CompensationHistory/history_")));
+    assert!(
+        compensation_events
+            .iter()
+            .all(|e| e.name.starts_with("comp_CompensationHistory/history_"))
+    );
 
     // Data bindings resolve per view-scoped component. (Binding rows need
     // entity resolution, so assert on the mock engine whose binding plane

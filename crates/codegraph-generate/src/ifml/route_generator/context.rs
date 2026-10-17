@@ -711,6 +711,13 @@ pub struct PageLoadContext {
     /// Ready-to-render guard const declarations (`const viewRoles = ...;`),
     /// emitted between the imports and the load function.
     pub(super) guard_consts: String,
+    /// Integrated route-tree mode (issue #468 W1b/W-a): the view lives in
+    /// the ui app's `(views)` group and the `(views)/+layout.server.ts`
+    /// load resolves the session's role tokens — so the guard decides
+    /// SERVER-side via `parent()` roles (a denied persona is redirected
+    /// during SSR, before any data fetch). Standalone keeps the
+    /// browser-gated guard (no layout provides server roles).
+    pub(super) integrated: bool,
     /// Redirect target when a guard fails: the first unguarded view's
     /// route, else `/`.
     pub(super) denial_target: String,

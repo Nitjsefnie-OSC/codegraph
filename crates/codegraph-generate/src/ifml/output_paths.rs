@@ -38,10 +38,7 @@ impl OutputPaths {
             };
             let load_dir = routes_dir.clone();
             paths.route_page = Box::new(move |name| {
-                PathBuf::from(format!(
-                    "{routes_dir}/{}/+page.svelte",
-                    name.to_lowercase()
-                ))
+                PathBuf::from(format!("{routes_dir}/{}/+page.svelte", name.to_lowercase()))
             });
             paths.route_load = Some(Box::new(move |name| {
                 PathBuf::from(format!("{load_dir}/{}/+page.ts", name.to_lowercase()))

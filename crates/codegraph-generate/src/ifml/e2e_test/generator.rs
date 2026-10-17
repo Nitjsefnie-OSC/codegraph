@@ -378,14 +378,8 @@ impl GlobalGenerator for IfmlE2eTestGenerator {
             None
         };
         let mut view_journeys = if auth_enabled {
-            self.build_view_journeys(
-                db,
-                config,
-                &project.identity.api_version,
-                &model,
-                &personas,
-            )
-            .await
+            self.build_view_journeys(db, config, &project.identity.api_version, &model, &personas)
+                .await
         } else {
             Vec::new()
         };
@@ -401,9 +395,7 @@ impl GlobalGenerator for IfmlE2eTestGenerator {
                 // A hop's method lives on the page class of the view it
                 // DEPARTS from (`path.views[i]`), not the journey source.
                 for (departure, step) in path.views.iter().zip(&path.steps) {
-                    let entry = journey_steps_by_view
-                        .entry(departure.clone())
-                        .or_default();
+                    let entry = journey_steps_by_view.entry(departure.clone()).or_default();
                     if entry.iter().any(|s| s.method == step.method) {
                         continue;
                     }
@@ -429,9 +421,7 @@ impl GlobalGenerator for IfmlE2eTestGenerator {
                 let spec = spec_by_view.get(vc.name.as_str()).copied();
                 let kebab = to_kebab_case(&vc.name);
                 let empty_steps = Vec::new();
-                let journey_steps = journey_steps_by_view
-                    .get(&vc.name)
-                    .unwrap_or(&empty_steps);
+                let journey_steps = journey_steps_by_view.get(&vc.name).unwrap_or(&empty_steps);
                 let pom = super::pom::build_view_pom(
                     config,
                     self.mappings.as_ref(),
@@ -634,8 +624,8 @@ impl GlobalGenerator for IfmlE2eTestGenerator {
         if !self.integrated {
             let config_path = self.output_dir.join("playwright.config.ts");
             if !config_path.exists() {
-                let global_setup = (auth_enabled && !personas.is_empty())
-                    .then_some("tests/e2e/auth.setup.ts");
+                let global_setup =
+                    (auth_enabled && !personas.is_empty()).then_some("tests/e2e/auth.setup.ts");
                 files.push(GeneratedFile {
                     path: config_path,
                     content: playwright_config(global_setup).to_string(),

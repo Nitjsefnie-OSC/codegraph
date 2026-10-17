@@ -1,9 +1,9 @@
 //! Tests for the `ui_testids` global generator (issue #468 W3): the
 //! `ui/src/lib/testids.ts` projection of `ux::plan::ids`.
 
+use codegraph::generate::ProjectConfig;
 use codegraph::generate::traits::GlobalGenerator;
 use codegraph::generate::ui::testids_gen::UiTestidsGenerator;
-use codegraph::generate::ProjectConfig;
 use codegraph_config::config::parse_domain_config_str;
 use codegraph_core::mock::MockEngine;
 use codegraph_core::types::{PropertyNode, SchemaNode};
@@ -188,7 +188,10 @@ fn testid_module_emits_typed_module_from_the_graph() {
         "{module}"
     );
     // The normalized dialog vocabulary (issue #468 finding 3).
-    assert!(module.contains("deleteDialog: `${m}-delete-dialog`"), "{module}");
+    assert!(
+        module.contains("deleteDialog: `${m}-delete-dialog`"),
+        "{module}"
+    );
     assert!(
         module.contains("deleteDialogConfirm: `${m}-delete-dialog-confirm`"),
         "{module}"
@@ -196,7 +199,10 @@ fn testid_module_emits_typed_module_from_the_graph() {
     assert!(!module.contains("confirm-confirm"), "{module}");
     // The shared table + the runtime accessor the POM's cross-entity
     // locators use.
-    assert!(module.contains("confirmDialog: 'confirm-dialog'"), "{module}");
+    assert!(
+        module.contains("confirmDialog: 'confirm-dialog'"),
+        "{module}"
+    );
     assert!(module.contains("export function tidFor("), "{module}");
 }
 

@@ -1755,7 +1755,7 @@ fn load_context_renders_param_default_fallbacks() {
         events: Vec::new(),
         containers: Vec::new(),
     };
-    let ctx = build_load_context("v1", &vc, &[list, details], "/");
+    let ctx = build_load_context("v1", &vc, &[list, details], "/", false);
     let rendered = render_template(&tera, "ifml/svelte/page_load.tera", &ctx).expect("render");
     assert!(
         rendered.contains("viewParams['slug'] = url.searchParams.get('slug') ?? 'home';"),
@@ -1789,7 +1789,7 @@ fn load_context_renders_param_default_fallbacks() {
         ..vc
     };
     let list = page_component_context_sync(&component_with_spec(Some(table_spec())));
-    let ctx = build_load_context("v1", &bare_vc, &[list], "/");
+    let ctx = build_load_context("v1", &bare_vc, &[list], "/", false);
     let rendered = render_template(&tera, "ifml/svelte/page_load.tera", &ctx).expect("render");
     assert!(
         rendered.contains("viewParams['customerId'] = url.searchParams.get('customerId') ?? '';"),
@@ -1802,7 +1802,7 @@ fn paramless_view_load_stays_free_of_param_resolution() {
     let tera = create_tera(Path::new(".")).expect("tera");
     let list = page_component_context_sync(&component_with_spec(Some(table_spec())));
     let vc = plain_vc("CustomerList");
-    let ctx = build_load_context("v1", &vc, &[list], "/");
+    let ctx = build_load_context("v1", &vc, &[list], "/", false);
     let rendered = render_template(&tera, "ifml/svelte/page_load.tera", &ctx).expect("render");
     assert!(!rendered.contains("viewParams"), "{rendered}");
     assert!(!rendered.contains("result.params"), "{rendered}");
@@ -1827,7 +1827,7 @@ fn role_guard_renders_at_top_of_load_function() {
         events: Vec::new(),
         containers: Vec::new(),
     };
-    let ctx = build_load_context("v1", &vc, &[], "/");
+    let ctx = build_load_context("v1", &vc, &[], "/", false);
     let rendered = render_template(&tera, "ifml/svelte/page_load.tera", &ctx).expect("render");
     assert!(
         rendered.contains("import { redirect } from '@sveltejs/kit';"),
@@ -1882,7 +1882,7 @@ fn no_roles_load_is_byte_identical_to_pre_guard_output() {
         events: Vec::new(),
         containers: Vec::new(),
     };
-    let ctx = build_load_context("v1", &vc, &[], "/");
+    let ctx = build_load_context("v1", &vc, &[], "/", false);
     let rendered = render_template(&tera, "ifml/svelte/page_load.tera", &ctx).expect("render");
     assert_eq!(
         rendered,
@@ -2070,7 +2070,7 @@ fn capability_guard_renders_can_checks_and_denial_target() {
     ]);
     let target = denial_target(&model);
     assert_eq!(target, "/customerlist");
-    let ctx = build_load_context("v1", &model.view_containers[0], &[], &target);
+    let ctx = build_load_context("v1", &model.view_containers[0], &[], &target, false);
     let rendered = render_template(&tera, "ifml/svelte/page_load.tera", &ctx).expect("render");
     assert!(
         rendered.contains("import { redirect } from '@sveltejs/kit';"),
@@ -2107,7 +2107,7 @@ fn combined_guard_renders_capability_check_before_roles_check() {
         vec!["admin".to_string()],
         vec!["manage_refunds".to_string()],
     );
-    let ctx = build_load_context("v1", &vc, &[], "/");
+    let ctx = build_load_context("v1", &vc, &[], "/", false);
     let rendered = render_template(&tera, "ifml/svelte/page_load.tera", &ctx).expect("render");
     assert!(
         rendered.contains("import { currentRoles } from '$lib/roles';"),
@@ -2751,7 +2751,7 @@ fn load_context_wires_first_list_with_pagination() {
         events: Vec::new(),
         containers: Vec::new(),
     };
-    let ctx = build_load_context("v1", &vc, &[list, second_list, details], "/");
+    let ctx = build_load_context("v1", &vc, &[list, second_list, details], "/", false);
     assert!(ctx.has_fetch);
     assert_eq!(ctx.components.len(), 3);
     assert!(ctx.components[0].fetch_list);
@@ -3826,7 +3826,9 @@ fn route_layout_honors_the_route_root() {
         IfmlRouteGenerator::new(tmp.path(), "svelte").with_route_root(super::ROUTE_GROUP);
     assert_eq!(
         integrated.route_layout(),
-        Some(std::path::PathBuf::from("src/routes/(views)/+layout.svelte"))
+        Some(std::path::PathBuf::from(
+            "src/routes/(views)/+layout.svelte"
+        ))
     );
 
     let react = IfmlRouteGenerator::new(tmp.path(), "react").with_route_root(super::ROUTE_GROUP);
@@ -3985,5 +3987,51 @@ fn hydration_layouts_are_integrated_only() {
     assert!(
         universal.contains("if (typeof window !== 'undefined' && data.roles) {"),
         "{universal}"
+    );
+}
+
+#[test]
+fn integrated_guard_decides_server_side_via_parent_roles() {
+    // Issue #468 W-a: in the integrated (views) route group the guard must
+    // fire during SSR (the (views)/+layout.server.ts load resolves the
+    // session's role tokens) — a denied persona is redirected before any
+    // data fetch, and never sees the 404/401 boundary from a doomed fetch.
+    let tera = create_tera(Path::new(".")).expect("tera");
+    let vc = guarded_vc(
+        "AdminConsole",
+        vec!["admin".to_string()],
+        vec!["manage_refunds".to_string()],
+    );
+    let ctx = build_load_context("v1", &vc, &[], "/", true);
+    let rendered = render_template(&tera, "ifml/svelte/page_load.tera", &ctx).expect("render");
+    assert!(
+        rendered.contains("async ({ params, url, fetch, parent }) => {"),
+        "integrated loads take parent(): {rendered}"
+    );
+    assert!(
+        rendered.contains(
+            "const parentData = (await parent()) as { roles?: string[] | null } | undefined;"
+        ),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("const roles: string[] = parentData?.roles ?? currentRoles();"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("if (viewRequires.length && !viewRequires.some((c) => can(c))) {"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("if (viewRoles.length && !roles.some((r) => viewRoles.includes(r))) {"),
+        "{rendered}"
+    );
+    assert!(
+        !rendered.contains("browser"),
+        "the SSR guard must not be browser-gated: {rendered}"
+    );
+    assert!(
+        !rendered.contains("import { browser } from '$app/environment';"),
+        "{rendered}"
     );
 }

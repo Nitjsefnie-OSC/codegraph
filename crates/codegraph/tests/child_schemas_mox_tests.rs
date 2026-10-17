@@ -455,7 +455,8 @@ async fn detail_page_child_loads_are_typed_and_rows_render_display_field() {
         .map(|(_, content)| content)
         .expect("the todo_list detail page must render the todo_item child section");
 
-    let import_line = "import type { TodoListResponse, TodoItemResponse } from '#lib/api/types.ts';";
+    let import_line =
+        "import type { TodoListResponse, TodoItemResponse } from '#lib/api/types.ts';";
     assert!(
         detail_page.contains(import_line),
         "child DTO types must ride the existing type-only import:\n{detail_page}"
@@ -523,9 +524,8 @@ async fn detail_page_child_loads_are_typed_and_rows_render_display_field() {
         "the child entry must carry the resolved displayField:\n{descriptor}"
     );
     assert!(
-        descriptor.contains(
-            "ref: { entity: 'TodoItemType', domain: 'todo', displayField: 'title' }"
-        ),
+        descriptor
+            .contains("ref: { entity: 'TodoItemType', domain: 'todo', displayField: 'title' }"),
         "the items entity-ref must resolve displayField over the target's fields:\n{descriptor}"
     );
 }

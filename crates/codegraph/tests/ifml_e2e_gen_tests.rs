@@ -392,7 +392,11 @@ async fn flag_off_emits_no_journey_or_gating_surface() {
     let ifml_tests = ui_dir.join("tests").join("ifml");
     fs::create_dir_all(&ifml_tests).unwrap();
     fs::write(ifml_tests.join("home.journey.spec.ts"), "// stale").unwrap();
-    fs::write(ifml_tests.join("request-workflow.journey.spec.ts"), "// stale").unwrap();
+    fs::write(
+        ifml_tests.join("request-workflow.journey.spec.ts"),
+        "// stale",
+    )
+    .unwrap();
     fs::write(ifml_tests.join("review-queue.auth.spec.ts"), "// stale").unwrap();
     let support = ifml_tests.join("support");
     fs::create_dir_all(&support).unwrap();

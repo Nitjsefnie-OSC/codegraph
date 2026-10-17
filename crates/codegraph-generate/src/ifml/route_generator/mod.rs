@@ -245,8 +245,13 @@ impl GlobalGenerator for IfmlRouteGenerator {
             }
 
             if let Some(ref route_load_fn) = self.output_paths.route_load {
-                let load_ctx =
-                    build_load_context(&project.identity.api_version, vc, &ctx.components, &denial);
+                let load_ctx = build_load_context(
+                    &project.identity.api_version,
+                    vc,
+                    &ctx.components,
+                    &denial,
+                    self.output_paths.route_root() == Some(ROUTE_GROUP),
+                );
                 match render_template(tera, &load_template, &load_ctx) {
                     Ok(content) => files.push(GeneratedFile {
                         path: self.output_dir.join(route_load_fn(&vc.name)),
@@ -279,9 +284,7 @@ impl GlobalGenerator for IfmlRouteGenerator {
                         });
                     }
                 }
-                Err(e) => eprintln!(
-                    "warning: ifml_route: {layout_template} render failed: {e}"
-                ),
+                Err(e) => eprintln!("warning: ifml_route: {layout_template} render failed: {e}"),
             }
         }
 

@@ -173,13 +173,19 @@ pub mod ids {
     }
 
     /// `{module}-delete-dialog-confirm` — its confirm button.
-    #[deprecated(since = "0.1.0", note = "use entity_delete_dialog + the {dialog}-confirm rule")]
+    #[deprecated(
+        since = "0.1.0",
+        note = "use entity_delete_dialog + the {dialog}-confirm rule"
+    )]
     pub fn entity_delete_confirm(module: &str) -> String {
         format!("{module}-delete-confirm")
     }
 
     /// `{module}-delete-confirm-confirm` — its confirm button.
-    #[deprecated(since = "0.1.0", note = "use entity_delete_dialog_confirm (issue #468)")]
+    #[deprecated(
+        since = "0.1.0",
+        note = "use entity_delete_dialog_confirm (issue #468)"
+    )]
     pub fn entity_delete_confirm_confirm(module: &str) -> String {
         format!("{module}-delete-confirm-confirm")
     }

@@ -1068,10 +1068,7 @@ mod ux_list_template_tests {
         assert!(out.contains(r#"data-testid="task-actions""#), "{out}");
         assert!(out.contains(r#"data-testid="task-actions-menu""#), "{out}");
         assert!(out.contains("AlertDialog"), "{out}");
-        assert!(
-            out.contains(r#"data-testid="task-delete-dialog""#),
-            "{out}"
-        );
+        assert!(out.contains(r#"data-testid="task-delete-dialog""#), "{out}");
         // Tooltip wrapping for truncated cells.
         assert!(out.contains("Tooltip.Root"), "{out}");
         // Zebra rows + inactive-row branch.
@@ -1293,10 +1290,7 @@ mod ux_list_template_tests {
         // Row actions dropdown + confirm-guarded delete.
         assert!(out.contains(r#"data-testid="task-actions""#), "{out}");
         assert!(out.contains(r#"data-testid="task-actions-menu""#), "{out}");
-        assert!(
-            out.contains(r#"data-testid="task-delete-dialog""#),
-            "{out}"
-        );
+        assert!(out.contains(r#"data-testid="task-delete-dialog""#), "{out}");
         // Table markup absent in timeline mode.
         assert!(!out.contains(r#"data-testid="task-table""#), "{out}");
         assert!(!out.contains("<Table.Root"), "{out}");

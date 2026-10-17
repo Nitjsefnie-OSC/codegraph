@@ -569,7 +569,10 @@ fn required_mutual_cycle_is_broken_with_an_omitted_leg() {
     let b_idx = before
         .find("depIds['b_id'] = dep_")
         .expect("B dep must be created");
-    assert!(a_idx < b_idx, "break-point must be created first:\n{before}");
+    assert!(
+        a_idx < b_idx,
+        "break-point must be created first:\n{before}"
+    );
     // If the API genuinely requires the omitted FK, the create 4xxs — the
     // emitted catch must rethrow with a message naming the cycle, not pass.
     assert!(
@@ -919,9 +922,7 @@ fn text_convention_fk_flows_through_the_schema_ref_path() {
     );
     // Conditional spread in the payload; NO text sentinel anywhere.
     assert!(
-        content.contains(
-            "...(depIds['widget_id'] ? { 'widget_id': depIds['widget_id'] } : {}),"
-        ),
+        content.contains("...(depIds['widget_id'] ? { 'widget_id': depIds['widget_id'] } : {}),"),
         "testData must emit the entity-ref spread for the convention ref:\n{content}"
     );
     assert!(
@@ -1811,7 +1812,13 @@ fn testid_module_pom_resolves_locators_through_the_module() {
     assert!(!page.contains("confirm-dialog-confirm"), "{page}");
 
     // Flag OFF (default): literals as before, no import.
-    let files = all_files(&engine, &config, &ProjectConfig::default(), "PersonType", "hr");
+    let files = all_files(
+        &engine,
+        &config,
+        &ProjectConfig::default(),
+        "PersonType",
+        "hr",
+    );
     let page = &files
         .iter()
         .find(|(p, _)| p.ends_with("person.page.ts"))
