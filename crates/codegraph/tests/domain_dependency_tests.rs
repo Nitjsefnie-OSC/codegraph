@@ -555,6 +555,7 @@ fn doctor_command_reports_dependency_outcomes() {
         ddd_files: vec![],
         evt_files: vec![],
         deploy_files: vec![],
+        ifml_files: vec![],
     };
     let summary = cmd_doctor(&args(project.join("domains.toml"))).unwrap();
     assert_eq!(

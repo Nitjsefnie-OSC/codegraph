@@ -56,9 +56,9 @@
     error = null;
     try {
       const [ep, subs, dels] = await Promise.all([
-        apiGet<any>(`/webhooks/webhook-endpoints/${endpointId}`),
-        apiGet<any[]>(`/webhooks/webhook-endpoints/${endpointId}/subscriptions`),
-        apiGet<any[]>(`/webhooks/webhook-endpoints/${endpointId}/deliveries`),
+        apiGet<WebhookEndpoint>(`/webhooks/webhook-endpoints/${endpointId}`),
+        apiGet<Subscription[]>(`/webhooks/webhook-endpoints/${endpointId}/subscriptions`),
+        apiGet<Delivery[]>(`/webhooks/webhook-endpoints/${endpointId}/deliveries`),
       ]);
       endpoint = ep;
       subscriptions = subs;

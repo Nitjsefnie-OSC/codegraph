@@ -6,6 +6,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateEventBaseRequest } from '#lib/api/types.ts';
+
 import { EventBasePage } from './event-base.page';
 
 
@@ -19,11 +22,11 @@ const BASE_PATH = '/common/event-base';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreateEventBaseRequest | 'code', unknown>> {
   return {
-    'capacity': 77,
+    'capacity': 42,
     'title': 'ACME Isolation Title',
-    'birth_date': '2025-03-10',
+    'birth_date': '2026-01-15',
     'family_name': 'ACME Isolation Family Name',
     'given_name': 'ACME Isolation Given Name',
 
@@ -33,7 +36,8 @@ function testData(): Record<string, unknown> {
 
 test.describe('EventBase Cross-Org Isolation', () => {
   let acmeEntityId: string;
-  const data = testData();
+  // Widened read view: list-column reads may touch response-only fields.
+  const data: Record<string, unknown> = testData();
 
   test.beforeAll(async ({ orgContext }) => {
 

@@ -382,6 +382,12 @@ pub enum Commands {
         /// Error-severity diagnostics are hard failures
         #[arg(long)]
         deploy_files: Vec<PathBuf>,
+
+        /// Paths to rexlang .ifml interaction-model files; parse-verified
+        /// and their `import "….actor"` policy imports resolved. Errors
+        /// and unresolvable imports are hard failures
+        #[arg(long)]
+        ifml_files: Vec<PathBuf>,
     },
     /// Add to an existing consumer project
     Add {

@@ -11,31 +11,31 @@
 	import { ArrayField } from '#lib/components/ui/array-field/index.js';
 	import { StructuredWrapperField } from '#lib/components/ui/structured-wrapper-field/index.js';
 	import * as m from '#lib/paraglide/messages.js';
-	import type { CreatePersonBaseRequest, UpdatePersonBaseRequest } from '#lib/api/types.ts';
+	import type { CreatePersonBaseRequest, UpdatePersonBaseRequest, PersonBaseResponse } from '#lib/api/types.ts';
 
 	type FormData = CreatePersonBaseRequest | UpdatePersonBaseRequest;
 
 	interface Props {
 		mode: 'create' | 'edit';
-		initialData?: Record<string, unknown>;
+		initialData?: PersonBaseResponse;
 		onSubmit: (data: FormData) => void;
 		submitting?: boolean;
 	}
 
-	let { mode, initialData = {}, onSubmit, submitting = false }: Props = $props();
+	let { mode, initialData = undefined, onSubmit, submitting = false }: Props = $props();
 
 	// Form state
 
 
-	let birth_date = $state(String(initialData['birth_date'] ?? ''));
+	let birth_date = $state(String(initialData?.birth_date ?? ''));
 
 
 
-	let family_name = $state(String(initialData['family_name'] ?? ''));
+	let family_name = $state(String(initialData?.family_name ?? ''));
 
 
 
-	let given_name = $state(String(initialData['given_name'] ?? ''));
+	let given_name = $state(String(initialData?.given_name ?? ''));
 
 
 
@@ -61,15 +61,15 @@
 			// Edit mode: only send changed fields
 
 
-			if (birth_date !== String(initialData['birth_date'] ?? '')) data['birth_date'] = birth_date;
+			if (birth_date !== String(initialData?.birth_date ?? '')) data['birth_date'] = birth_date;
 
 
 
-			if (family_name !== String(initialData['family_name'] ?? '')) data['family_name'] = family_name;
+			if (family_name !== String(initialData?.family_name ?? '')) data['family_name'] = family_name;
 
 
 
-			if (given_name !== String(initialData['given_name'] ?? '')) data['given_name'] = given_name;
+			if (given_name !== String(initialData?.given_name ?? '')) data['given_name'] = given_name;
 
 
 		}

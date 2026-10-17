@@ -6,6 +6,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreatePayRunRequest } from '#lib/api/types.ts';
+
 import { PayRunPage } from './pay-runs.page';
 
 
@@ -19,20 +22,23 @@ const BASE_PATH = '/compensation/pay-runs';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreatePayRunRequest | 'code', unknown>> {
   return {
-    'pay_run_id': 'ACME Isolation Pay Run Id',
-    'run_date': '2025-03-10',
-    'total_amount': 77,
+    // 'pay_run_id': entity ref — emitted by _dep_setup.tera
+    'run_date': '2026-01-15',
+    'total_amount': 42.5,
     'total_amount_currency': 'USD',
 
+
+    ...(depIds['pay_run_id'] ? { 'pay_run_id': depIds['pay_run_id'] } : {}),
 
   };
 }
 
 test.describe('PayRun Cross-Org Isolation', () => {
   let acmeEntityId: string;
-  const data = testData();
+  // Widened read view: list-column reads may touch response-only fields.
+  const data: Record<string, unknown> = testData();
 
   test.beforeAll(async ({ orgContext }) => {
 
@@ -48,6 +54,12 @@ test.describe('PayRun Cross-Org Isolation', () => {
     acmeEntityId = entity.id as string;
 });
 
+
+  test.afterAll(async ({ orgContext }) => {
+
+const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
+
+  });
 
 
 

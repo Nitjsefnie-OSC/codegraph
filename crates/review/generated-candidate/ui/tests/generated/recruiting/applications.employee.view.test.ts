@@ -5,6 +5,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi, expectToast } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateApplicationRequest } from '#lib/api/types.ts';
+
 import { ApplicationPage } from './applications.page';
 
 
@@ -18,13 +21,15 @@ const BASE_PATH = '/recruiting/applications';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreateApplicationRequest | 'code', unknown>> {
   return {
-    'application_id': 'Test Application Id',
-    'applied_date': '2025-01-15',
+    // 'application_id': entity ref — emitted by _dep_setup.tera
+    'applied_date': '2026-01-15',
     // 'candidate_id': entity ref — emitted by _dep_setup.tera
     'status': 'Applied',
 
+
+    ...(depIds['application_id'] ? { 'application_id': depIds['application_id'] } : {}),
 
   };
 }
@@ -41,6 +46,12 @@ test.describe('Application Employee View', () => {
     createdId = entity.id as string;
 });
 
+
+  test.afterAll(async ({ orgContext }) => {
+
+const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
+
+  });
 
 
 

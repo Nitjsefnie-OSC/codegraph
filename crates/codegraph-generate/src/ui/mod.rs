@@ -10,5 +10,7 @@ pub mod page;
 pub mod scaffold;
 pub mod shell;
 pub mod store;
+pub mod testids;
+pub mod testids_gen;
 pub mod types;
 pub mod wizard_detect;

@@ -9,6 +9,7 @@
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import * as Empty from '#lib/components/ui/empty/index.js';
+	import { formatFallback } from '#lib/format.ts';
 	import SearchInput from '#lib/components/ui/SearchInput.svelte';
 	import type { FormattedDateTimeResponse } from '#lib/api/types.ts';
 	import * as m from '#lib/paraglide/messages.js';
@@ -69,19 +70,11 @@
 
 
 
-	function formatObject(obj: Record<string, unknown>): string {
-		for (const key of ['value', 'code', 'name', 'id']) {
-			if (key in obj && obj[key] != null) return String(obj[key]);
-		}
-		const vals = Object.values(obj).filter(v => v != null && typeof v !== 'object');
-		return vals.length ? String(vals[0]) : JSON.stringify(obj);
-	}
-
 	function formatValue(value: unknown): string {
 		if (value === null || value === undefined) return '\u2014';
 		if (typeof value === 'boolean') return value ? m.common_yes() : m.common_no();
-		if (Array.isArray(value)) return value.map(v => typeof v === 'object' && v !== null ? formatObject(v as Record<string, unknown>) : String(v)).join(', ');
-		if (typeof value === 'object' && value !== null) return formatObject(value as Record<string, unknown>);
+		if (Array.isArray(value)) return value.map(v => typeof v === 'object' && v !== null ? formatFallback(v as Record<string, unknown>) : String(v)).join(', ');
+		if (typeof value === 'object' && value !== null) return formatFallback(value as Record<string, unknown>);
 		return String(value);
 	}
 

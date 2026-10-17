@@ -6,6 +6,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi, expectToast } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateNameRequest } from '#lib/api/types.ts';
+
 import { NamePage } from './name.page';
 
 
@@ -17,7 +20,7 @@ const BASE_PATH = '/common/name';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreateNameRequest | 'code', unknown>> {
   return {
     'family_name': 'Test Family Name',
     'formatted_name': 'Test Formatted Name',
@@ -27,7 +30,7 @@ function testData(): Record<string, unknown> {
   };
 }
 
-function updatedData(): Record<string, unknown> {
+function updatedData(): Partial<Record<keyof CreateNameRequest | 'code', unknown>> {
   return {
     'family_name': 'Updated Family Name',
     'formatted_name': 'Updated Formatted Name',

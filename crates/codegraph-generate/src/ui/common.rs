@@ -366,6 +366,45 @@ pub async fn collect_ui_fields(
     Ok(fields)
 }
 
+const PREFERRED_DISPLAY_FIELDS: [&str; 6] = [
+    "display_name",
+    "full_name",
+    "name",
+    "title",
+    "label",
+    "code",
+];
+
+const NON_DISPLAY_FIELD_NAMES: [&str; 4] = ["id", "created_at", "updated_at", "deleted_at"];
+
+fn is_display_string_scalar(field: &UiField) -> bool {
+    field.ts_type == "string"
+        && !field.is_array
+        && !field.is_range
+        && !field.is_entity_ref
+        && field.structured_sub_fields.is_empty()
+        && field.nested_type_name.is_none()
+}
+
+pub(crate) fn resolve_display_field(fields: &[UiField]) -> Option<String> {
+    for candidate in PREFERRED_DISPLAY_FIELDS {
+        if let Some(field) = fields
+            .iter()
+            .find(|f| f.name == candidate && is_display_string_scalar(f))
+        {
+            return Some(field.name.clone());
+        }
+    }
+    fields
+        .iter()
+        .find(|f| {
+            f.is_required
+                && is_display_string_scalar(f)
+                && !NON_DISPLAY_FIELD_NAMES.contains(&f.name.as_str())
+        })
+        .map(|f| f.name.clone())
+}
+
 /// Resolves direct child tables for an entity by scanning entity_config entries
 /// with `role = "child"` and `parent` matching the given schema. Returns sorted
 /// `ChildSection` entries for use in detail-page accordion sections.
@@ -436,12 +475,14 @@ pub async fn collect_child_sections(
 
             sections.push(ChildSection {
                 entity_name,
-                module_name,
+                module_name: module_name.clone(),
                 label,
                 path_segment,
                 domain: domain_name.clone(),
                 has_children,
+                display_field: resolve_display_field(&fields),
                 fields,
+                tid: crate::ui::testids::for_module(&module_name),
             });
         }
     }
@@ -471,10 +512,12 @@ pub async fn collect_child_sections(
             .await?;
 
             let grandchildren = db.get_child_schemas(&child.title).await.unwrap_or_default();
+            let child_module = child.pg_table_name.clone();
 
             sections.push(ChildSection {
                 entity_name,
-                module_name: child.pg_table_name.clone(),
+                tid: crate::ui::testids::for_module(&child_module),
+                module_name: child_module,
                 label,
                 path_segment,
                 domain: child
@@ -482,6 +525,7 @@ pub async fn collect_child_sections(
                     .clone()
                     .unwrap_or_else(|| current_domain.to_string()),
                 has_children: !grandchildren.is_empty(),
+                display_field: resolve_display_field(&fields),
                 fields,
             });
         }
@@ -514,5 +558,95 @@ async fn resolve_codelist_values(
         }
     } else {
         Vec::new()
+    }
+}
+
+#[cfg(test)]
+mod display_field_tests {
+    use super::*;
+
+    fn field(name: &str, ts_type: &str, is_required: bool) -> UiField {
+        UiField {
+            name: name.to_string(),
+            label: name.to_string(),
+            ts_type: ts_type.to_string(),
+            input_type: "text".to_string(),
+            is_required,
+            is_array: false,
+            is_entity_ref: false,
+            is_immutable: false,
+            is_codelist: false,
+            is_range: false,
+            codelist_values: vec![],
+            description: String::new(),
+            pg_type: "TEXT".to_string(),
+            open_end: false,
+            ref_api_path: None,
+            structured_sub_fields: vec![],
+            nested_type_name: None,
+        }
+    }
+
+    #[test]
+    fn prefers_canonical_names_in_order() {
+        let fields = vec![
+            field("title", "string", true),
+            field("name", "string", true),
+            field("display_name", "string", true),
+        ];
+        assert_eq!(
+            resolve_display_field(&fields).as_deref(),
+            Some("display_name")
+        );
+        let fields = vec![field("name", "string", true), field("code", "string", true)];
+        assert_eq!(resolve_display_field(&fields).as_deref(), Some("name"));
+    }
+
+    #[test]
+    fn preferred_candidate_must_be_string_scalar() {
+        let fields = vec![field("name", "number", true), field("code", "string", true)];
+        assert_eq!(resolve_display_field(&fields).as_deref(), Some("code"));
+    }
+
+    #[test]
+    fn falls_back_to_first_required_non_audit_string_scalar() {
+        let fields = vec![
+            field("created_at", "string", true),
+            field("sort_order", "number", true),
+            field("note", "string", true),
+            field("remark", "string", false),
+        ];
+        assert_eq!(resolve_display_field(&fields).as_deref(), Some("note"));
+    }
+
+    #[test]
+    fn skips_arrays_ranges_refs_and_wrappers_in_fallback() {
+        let mut array_field = field("tags", "Array<string>", true);
+        array_field.is_array = true;
+        let mut range_field = field("validity", "string", true);
+        range_field.is_range = true;
+        let mut ref_field = field("owner_id", "string", true);
+        ref_field.is_entity_ref = true;
+        let mut wrapper = field("identifier", "string", true);
+        wrapper.structured_sub_fields = vec![super::super::page::UiSubField {
+            name: "value".into(),
+            snake_name: "value".into(),
+            label: "Value".into(),
+            is_required: true,
+            description: String::new(),
+            show_by_default: true,
+        }];
+        let fields = vec![array_field, range_field, ref_field, wrapper];
+        assert_eq!(resolve_display_field(&fields), None);
+    }
+
+    #[test]
+    fn none_when_no_readable_field_exists() {
+        let fields = vec![
+            field("id", "string", true),
+            field("quantity", "number", true),
+        ];
+        assert_eq!(resolve_display_field(&fields), None);
+        assert_eq!(resolve_display_field(&[]), None);
     }
 }

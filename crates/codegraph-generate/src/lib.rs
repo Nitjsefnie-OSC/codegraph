@@ -8,6 +8,7 @@ pub mod ifml;
 pub mod manifest;
 pub mod persistence;
 pub mod profile;
+pub mod quality_gates;
 pub mod report;
 pub mod rosetta_expr;
 pub mod template_engine;

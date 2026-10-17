@@ -20,7 +20,7 @@ use super::fixtures::build_test_data_json;
 use super::include::resolve_e2e_include_config;
 use super::page::UiField;
 use super::pom_ctx::PomCtx;
-use super::refs::apply_convention_refs;
+use super::refs::{apply_convention_refs, is_convention_ref_gap};
 use super::store::UiParentInfo;
 use super::ux_spec::build_ux_e2e_spec;
 
@@ -216,7 +216,26 @@ impl EntityGenerator for UiE2eTestGenerator {
         // Required plain-uuid FK columns without a `$ref`/graph edge (e.g.
         // `party.case_id`) resolve to their entity by naming convention and
         // must be marked before create/update fields are derived.
-        apply_convention_refs(db, config, &domain, &all_props, &mut fields).await;
+        let convention_refs =
+            apply_convention_refs(db, config, &domain, &all_props, &mut fields).await;
+
+        // A convention ref is only dep-created when its target entity has a
+        // create API (the schema-ref path). Otherwise the field is unmarked —
+        // testData keeps the text sentinel — and the gap is named in the
+        // emitted payload.
+        let mut creatable_convention_refs: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        for res in &convention_refs {
+            let target_domain = res.target.domain.clone().unwrap_or_else(|| domain.clone());
+            let target_operations =
+                resolve_entity_operations(db, config, &target_domain, &res.target.title).await;
+            if target_operations.iter().any(|op| op == "create") {
+                creatable_convention_refs.insert(res.field_name.clone());
+            } else if let Some(f) = fields.iter_mut().find(|f| f.name == res.field_name) {
+                f.is_entity_ref = false;
+                f.ref_api_path = None;
+            }
+        }
 
         let mut create_fields: Vec<UiField> = fields
             .iter()
@@ -261,6 +280,17 @@ impl EntityGenerator for UiE2eTestGenerator {
             .iter()
             .filter(|f| !f.is_immutable && !all_excluded.contains(&f.name))
             .cloned()
+            .collect();
+
+        // Convention-ref gaps, over the create payload only (the comment is
+        // emitted inside the testData loop): required `_id` columns the name
+        // convention claims that did not resolve to a creatable entity.
+        let convention_ref_gaps: Vec<String> = create_fields
+            .iter()
+            .filter(|f| {
+                !creatable_convention_refs.contains(&f.name) && is_convention_ref_gap(f, &all_props)
+            })
+            .map(|f| f.name.clone())
             .collect();
 
         let first_list_column = fields.first().map(|f| f.name.clone());
@@ -617,6 +647,7 @@ impl EntityGenerator for UiE2eTestGenerator {
             dependency_steps,
             dependency_errors,
             has_entity_ref_deps,
+            convention_ref_gaps,
             child_sections,
             has_child_sections,
             param_name: crate::api::router::param_name_from_path_segment(&path_segment),

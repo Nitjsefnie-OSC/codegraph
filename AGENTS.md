@@ -754,6 +754,18 @@ dropped on finish; warm run ~110s. Runs locally and on the nightly
 `.github/workflows/ifml-gate.yml` (workflow_dispatch + 03:00 UTC cron, postgres:16
 service, gate logs artifact on failure) — PR CI stays node-free.
 
+### IFML doctor gate (issue #468 phase 1)
+
+`--ifml-files` rides `codegraph doctor` (`check_ifml_files` in
+`crates/codegraph/src/init/commands.rs`): each file goes through the same
+`rex_ifml::parse_ifml_file` the ingest path uses (parse error = hard
+failure), and its `import "….actor"` statements resolve read-only through
+`resolve_actor_policy`. The asymmetry is the point — the run path
+warns-and-continues past an unresolvable policy import (the view guards
+would silently lose their policy), so doctor makes that a hard failure
+instead. `.mox` imports on `.ifml` files are checked for existence but are
+not policy business.
+
 ## Generated integration testing (#463)
 
 Every generated app ships its integration tests: hurl API contracts +

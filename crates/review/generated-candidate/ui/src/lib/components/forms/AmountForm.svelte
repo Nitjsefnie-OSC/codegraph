@@ -11,27 +11,27 @@
 	import { ArrayField } from '#lib/components/ui/array-field/index.js';
 	import { StructuredWrapperField } from '#lib/components/ui/structured-wrapper-field/index.js';
 	import * as m from '#lib/paraglide/messages.js';
-	import type { CreateAmountRequest, UpdateAmountRequest } from '#lib/api/types.ts';
+	import type { CreateAmountRequest, UpdateAmountRequest, AmountResponse } from '#lib/api/types.ts';
 
 	type FormData = CreateAmountRequest | UpdateAmountRequest;
 
 	interface Props {
 		mode: 'create' | 'edit';
-		initialData?: Record<string, unknown>;
+		initialData?: AmountResponse;
 		onSubmit: (data: FormData) => void;
 		submitting?: boolean;
 	}
 
-	let { mode, initialData = {}, onSubmit, submitting = false }: Props = $props();
+	let { mode, initialData = undefined, onSubmit, submitting = false }: Props = $props();
 
 	// Form state
 
 
-	let currency = $state(String(initialData['currency'] ?? ''));
+	let currency = $state(String(initialData?.currency ?? ''));
 
 
 
-	let value = $state<number | undefined>(initialData['value'] != null ? Number(initialData['value']) : undefined);
+	let value = $state<number | undefined>(initialData?.value != null ? Number(initialData?.value) : undefined);
 
 
 
@@ -53,11 +53,11 @@
 			// Edit mode: only send changed fields
 
 
-			if (currency !== String(initialData['currency'] ?? '')) data['currency'] = currency;
+			if (currency !== String(initialData?.currency ?? '')) data['currency'] = currency;
 
 
 
-			if (value !== Number(initialData['value'])) data['value'] = value;
+			if (value !== Number(initialData?.value)) data['value'] = value;
 
 
 		}

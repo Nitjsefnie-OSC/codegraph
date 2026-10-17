@@ -161,7 +161,11 @@ export class ApplicationPage extends BasePage {
 
 
 
+  /** Entity refs are filled from the created dependency id. */
   async fillApplicationId(value: string): Promise<void> {
+    if (!value) {
+      return;
+    }
     const el = this.formInput('application_id');
     if (await el.isVisible()) {
       await el.clear();

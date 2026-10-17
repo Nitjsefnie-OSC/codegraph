@@ -6,6 +6,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateDistributionBaseRequest } from '#lib/api/types.ts';
+
 import { DistributionBasePage } from './distribution-base.page';
 
 
@@ -19,11 +22,11 @@ const BASE_PATH = '/common/distribution-base';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreateDistributionBaseRequest | 'code', unknown>> {
   return {
     'description': 'ACME Isolation Description',
-    'end_date': '2025-03-10',
-    'start_date': '2025-03-10',
+    'end_date': '2026-01-15',
+    'start_date': '2026-01-15',
 
 
   };
@@ -31,7 +34,8 @@ function testData(): Record<string, unknown> {
 
 test.describe('DistributionBase Cross-Org Isolation', () => {
   let acmeEntityId: string;
-  const data = testData();
+  // Widened read view: list-column reads may touch response-only fields.
+  const data: Record<string, unknown> = testData();
 
   test.beforeAll(async ({ orgContext }) => {
 

@@ -11,35 +11,35 @@
 	import { ArrayField } from '#lib/components/ui/array-field/index.js';
 	import { StructuredWrapperField } from '#lib/components/ui/structured-wrapper-field/index.js';
 	import * as m from '#lib/paraglide/messages.js';
-	import type { CreatePayRunRequest, UpdatePayRunRequest } from '#lib/api/types.ts';
+	import type { CreatePayRunRequest, UpdatePayRunRequest, PayRunResponse } from '#lib/api/types.ts';
 
 	type FormData = CreatePayRunRequest | UpdatePayRunRequest;
 
 	interface Props {
 		mode: 'create' | 'edit';
-		initialData?: Record<string, unknown>;
+		initialData?: PayRunResponse;
 		onSubmit: (data: FormData) => void;
 		submitting?: boolean;
 	}
 
-	let { mode, initialData = {}, onSubmit, submitting = false }: Props = $props();
+	let { mode, initialData = undefined, onSubmit, submitting = false }: Props = $props();
 
 	// Form state
 
 
-	let pay_run_id = $state(String(initialData['pay_run_id'] ?? ''));
+	let pay_run_id = $state(String(initialData?.pay_run_id ?? ''));
 
 
 
-	let run_date = $state(String(initialData['run_date'] ?? ''));
+	let run_date = $state(String(initialData?.run_date ?? ''));
 
 
 
-	let total_amount = $state<number | undefined>(initialData['total_amount'] != null ? Number(initialData['total_amount']) : undefined);
+	let total_amount = $state<number | undefined>(initialData?.total_amount != null ? Number(initialData?.total_amount) : undefined);
 
 
 
-	let total_amount_currency = $state(String(initialData['total_amount_currency'] ?? ''));
+	let total_amount_currency = $state(String(initialData?.total_amount_currency ?? ''));
 
 
 
@@ -69,19 +69,19 @@
 			// Edit mode: only send changed fields
 
 
-			if (pay_run_id !== String(initialData['pay_run_id'] ?? '')) data['pay_run_id'] = pay_run_id;
+			if (pay_run_id !== String(initialData?.pay_run_id ?? '')) data['pay_run_id'] = pay_run_id;
 
 
 
-			if (run_date !== String(initialData['run_date'] ?? '')) data['run_date'] = run_date;
+			if (run_date !== String(initialData?.run_date ?? '')) data['run_date'] = run_date;
 
 
 
-			if (total_amount !== Number(initialData['total_amount'])) data['total_amount'] = total_amount;
+			if (total_amount !== Number(initialData?.total_amount)) data['total_amount'] = total_amount;
 
 
 
-			if (total_amount_currency !== String(initialData['total_amount_currency'] ?? '')) data['total_amount_currency'] = total_amount_currency;
+			if (total_amount_currency !== String(initialData?.total_amount_currency ?? '')) data['total_amount_currency'] = total_amount_currency;
 
 
 		}

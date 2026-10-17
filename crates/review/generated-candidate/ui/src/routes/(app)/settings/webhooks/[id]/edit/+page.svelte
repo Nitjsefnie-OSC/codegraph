@@ -26,7 +26,7 @@
 
   async function loadEndpoint() {
     try {
-      const ep = await apiGet<any>(`/webhooks/webhook-endpoints/${endpointId}`);
+      const ep = await apiGet<WebhookEndpoint>(`/webhooks/webhook-endpoints/${endpointId}`);
       url = ep.url;
       description = ep.description ?? '';
       headersJson = JSON.stringify(ep.headers, null, 2);

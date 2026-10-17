@@ -11,35 +11,35 @@
 	import { ArrayField } from '#lib/components/ui/array-field/index.js';
 	import { StructuredWrapperField } from '#lib/components/ui/structured-wrapper-field/index.js';
 	import * as m from '#lib/paraglide/messages.js';
-	import type { CreateApplicationRequest, UpdateApplicationRequest } from '#lib/api/types.ts';
+	import type { CreateApplicationRequest, UpdateApplicationRequest, ApplicationResponse } from '#lib/api/types.ts';
 
 	type FormData = CreateApplicationRequest | UpdateApplicationRequest;
 
 	interface Props {
 		mode: 'create' | 'edit';
-		initialData?: Record<string, unknown>;
+		initialData?: ApplicationResponse;
 		onSubmit: (data: FormData) => void;
 		submitting?: boolean;
 	}
 
-	let { mode, initialData = {}, onSubmit, submitting = false }: Props = $props();
+	let { mode, initialData = undefined, onSubmit, submitting = false }: Props = $props();
 
 	// Form state
 
 
-	let application_id = $state(String(initialData['application_id'] ?? ''));
+	let application_id = $state(String(initialData?.application_id ?? ''));
 
 
 
-	let applied_date = $state(String(initialData['applied_date'] ?? ''));
+	let applied_date = $state(String(initialData?.applied_date ?? ''));
 
 
 
-	let candidate_id = $state(String(initialData['candidate_id'] ?? ''));
+	let candidate_id = $state(String(initialData?.candidate_id ?? ''));
 
 
 
-	let status = $state(String(initialData['status'] ?? ''));
+	let status = $state(String(initialData?.status ?? ''));
 
 
 
@@ -69,19 +69,19 @@
 			// Edit mode: only send changed fields
 
 
-			if (application_id !== String(initialData['application_id'] ?? '')) data['application_id'] = application_id;
+			if (application_id !== String(initialData?.application_id ?? '')) data['application_id'] = application_id;
 
 
 
-			if (applied_date !== String(initialData['applied_date'] ?? '')) data['applied_date'] = applied_date;
+			if (applied_date !== String(initialData?.applied_date ?? '')) data['applied_date'] = applied_date;
 
 
 
-			if (candidate_id !== String(initialData['candidate_id'] ?? '')) data['candidate_id'] = candidate_id;
+			if (candidate_id !== String(initialData?.candidate_id ?? '')) data['candidate_id'] = candidate_id;
 
 
 
-			if (status !== String(initialData['status'] ?? '')) data['status'] = status;
+			if (status !== String(initialData?.status ?? '')) data['status'] = status;
 
 
 		}
