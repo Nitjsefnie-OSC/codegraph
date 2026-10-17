@@ -81,6 +81,7 @@ fn expr_json(condition: Option<&Expression>) -> Option<String> {
 }
 
 /// Ingest a parsed IFML model into the graph database.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub async fn ingest_ifml_model(
     db: &dyn GraphIngestor,
     model: &IfmlModel,

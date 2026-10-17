@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use std::sync::RwLock;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Mutex, RwLock};
 
 use async_trait::async_trait;
 
@@ -21,6 +21,37 @@ use crate::types::{
 
 /// Cached codelist-for-property value: `Option<(CodeList, render_as)>`.
 type CodelistPropertyVal = Option<(CodeList, String)>;
+
+/// Process-wide cache hit/miss counters per cached method family
+/// (issue #473). Keyed by method name → `(hits, misses)`; a miss means the
+/// lookup went to the inner querier. Populated by `CachingQuerier` calls
+/// only — `warm()`'s bulk fills are neither hits nor misses.
+static CACHE_STATS: Mutex<BTreeMap<&'static str, (u64, u64)>> = Mutex::new(BTreeMap::new());
+
+fn cache_record(method: &'static str, hit: bool) {
+    let mut stats = CACHE_STATS.lock().unwrap();
+    let entry = stats.entry(method).or_insert((0, 0));
+    if hit {
+        entry.0 += 1;
+    } else {
+        entry.1 += 1;
+    }
+}
+
+/// Snapshot the cache hit/miss counters: method family → `(hits, misses)`.
+pub fn cache_stats_snapshot() -> BTreeMap<String, (u64, u64)> {
+    CACHE_STATS
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(k, (hits, misses))| ((*k).to_string(), (*hits, *misses)))
+        .collect()
+}
+
+/// Zero the cache hit/miss counters.
+pub fn cache_stats_reset() {
+    CACHE_STATS.lock().unwrap().clear();
+}
 
 /// A caching wrapper around a `&dyn GraphQuerier`.
 ///
@@ -236,13 +267,15 @@ impl<'a> CachingQuerier<'a> {
 
 /// Helper macro to implement a cached method with a single string key.
 macro_rules! cached_single {
-    ($self:ident, $cache:ident, $key:expr, $inner_call:expr) => {{
+    ($self:ident, $cache:ident, $method:expr, $key:expr, $inner_call:expr) => {{
         {
             let cache = $self.$cache.read().unwrap();
             if let Some(val) = cache.get($key) {
+                cache_record($method, true);
                 return Ok(val.clone());
             }
         }
+        cache_record($method, false);
         let result = $inner_call.await?;
         {
             let mut cache = $self.$cache.write().unwrap();
@@ -254,14 +287,16 @@ macro_rules! cached_single {
 
 /// Helper macro for cached methods with a two-string key.
 macro_rules! cached_pair {
-    ($self:ident, $cache:ident, $k1:expr, $k2:expr, $inner_call:expr) => {{
+    ($self:ident, $cache:ident, $method:expr, $k1:expr, $k2:expr, $inner_call:expr) => {{
         let key = ($k1.to_string(), $k2.to_string());
         {
             let cache = $self.$cache.read().unwrap();
             if let Some(val) = cache.get(&key) {
+                cache_record($method, true);
                 return Ok(val.clone());
             }
         }
+        cache_record($method, false);
         let result = $inner_call.await?;
         {
             let mut cache = $self.$cache.write().unwrap();
@@ -274,16 +309,24 @@ macro_rules! cached_pair {
 #[async_trait]
 impl GraphQuerier for CachingQuerier<'_> {
     async fn get_schema(&self, title: &str) -> Result<Option<SchemaNode>, GraphError> {
-        cached_single!(self, schema_cache, title, self.inner.get_schema(title))
+        cached_single!(
+            self,
+            schema_cache,
+            "get_schema",
+            title,
+            self.inner.get_schema(title)
+        )
     }
 
     async fn get_schema_by_id(&self, schema_id: &str) -> Result<Option<SchemaNode>, GraphError> {
         {
             let cache = self.schema_id_cache.read().unwrap();
             if let Some(val) = cache.get(schema_id) {
+                cache_record("get_schema_by_id", true);
                 return Ok(val.clone());
             }
         }
+        cache_record("get_schema_by_id", false);
         let result = self.inner.get_schema_by_id(schema_id).await?;
         {
             let mut cache = self.schema_id_cache.write().unwrap();
@@ -308,6 +351,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             properties_cache,
+            "get_properties",
             schema_title,
             self.inner.get_properties(schema_title)
         )
@@ -317,6 +361,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             child_schemas_cache,
+            "get_child_schemas",
             schema_title,
             self.inner.get_child_schemas(schema_title)
         )
@@ -343,7 +388,13 @@ impl GraphQuerier for CachingQuerier<'_> {
     }
 
     async fn get_codelist(&self, name: &str) -> Result<Option<CodeList>, GraphError> {
-        cached_single!(self, codelist_cache, name, self.inner.get_codelist(name))
+        cached_single!(
+            self,
+            codelist_cache,
+            "get_codelist",
+            name,
+            self.inner.get_codelist(name)
+        )
     }
 
     async fn list_codelists(&self) -> Result<Vec<CodeList>, GraphError> {
@@ -354,6 +405,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             enum_values_cache,
+            "get_enum_values",
             codelist_name,
             self.inner.get_enum_values(codelist_name)
         )
@@ -367,6 +419,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_pair!(
             self,
             composite_columns_cache,
+            "get_composite_columns",
             property_name,
             schema_title,
             self.inner
@@ -381,6 +434,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             structured_sub_fields_cache,
+            "get_structured_sub_fields",
             schema_title,
             self.inner.get_structured_sub_fields(schema_title)
         )
@@ -393,6 +447,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             composite_range_cache,
+            "get_composite_range",
             schema_title,
             self.inner.get_composite_range(schema_title)
         )
@@ -405,6 +460,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             consumed_fields_cache,
+            "get_consumed_fields",
             schema_title,
             self.inner.get_consumed_fields(schema_title)
         )
@@ -418,6 +474,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_pair!(
             self,
             codelist_for_property_cache,
+            "get_codelist_for_property",
             property_name,
             schema_title,
             self.inner
@@ -432,6 +489,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             extensions_cache,
+            "get_required_extensions",
             schema_title,
             self.inner.get_required_extensions(schema_title)
         )
@@ -444,6 +502,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             composition_tree_cache,
+            "get_composition_tree",
             schema_title,
             self.inner.get_composition_tree(schema_title)
         )
@@ -453,6 +512,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             allof_targets_cache,
+            "get_allof_targets",
             schema_title,
             self.inner.get_allof_targets(schema_title)
         )
@@ -462,6 +522,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             referencing_cache,
+            "get_referencing_schemas",
             schema_title,
             self.inner.get_referencing_schemas(schema_title)
         )
@@ -474,6 +535,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             schemas_that_extend_cache,
+            "get_schemas_that_extend",
             parent_title,
             self.inner.get_schemas_that_extend(parent_title)
         )
@@ -486,6 +548,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             referenced_cache,
+            "get_referenced_schemas",
             schema_title,
             self.inner.get_referenced_schemas(schema_title)
         )
@@ -499,6 +562,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_pair!(
             self,
             property_ref_target_cache,
+            "get_property_ref_target",
             property_name,
             schema_title,
             self.inner
@@ -514,6 +578,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_pair!(
             self,
             property_ref_target_by_id_cache,
+            "get_property_ref_target_by_id",
             property_name,
             schema_id,
             self.inner
@@ -536,6 +601,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_pair!(
             self,
             array_item_schema_cache,
+            "get_array_item_schema",
             property_name,
             schema_title,
             self.inner
@@ -724,8 +790,10 @@ impl GraphQuerier for CachingQuerier<'_> {
 
     async fn get_api_resources(&self) -> Result<Vec<ApiResourceNode>, GraphError> {
         if let Some(cached) = self.api_resources_cache.read().unwrap().as_ref() {
+            cache_record("get_api_resources", true);
             return Ok(cached.clone());
         }
+        cache_record("get_api_resources", false);
         let result = self.inner.get_api_resources().await?;
         self.api_resources_cache
             .write()
@@ -756,8 +824,10 @@ impl GraphQuerier for CachingQuerier<'_> {
         resource_name: &str,
     ) -> Result<Vec<ApiOperationNode>, GraphError> {
         if let Some(cached) = self.api_operations_cache.read().unwrap().get(resource_name) {
+            cache_record("get_api_operations", true);
             return Ok(cached.clone());
         }
+        cache_record("get_api_operations", false);
         let result = self.inner.get_api_operations(resource_name).await?;
         self.api_operations_cache
             .write()
@@ -805,9 +875,11 @@ impl GraphQuerier for CachingQuerier<'_> {
         {
             let cache = self.policies_cache.read().unwrap();
             if let Some(policies) = cache.get(schema_title) {
+                cache_record("get_policies_for_schema", true);
                 return Ok(policies.clone());
             }
         }
+        cache_record("get_policies_for_schema", false);
         let policies = self.inner.get_policies_for_schema(schema_title).await?;
         self.policies_cache
             .write()
@@ -823,9 +895,11 @@ impl GraphQuerier for CachingQuerier<'_> {
         {
             let cache = self.relationships_cache.read().unwrap();
             if let Some(rels) = cache.get(schema_title) {
+                cache_record("get_relationships_for_schema", true);
                 return Ok(rels.clone());
             }
         }
+        cache_record("get_relationships_for_schema", false);
         let rels = self
             .inner
             .get_relationships_for_schema(schema_title)
@@ -848,9 +922,11 @@ impl GraphQuerier for CachingQuerier<'_> {
         {
             let cache = self.all_policies_cache.read().unwrap();
             if let Some(policies) = cache.as_ref() {
+                cache_record("list_all_policies", true);
                 return Ok(policies.clone());
             }
         }
+        cache_record("list_all_policies", false);
         let policies = self.inner.list_all_policies().await?;
         *self.all_policies_cache.write().unwrap() = Some(policies.clone());
         Ok(policies)
@@ -860,9 +936,11 @@ impl GraphQuerier for CachingQuerier<'_> {
         {
             let cache = self.all_relationships_cache.read().unwrap();
             if let Some(rels) = cache.as_ref() {
+                cache_record("list_all_relationships", true);
                 return Ok(rels.clone());
             }
         }
+        cache_record("list_all_relationships", false);
         let rels = self.inner.list_all_relationships().await?;
         *self.all_relationships_cache.write().unwrap() = Some(rels.clone());
         Ok(rels)
@@ -916,8 +994,10 @@ impl GraphQuerier for CachingQuerier<'_> {
 
     async fn get_ddd_models(&self) -> Result<Vec<DddModelGraph>, GraphError> {
         if let Some(models) = self.ddd_models_cache.read().unwrap().clone() {
+            cache_record("get_ddd_models", true);
             return Ok(models);
         }
+        cache_record("get_ddd_models", false);
         let models = self.inner.get_ddd_models().await?;
         *self.ddd_models_cache.write().unwrap() = Some(models.clone());
         Ok(models)
@@ -925,8 +1005,10 @@ impl GraphQuerier for CachingQuerier<'_> {
 
     async fn get_evt_models(&self) -> Result<Vec<EvtModelGraph>, GraphError> {
         if let Some(models) = self.evt_models_cache.read().unwrap().clone() {
+            cache_record("get_evt_models", true);
             return Ok(models);
         }
+        cache_record("get_evt_models", false);
         let models = self.inner.get_evt_models().await?;
         *self.evt_models_cache.write().unwrap() = Some(models.clone());
         Ok(models)
@@ -953,5 +1035,90 @@ impl GraphQuerier for CachingQuerier<'_> {
         self.inner
             .get_mox_derived_features_for_schema(schema_title)
             .await
+    }
+}
+
+#[cfg(test)]
+mod cache_stats_tests {
+    use super::*;
+    use crate::mock::MockEngine;
+    use std::sync::Mutex;
+
+    /// Serializes tests in this module: the counters are process-global, so
+    /// exact/reset assertions must not interleave. Poison-tolerant (a failed
+    /// test must not cascade into its siblings).
+    static STATS_LOCK: Mutex<()> = Mutex::new(());
+
+    fn stats_lock() -> std::sync::MutexGuard<'static, ()> {
+        STATS_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(fut)
+    }
+
+    fn ddd_hits_misses() -> (u64, u64) {
+        cache_stats_snapshot()
+            .get("get_ddd_models")
+            .copied()
+            .unwrap_or((0, 0))
+    }
+
+    #[test]
+    fn double_read_records_one_miss_then_one_hit() {
+        let _guard = stats_lock();
+        block_on(async {
+            let mock = MockEngine::default();
+            let querier = CachingQuerier::new(&mock);
+
+            let (before_hits, before_misses) = ddd_hits_misses();
+            let first = querier.get_ddd_models().await.unwrap();
+            let after_first = ddd_hits_misses();
+            let second = querier.get_ddd_models().await.unwrap();
+            let after_second = ddd_hits_misses();
+
+            assert_eq!(first, second, "first-read-wins semantics unchanged");
+            assert_eq!(after_first.1 - before_misses, 1, "first call is a miss");
+            assert_eq!(after_first.0, before_hits, "first call is not a hit");
+            assert_eq!(
+                after_second.0 - after_first.0,
+                1,
+                "second call is served from cache"
+            );
+            assert_eq!(after_second.1, after_first.1, "second call is not a miss");
+        });
+    }
+
+    #[test]
+    fn every_cached_family_records_under_its_own_name() {
+        let _guard = stats_lock();
+        block_on(async {
+            let mock = MockEngine::default();
+            let querier = CachingQuerier::new(&mock);
+            cache_stats_reset();
+
+            let _ = querier.get_ddd_models().await.unwrap();
+            let _ = querier.get_evt_models().await.unwrap();
+            let _ = querier.get_ddd_models().await.unwrap();
+            let _ = querier.list_all_policies().await.unwrap();
+
+            let snapshot = cache_stats_snapshot();
+            assert_eq!(snapshot.get("get_ddd_models"), Some(&(1, 1)));
+            assert_eq!(snapshot.get("get_evt_models"), Some(&(0, 1)));
+            assert_eq!(snapshot.get("list_all_policies"), Some(&(0, 1)));
+        });
+    }
+
+    #[test]
+    fn cache_stats_reset_clears_counters() {
+        let _guard = stats_lock();
+        cache_record("cache_stats_test_family", true);
+        assert!(cache_stats_snapshot().contains_key("cache_stats_test_family"));
+        cache_stats_reset();
+        assert!(!cache_stats_snapshot().contains_key("cache_stats_test_family"));
     }
 }

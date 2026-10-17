@@ -29,6 +29,7 @@ impl fmt::Display for OpenApiIngestStats {
 }
 
 /// Ingest an OpenAPI 3.0/3.1 spec file (JSON) into the graph.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub async fn ingest_openapi_file(
     db: &dyn GraphIngestor,
     path: &Path,

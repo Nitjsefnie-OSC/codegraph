@@ -37,6 +37,7 @@ impl fmt::Display for ApiModelIngestStats {
 /// 3. Creates an Interaction node linking the operation to HTTP transport
 /// 4. Creates an HttpEndpoint node with method + path template
 /// 5. Creates edges: BindsToSchema, HasOperation, OutputBoundTo, HasInteraction, BindsHttpEndpoint
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub async fn ingest_api_model(
     db: &dyn GraphIngestor,
     config: &DomainConfig,

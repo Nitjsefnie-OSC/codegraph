@@ -58,6 +58,7 @@ impl std::fmt::Display for EvtIngestStats {
 /// resolve payload field types against the graph's schema titles
 /// (exact → title + `type_suffix` → warn + count; primitives resolve to
 /// `None` silently), and ingest one [`EvtModelGraph`] per file.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub async fn ingest_evt_files(
     ingestor: &dyn GraphIngestor,
     querier: &dyn GraphQuerier,

@@ -13,6 +13,7 @@ use crate::generate::ProjectConfig;
 #[cfg(test)]
 use crate::generate::{AtprotoConfig, IntegrationFlags};
 
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub async fn project_atproto_lexicons(
     ingestor: &dyn GraphIngestor,
     querier: &dyn GraphQuerier,

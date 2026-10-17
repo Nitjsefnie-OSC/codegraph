@@ -1,6 +1,7 @@
 use codegraph_core::error::GraphError;
 use codegraph_core::types::DddModelGraph;
 
+use super::gql::CountingSession;
 use super::gql::{escape_gql, opt_str};
 use crate::engine::GrafeoEngine;
 
@@ -10,7 +11,7 @@ fn json_string<T: serde::Serialize>(value: &T) -> Result<String, GraphError> {
 
 impl GrafeoEngine {
     pub(super) async fn insert_ddd_model(&self, model: &DddModelGraph) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
 
         let gql = format!(
             "INSERT (:DddApplication {{ name: '{}', base: {}, source_path: '{}' }})",
