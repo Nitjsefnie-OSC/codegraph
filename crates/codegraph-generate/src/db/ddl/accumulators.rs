@@ -1,3 +1,4 @@
+use super::query::quote_if_reserved;
 use super::types::{
     CheckConstraint, ChildTableDef, ColumnComment, ColumnDef, DdlContext, ForeignKeyDef, IndexDef,
 };
@@ -44,44 +45,51 @@ impl DdlAccumulators {
     }
 }
 
-/// Quote PostgreSQL reserved-word column names throughout a `DdlContext`.
+/// Render-time quoting of PostgreSQL reserved-word identifiers (#451).
 ///
-/// Applies `codegraph_naming::quote_pg_column` to all column names, FK column references,
-/// comment column references, and check constraint expressions so that reserved
-/// words like `order`, `start`, `end` are rendered as `"order"`, `"start"`, `"end"`.
+/// Runs on a CLONE of the [`DdlContext`] immediately before template
+/// rendering — the model context keeps bare identifiers so exact-name
+/// consumers never see quotes. Applies `quote_if_reserved` to column
+/// names, FK column references, comment column references, check
+/// constraint columns, and FTS weighted columns (recursively through
+/// child tables). Check-constraint expressions embed the SQL-spelled
+/// identifier from build time and pass through untouched; index columns
+/// and embedding source columns are not quoted (matching the pre-#451
+/// rendered bytes).
 pub(super) fn quote_ddl_identifiers(ctx: &mut DdlContext) {
     quote_columns(&mut ctx.columns);
     quote_fks(&mut ctx.foreign_keys);
     quote_comments(&mut ctx.comments);
     quote_checks(&mut ctx.check_constraints);
+    if let Some(ref mut fts) = ctx.fts {
+        for weighted in &mut fts.weighted_columns {
+            weighted.column = quote_if_reserved(&weighted.column);
+        }
+    }
     quote_child_tables(&mut ctx.child_tables);
 }
 
 fn quote_columns(columns: &mut [ColumnDef]) {
     for col in columns {
-        col.name = codegraph_naming::quote_pg_column(&col.name);
+        col.name = quote_if_reserved(&col.name);
     }
 }
 
 fn quote_fks(fks: &mut [ForeignKeyDef]) {
     for fk in fks {
-        fk.column = codegraph_naming::quote_pg_column(&fk.column);
+        fk.column = quote_if_reserved(&fk.column);
     }
 }
 
 fn quote_comments(comments: &mut [ColumnComment]) {
     for c in comments {
-        c.column = codegraph_naming::quote_pg_column(&c.column);
+        c.column = quote_if_reserved(&c.column);
     }
 }
 
 fn quote_checks(checks: &mut [CheckConstraint]) {
     for chk in checks {
-        let quoted = codegraph_naming::quote_pg_column(&chk.column);
-        if quoted != chk.column {
-            chk.expression = chk.expression.replace(&chk.column, &quoted);
-        }
-        chk.column = quoted;
+        chk.column = quote_if_reserved(&chk.column);
     }
 }
 

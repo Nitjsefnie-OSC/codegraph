@@ -1,14 +1,19 @@
 use serde::Serialize;
 
 /// One per-operation minimum role for the role_enforced_* policies (#169).
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RoleMinimum {
     pub operation: String,
     pub min_role: String,
 }
 
 /// Context for DDL table generation.
-#[derive(Debug, Serialize)]
+///
+/// Identifier fields (`ColumnDef.name`, `ForeignKeyDef.column`,
+/// `ColumnComment.column`, `CheckConstraint.column`, FTS weighted
+/// columns) carry BARE names (#451); quoting for reserved words happens
+/// only on the render clone (`quote_ddl_identifiers`).
+#[derive(Debug, Clone, Serialize)]
 pub struct DdlContext {
     pub schema_name: String,
     pub table_name: String,
@@ -63,7 +68,7 @@ pub struct DdlContext {
 }
 
 /// Full-text search context for DDL generation.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct FtsContext {
     /// Name of the generated tsvector column (e.g. "search_tsv").
     pub tsvector_column: String,
@@ -76,7 +81,7 @@ pub struct FtsContext {
 }
 
 /// A column participating in full-text search with its weight.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct FtsColumnWeight {
     pub column: String,
     /// Postgres tsvector weight: A (highest), B, C, or D (lowest).
@@ -84,7 +89,7 @@ pub struct FtsColumnWeight {
 }
 
 /// Embedding column context for semantic search DDL generation.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct EmbeddingContext {
     /// Source text column name.
     pub source_column: String,

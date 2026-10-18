@@ -249,8 +249,11 @@ impl EntityGenerator for DdlGenerator {
             ctx.has_updated_at = true;
         }
 
-        // Quote PostgreSQL reserved words in column names (PG-specific, harmless pass-through for other dialects)
-        quote_ddl_identifiers(&mut ctx);
+        // Render-time quoting of reserved-word identifiers (#451): the
+        // model context keeps bare names — only the template input is
+        // quoted, so exact-name consumers never see quotes.
+        let mut render_ctx = ctx.clone();
+        quote_ddl_identifiers(&mut render_ctx);
 
         let mut files = Vec::new();
 
@@ -258,7 +261,7 @@ impl EntityGenerator for DdlGenerator {
         let table_sql = render_template_with_project(
             tera,
             &db_template_for(&*self.dialect, "table"),
-            &ctx,
+            &render_ctx,
             project,
         )?;
         files.push(GeneratedFile {
@@ -272,7 +275,7 @@ impl EntityGenerator for DdlGenerator {
             let rls_sql = render_template_with_project(
                 tera,
                 &db_template_for(&*self.dialect, "rls"),
-                &ctx,
+                &render_ctx,
                 project,
             )?;
             files.push(GeneratedFile {
@@ -287,8 +290,8 @@ impl EntityGenerator for DdlGenerator {
             // api-key-scoped resources, so only the org-isolation block
             // is emitted (is_auditable = false). ctx.child_tables is the
             // depth-flattened tree, so nested children are covered.
-            for child in &ctx.child_tables {
-                let child_ctx = child_table_rls_context(&ctx, child);
+            for child in &render_ctx.child_tables {
+                let child_ctx = child_table_rls_context(&render_ctx, child);
                 let child_rls_sql = render_template_with_project(
                     tera,
                     &db_template_for(&*self.dialect, "rls"),
@@ -313,7 +316,7 @@ impl EntityGenerator for DdlGenerator {
             let trigger_sql = render_template_with_project(
                 tera,
                 &db_template_for(&*self.dialect, "trigger"),
-                &ctx,
+                &render_ctx,
                 project,
             )?;
             files.push(GeneratedFile {
@@ -329,7 +332,7 @@ impl EntityGenerator for DdlGenerator {
         let event_trigger_sql = render_template_with_project(
             tera,
             &db_template_for(&*self.dialect, "domain_event_trigger"),
-            &ctx,
+            &render_ctx,
             project,
         )?;
         files.push(GeneratedFile {
@@ -345,7 +348,7 @@ impl EntityGenerator for DdlGenerator {
             let view_sql = render_template_with_project(
                 tera,
                 &db_template_for(&*self.dialect, "process_history_view"),
-                &ctx,
+                &render_ctx,
                 project,
             )?;
             files.push(GeneratedFile {
@@ -362,7 +365,7 @@ impl EntityGenerator for DdlGenerator {
             let fts_sql = render_template_with_project(
                 tera,
                 &db_template_for(&*self.dialect, "fts"),
-                &ctx,
+                &render_ctx,
                 project,
             )?;
             files.push(GeneratedFile {
@@ -377,7 +380,7 @@ impl EntityGenerator for DdlGenerator {
             let embedding_sql = render_template_with_project(
                 tera,
                 &db_template_for(&*self.dialect, "embedding"),
-                &ctx,
+                &render_ctx,
                 project,
             )?;
             files.push(GeneratedFile {
