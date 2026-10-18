@@ -6,6 +6,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi, expectToast } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+{% if has_create %}
+import type { Create{{ entity_name }}Request } from '#lib/api/types.ts';
+{% endif %}
 import { {{ entity_name }}Page } from './{{ path_segment }}.page';
 
 {% if parent %}
@@ -28,25 +31,18 @@ const BASE_PATH = '/{{ domain }}/{{ path_segment }}';
 const depIds: Record<string, string | string[]> = {};
 {% endraw %}
 
-function testData(): Record<string, unknown> {
+function testData(): {% if has_create %}Partial<Record<keyof Create{{ entity_name }}Request | 'code', unknown>>{% else %}Record<string, unknown>{% endif %} {
   return {
 {%- for field in create_fields %}
+{%- if convention_ref_gaps is containing(pat=field.name) %}
+    // fixture: convention ref '{{ field.name }}' has no creatable target
+{%- endif %}
 {%- if field.nested_type_name %}
     {%- if field.is_array %}
     '{{ field.name }}': [],
     {%- else %}
     // '{{ field.name }}': ValueObject — omit, serde default
     {%- endif %}
-{%- elif field.input_type == "date-range" %}
-    '{{ field.name }}': '[2025-01-15T00:00:00Z,2025-12-31T23:59:59Z)',
-{%- elif field.input_type == "number" %}
-    '{{ field.name }}': 42,
-{%- elif field.input_type == "checkbox" %}
-    '{{ field.name }}': true,
-{%- elif field.input_type == "date" %}
-    '{{ field.name }}': '2025-01-15',
-{%- elif field.input_type == "datetime-local" %}
-    '{{ field.name }}': '2025-01-15T10:30:00Z',
 {%- elif field.is_codelist and field.codelist_values | length > 0 and field.is_array %}
     '{{ field.name }}': [{ code: '{{ field.codelist_values | first }}' }],
 {%- elif field.is_codelist and field.codelist_values | length > 0 %}
@@ -55,18 +51,52 @@ function testData(): Record<string, unknown> {
     '{{ field.name }}': [{ value: `Test {{ field.label }}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` }],
 {%- elif field.structured_sub_fields | length > 0 %}
     '{{ field.name }}': { value: `Test {{ field.label }}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` },
-{%- elif field.input_type == "array" %}
-    '{{ field.name }}': ['Test {{ field.label }}'],
-{%- elif field.is_range %}
-    '{{ field.name }}': '[2025-01-01T00:00:00Z,2025-12-31T23:59:59Z]',
 {%- elif field.is_entity_ref %}
     // '{{ field.name }}': entity ref — emitted by _dep_setup.tera
+{%- elif field.pg_type is containing(pat="RANGE") %}
+    {%- if field.pg_type is starting_with(pat="DATERANGE") %}
+    '{{ field.name }}': '[2026-01-01,2026-12-31)',
+    {%- elif field.pg_type is starting_with(pat="INT4RANGE") or field.pg_type is starting_with(pat="INT8RANGE") %}
+    '{{ field.name }}': '[1,42)',
+    {%- else %}
+    '{{ field.name }}': '[2026-01-01T00:00:00Z,2026-12-31T23:59:59Z)',
+    {%- endif %}
+{%- elif field.pg_type is ending_with(pat="[]") %}
+    {%- if field.pg_type is containing(pat="INT") %}
+    '{{ field.name }}': [42],
+    {%- elif field.pg_type is containing(pat="NUMERIC") or field.pg_type is containing(pat="REAL") or field.pg_type is containing(pat="DOUBLE PRECISION") %}
+    '{{ field.name }}': [42.5],
+    {%- elif field.pg_type is containing(pat="BOOLEAN") %}
+    '{{ field.name }}': [true],
+    {%- elif field.pg_type is containing(pat="UUID") %}
+    '{{ field.name }}': [`00000000-0000-4000-8000-${Math.random().toString(16).slice(2, 14).padStart(12, '0')}`],
+    {%- else %}
+    '{{ field.name }}': ['Test {{ field.label }}'],
+    {%- endif %}
+{%- elif field.pg_type is containing(pat="NUMERIC") or field.pg_type == "REAL" or field.pg_type == "DOUBLE PRECISION" %}
+    '{{ field.name }}': 42.5,
+{%- elif field.pg_type == "SMALLINT" or field.pg_type == "INTEGER" or field.pg_type == "BIGINT" %}
+    '{{ field.name }}': 42,
+{%- elif field.pg_type == "BOOLEAN" %}
+    '{{ field.name }}': true,
+{%- elif field.pg_type == "DATE" %}
+    '{{ field.name }}': '2026-01-15',
+{%- elif field.pg_type == "TIMESTAMPTZ" %}
+    '{{ field.name }}': '2026-01-15T08:00:00Z',
 {%- elif field.pg_type == "UUID" and not field.is_entity_ref %}
     '{{ field.name }}': `00000000-0000-4000-8000-${Math.random().toString(16).slice(2, 14).padStart(12, '0')}`,
-{%- elif field.pg_type is containing(pat="GEOMETRY") %}
-    // geometry field omitted — plain WKT strings are not accepted by the API without ST_GeomFromText
+{%- elif field.input_type == "number" %}
+    '{{ field.name }}': 42,
+{%- elif field.input_type == "checkbox" %}
+    '{{ field.name }}': true,
+{%- elif field.input_type == "date" %}
+    '{{ field.name }}': '2026-01-15',
+{%- elif field.input_type == "datetime-local" %}
+    '{{ field.name }}': '2026-01-15T08:00:00Z',
 {%- elif field.is_array %}
     '{{ field.name }}': ['Test {{ field.label }}'],
+{%- elif field.pg_type is containing(pat="GEOMETRY") %}
+    // geometry field omitted — plain WKT strings are not accepted by the API without ST_GeomFromText
 {%- elif field.input_type == "geometry" %}
     '{{ field.name }}': '{"type":"Point","coordinates":[0,0]}',
 {%- elif field.input_type == "code" %}
@@ -80,7 +110,7 @@ function testData(): Record<string, unknown> {
   };
 }
 
-function updatedData(): Record<string, unknown> {
+function updatedData(): {% if has_create %}Partial<Record<keyof Create{{ entity_name }}Request | 'code', unknown>>{% else %}Record<string, unknown>{% endif %} {
   return {
 {%- for field in update_fields %}
 {%- if field.nested_type_name %}
@@ -89,16 +119,6 @@ function updatedData(): Record<string, unknown> {
     {%- else %}
     // '{{ field.name }}': ValueObject — omit, serde default
     {%- endif %}
-{%- elif field.input_type == "date-range" %}
-    '{{ field.name }}': '[2025-06-01T00:00:00Z,2025-12-31T23:59:59Z)',
-{%- elif field.input_type == "number" %}
-    '{{ field.name }}': 99,
-{%- elif field.input_type == "checkbox" %}
-    '{{ field.name }}': false,
-{%- elif field.input_type == "date" %}
-    '{{ field.name }}': '2025-06-20',
-{%- elif field.input_type == "datetime-local" %}
-    '{{ field.name }}': '2025-06-20T14:00:00Z',
 {%- elif field.is_codelist and field.codelist_values | length > 0 and field.is_array %}
     '{{ field.name }}': [{ code: '{{ field.codelist_values | last }}' }],
 {%- elif field.is_codelist and field.codelist_values | length > 0 %}
@@ -107,18 +127,52 @@ function updatedData(): Record<string, unknown> {
     '{{ field.name }}': [{ value: `Updated {{ field.label }}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` }],
 {%- elif field.structured_sub_fields | length > 0 %}
     '{{ field.name }}': { value: `Updated {{ field.label }}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` },
-{%- elif field.input_type == "array" %}
-    '{{ field.name }}': ['Updated {{ field.label }}'],
-{%- elif field.is_range %}
-    '{{ field.name }}': '[2025-06-01T00:00:00Z,2025-12-31T23:59:59Z]',
 {%- elif field.is_entity_ref %}
     // '{{ field.name }}': entity ref — emitted by _dep_setup.tera
+{%- elif field.pg_type is containing(pat="RANGE") %}
+    {%- if field.pg_type is starting_with(pat="DATERANGE") %}
+    '{{ field.name }}': '[2026-06-01,2026-12-31)',
+    {%- elif field.pg_type is starting_with(pat="INT4RANGE") or field.pg_type is starting_with(pat="INT8RANGE") %}
+    '{{ field.name }}': '[7,99)',
+    {%- else %}
+    '{{ field.name }}': '[2026-06-01T00:00:00Z,2026-12-31T23:59:59Z)',
+    {%- endif %}
+{%- elif field.pg_type is ending_with(pat="[]") %}
+    {%- if field.pg_type is containing(pat="INT") %}
+    '{{ field.name }}': [99],
+    {%- elif field.pg_type is containing(pat="NUMERIC") or field.pg_type is containing(pat="REAL") or field.pg_type is containing(pat="DOUBLE PRECISION") %}
+    '{{ field.name }}': [99.5],
+    {%- elif field.pg_type is containing(pat="BOOLEAN") %}
+    '{{ field.name }}': [false],
+    {%- elif field.pg_type is containing(pat="UUID") %}
+    '{{ field.name }}': [`00000000-0000-4000-8000-${Math.random().toString(16).slice(2, 14).padStart(12, '0')}`],
+    {%- else %}
+    '{{ field.name }}': ['Updated {{ field.label }}'],
+    {%- endif %}
+{%- elif field.pg_type is containing(pat="NUMERIC") or field.pg_type == "REAL" or field.pg_type == "DOUBLE PRECISION" %}
+    '{{ field.name }}': 99.5,
+{%- elif field.pg_type == "SMALLINT" or field.pg_type == "INTEGER" or field.pg_type == "BIGINT" %}
+    '{{ field.name }}': 99,
+{%- elif field.pg_type == "BOOLEAN" %}
+    '{{ field.name }}': false,
+{%- elif field.pg_type == "DATE" %}
+    '{{ field.name }}': '2026-06-20',
+{%- elif field.pg_type == "TIMESTAMPTZ" %}
+    '{{ field.name }}': '2026-06-20T14:00:00Z',
 {%- elif field.pg_type == "UUID" and not field.is_entity_ref %}
     '{{ field.name }}': `00000000-0000-4000-8000-${Math.random().toString(16).slice(2, 14).padStart(12, '0')}`,
-{%- elif field.pg_type is containing(pat="GEOMETRY") %}
-    // geometry field omitted — plain WKT strings are not accepted by the API without ST_GeomFromText
+{%- elif field.input_type == "number" %}
+    '{{ field.name }}': 99,
+{%- elif field.input_type == "checkbox" %}
+    '{{ field.name }}': false,
+{%- elif field.input_type == "date" %}
+    '{{ field.name }}': '2026-06-20',
+{%- elif field.input_type == "datetime-local" %}
+    '{{ field.name }}': '2026-06-20T14:00:00Z',
 {%- elif field.is_array %}
     '{{ field.name }}': ['Updated {{ field.label }}'],
+{%- elif field.pg_type is containing(pat="GEOMETRY") %}
+    // geometry field omitted — plain WKT strings are not accepted by the API without ST_GeomFromText
 {%- elif field.input_type == "geometry" %}
     '{{ field.name }}': '{"type":"Point","coordinates":[1,1]}',
 {%- elif field.input_type == "code" %}

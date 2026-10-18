@@ -155,8 +155,12 @@ pub(crate) fn render_spec(spec: &ViewTestSpec, include_personas: bool) -> String
             ));
             s.push_str(&format!("\t\tconst ui = new {class}(page);\n"));
             s.push_str(&format!(
-                "\t\tawait page.addInitScript(() => {{\n\t\t\t(globalThis as any).__USER_ROLES__ = ['{}'];\n{}\t\t}});\n",
-                js_string(&persona.actor),
+                "\t\tawait page.addInitScript(() => {{\n\t\t\t(globalThis as any).__USER_ROLES__ = [{}];\n{}\t\t}});\n",
+                crate::ifml::route_generator::actor_role_tokens(&persona.actor)
+                    .iter()
+                    .map(|role| format!("'{}'", js_string(role)))
+                    .collect::<Vec<_>>()
+                    .join(", "),
                 caps_lines
             ));
             s.push_str("\t\tawait ui.open();\n");

@@ -8,8 +8,9 @@
 //! - A: scalar same-domain + cross-domain `.schema.json` refs resolve
 //! - B: array refs assign an array id and testData sends the array
 //! - C: required-only transitive closure is ordered leaf-first with FK wiring
-//! - D: unsatisfiable/cyclic required deps throw; optional refs are not created;
-//!   cleanup is reversed and array-aware
+//! - D: unsatisfiable required deps throw; required-FK cycles (self, mutual,
+//!   longer) are BROKEN instead of aborting the whole describe block;
+//!   optional refs are not created; cleanup is reversed and array-aware
 
 use std::path::Path;
 
@@ -251,10 +252,17 @@ fn after_all_block(content: &str) -> &str {
 }
 
 fn before_all_block(content: &str) -> &str {
-    match content.find("test.beforeAll") {
-        Some(idx) => &content[idx..],
-        None => "",
-    }
+    let Some(start) = content.find("test.beforeAll") else {
+        return "";
+    };
+    // Bounded slice: the main-entity creates in the test bodies also call
+    // createEntityAsAcme, so assertions scoped to `beforeAll` must stop at
+    // the next hook.
+    let end = content[start..]
+        .find("test.afterAll")
+        .map(|off| start + off)
+        .unwrap_or(content.len());
+    &content[start..end]
 }
 
 // ── Slice A: scalar refs resolve via graph + `.schema.json` fallback ────
@@ -503,7 +511,10 @@ fn unsatisfiable_required_field_throws() {
 }
 
 #[test]
-fn required_cycle_throws() {
+fn required_mutual_cycle_is_broken_with_an_omitted_leg() {
+    // A requires B, B requires A: the setup must NOT abort — the DFS breaks
+    // the cycle at its last-discovered leg (A's `b_id`), so A is created
+    // first without it and B fills `a_id` from the created A.
     let b = schema("BType", "b", "B", "hr", "b");
     let a = schema("AType", "a", "A", "hr", "a");
     let engine = MockEngine::builder()
@@ -531,12 +542,167 @@ fn required_cycle_throws() {
     let content = owner_crud(&engine, &config, "AType", "hr");
 
     assert!(
-        content.contains("throw new Error("),
-        "required cycle must throw loudly:\n{content}"
+        !content.contains("required dependency cycle detected"),
+        "mutual cycle must not abort the setup anymore:\n{content}"
+    );
+    let before = before_all_block(&content);
+    assert!(
+        before.contains(
+            "// fixture: breaking required-FK cycle BType -> AType -> BType by omitting 'b_id' on AType"
+        ),
+        "the break must be named in a comment:\n{before}"
+    );
+    // Both participants are created; the omitted leg is the break-point's.
+    assert!(
+        before.contains("createEntityAsAcme(orgContext, '/hr/a'")
+            && before.contains("createEntityAsAcme(orgContext, '/hr/b'"),
+        "both cycle participants must be created:\n{before}"
     );
     assert!(
-        content.to_lowercase().contains("cycle"),
-        "throw message must mention the cycle:\n{content}"
+        !before.contains("'b_id': depIds['b_id']") && before.contains("'a_id': depIds['a_id']"),
+        "exactly the break-point leg (b_id on A) must be omitted:\n{before}"
+    );
+    // A (break-point) is created before B; B fills its a_id from depIds.
+    let a_idx = before
+        .find("depIds['a_id'] = dep_")
+        .expect("A dep must be created");
+    let b_idx = before
+        .find("depIds['b_id'] = dep_")
+        .expect("B dep must be created");
+    assert!(
+        a_idx < b_idx,
+        "break-point must be created first:\n{before}"
+    );
+    // If the API genuinely requires the omitted FK, the create 4xxs — the
+    // emitted catch must rethrow with a message naming the cycle, not pass.
+    assert!(
+        before.contains("cycle-break create for 'a_id' failed"),
+        "break-point create failure must surface a clear error:\n{before}"
+    );
+    assert!(
+        before.contains("make one ref optional in the model"),
+        "the error must point at the modeling fix:\n{before}"
+    );
+}
+
+#[test]
+fn self_reference_leg_is_omitted_not_thrown() {
+    // Job.job_id → Job (parent job): the base case of cycle breaking. The
+    // closure must not recurse on the self-edge, no dep step is created, and
+    // the conditional testData spread simply omits the leg.
+    let job = schema("JobType", "job", "Job", "hr", "job");
+    let engine = MockEngine::builder()
+        .with_schema(job.clone())
+        .with_ref_target("job", "JobType", job)
+        .with_properties(
+            "JobType",
+            vec![
+                scalar("name", "TEXT", true),
+                entity_ref("job", "hr/json/job.schema.json", false, true),
+            ],
+        )
+        .build();
+    let config = config(&[("hr", "JobType")]);
+
+    let content = owner_crud(&engine, &config, "JobType", "hr");
+
+    assert!(
+        !content.contains("required dependency cycle detected"),
+        "self-reference must not abort the setup anymore:\n{content}"
+    );
+    let before = before_all_block(&content);
+    assert!(
+        !before.contains("createEntityAsAcme(orgContext, '/hr/job'"),
+        "no dep step may be created for the self-reference:\n{before}"
+    );
+    assert!(
+        !before.contains("breaking required-FK cycle"),
+        "a self-reference is omitted silently, not 'broken':\n{before}"
+    );
+    assert!(
+        content.contains("...(depIds['job_id'] ? { 'job_id': depIds['job_id'] } : {}),"),
+        "the conditional spread stays — the leg is set only if Job is \
+         created transitively as someone else's dep:\n{content}"
+    );
+}
+
+#[test]
+fn three_entity_cycle_creates_in_working_order_with_one_omitted_leg() {
+    // A -> B -> C -> A: the DFS breaks exactly one leg (the last-discovered,
+    // A's `b_id`) and still orders the remaining creates leaf-first:
+    // A (break-point, no b_id) → C (fills a_id) → B (fills c_id).
+    let b = schema("BType", "b", "B", "hr", "b");
+    let c = schema("CType", "c", "C", "hr", "c");
+    let a = schema("AType", "a", "A", "hr", "a");
+    let engine = MockEngine::builder()
+        .with_schema(a.clone())
+        .with_schema(b.clone())
+        .with_schema(c.clone())
+        .with_ref_target("b", "AType", b)
+        .with_ref_target("c", "BType", c)
+        .with_ref_target("a", "CType", a)
+        .with_properties(
+            "AType",
+            vec![
+                scalar("name", "TEXT", true),
+                entity_ref("b", "hr/json/b.schema.json", false, true),
+            ],
+        )
+        .with_properties(
+            "BType",
+            vec![
+                scalar("name", "TEXT", true),
+                entity_ref("c", "hr/json/c.schema.json", false, true),
+            ],
+        )
+        .with_properties(
+            "CType",
+            vec![
+                scalar("name", "TEXT", true),
+                entity_ref("a", "hr/json/a.schema.json", false, true),
+            ],
+        )
+        .build();
+    let config = config(&[("hr", "AType"), ("hr", "BType"), ("hr", "CType")]);
+
+    let content = owner_crud(&engine, &config, "AType", "hr");
+
+    assert!(
+        !content.contains("required dependency cycle detected"),
+        "three-entity cycle must not abort the setup anymore:\n{content}"
+    );
+    let before = before_all_block(&content);
+    let break_comments = before.matches("breaking required-FK cycle").count();
+    assert_eq!(
+        break_comments, 1,
+        "exactly one leg must be broken:\n{before}"
+    );
+    assert!(
+        before.contains(
+            "// fixture: breaking required-FK cycle BType -> CType -> AType -> BType by omitting 'b_id' on AType"
+        ),
+        "the break comment must name the full cycle path:\n{before}"
+    );
+    // Working creation order with the break-point first.
+    let a_idx = before
+        .find("depIds['a_id'] = dep_")
+        .expect("A dep must be created");
+    let c_idx = before
+        .find("depIds['c_id'] = dep_")
+        .expect("C dep must be created");
+    let b_idx = before
+        .find("depIds['b_id'] = dep_")
+        .expect("B dep must be created");
+    assert!(
+        a_idx < c_idx && c_idx < b_idx,
+        "creates must run A (break-point) → C → B:\n{before}"
+    );
+    // Exactly one omitted leg: A's b_id is gone, the other two FKs wire up.
+    assert!(
+        !before.contains("'b_id': depIds['b_id']")
+            && before.contains("'a_id': depIds['a_id']")
+            && before.contains("'c_id': depIds['c_id']"),
+        "exactly the break-point leg (b_id on A) must be omitted:\n{before}"
     );
 }
 
@@ -707,6 +873,307 @@ fn unresolved_required_uuid_emits_valid_uuid_literal() {
         content.contains("00000000-0000-4000-8000-"),
         "unresolved required uuid must emit a UUID-shaped literal:\n{content}"
     );
+}
+
+// ── Slice F: TEXT-typed convention FKs (the crewbase `worker_id` shape) ──
+//
+// A required `_id` column the model declares as a plain string (mox
+// `String workerId` → pg TEXT, no `format: uuid`) is still a name-derived
+// entity ref: it must flow through the SAME path as schema refs — omitted
+// from testData, dep-created in beforeAll, conditional spread in the
+// payload — instead of falling through to the `'Test Worker Id'` text
+// sentinel (the 422 class: one mistyped field rejects every variant of the
+// untagged `CreateXBody` enum).
+
+/// A plain TEXT `_id` column with no `$ref`/graph edge and no uuid format.
+fn text_fk(name: &str, is_required: bool) -> PropertyNode {
+    PropertyNode {
+        rust_field_type: "String".into(),
+        ..scalar(name, "TEXT", is_required)
+    }
+}
+
+#[test]
+fn text_convention_fk_flows_through_the_schema_ref_path() {
+    let widget = schema("WidgetType", "widget", "Widget", "hr", "widget");
+    let holder = schema("HolderType", "holder", "Holder", "hr", "holder");
+    let engine = MockEngine::builder()
+        .with_schema(widget)
+        .with_schema(holder)
+        .with_properties("WidgetType", vec![scalar("name", "TEXT", true)])
+        .with_properties(
+            "HolderType",
+            vec![scalar("name", "TEXT", true), text_fk("widget_id", true)],
+        )
+        .build();
+    let config = config(&[("hr", "WidgetType"), ("hr", "HolderType")]);
+
+    let content = owner_crud(&engine, &config, "HolderType", "hr");
+
+    // Dep-created in beforeAll, leaf-first (the target before the payload).
+    let before_all = before_all_block(&content);
+    assert!(
+        before_all.contains("createEntityAsAcme(orgContext, '/hr/widget'"),
+        "text convention FK must dep-create its target:\n{before_all}"
+    );
+    assert!(
+        before_all.contains("depIds['widget_id'] = dep_"),
+        "the dep step must fill the convention ref's depIds key:\n{before_all}"
+    );
+    // Conditional spread in the payload; NO text sentinel anywhere.
+    assert!(
+        content.contains("...(depIds['widget_id'] ? { 'widget_id': depIds['widget_id'] } : {}),"),
+        "testData must emit the entity-ref spread for the convention ref:\n{content}"
+    );
+    assert!(
+        !content.contains("'Test Widget Id'"),
+        "resolved convention FK must not emit a text sentinel:\n{content}"
+    );
+    assert!(
+        content.contains("// 'widget_id': entity ref — emitted by _dep_setup.tera"),
+        "testData must omit the field exactly like a schema ref:\n{content}"
+    );
+}
+
+#[test]
+fn text_convention_fk_without_creatable_target_keeps_sentinel_and_names_gap() {
+    let widget = schema("WidgetType", "widget", "Widget", "hr", "widget");
+    let holder = schema("HolderType", "holder", "Holder", "hr", "holder");
+    let engine = MockEngine::builder()
+        .with_schema(widget)
+        .with_schema(holder)
+        .with_properties("WidgetType", vec![scalar("name", "TEXT", true)])
+        .with_properties(
+            "HolderType",
+            vec![scalar("name", "TEXT", true), text_fk("widget_id", true)],
+        )
+        .build();
+    // The target entity has NO create operation — nothing to dep-create.
+    let toml = r#"
+[defaults]
+operations = ["create", "read", "update", "delete", "list"]
+
+[domains.hr]
+label = "hr"
+schema_dir = "hr"
+postgres_schema = "hr"
+entities = ["WidgetType", "HolderType"]
+
+[domains.hr.entity_config.WidgetType]
+role = "root"
+operations = ["read", "list"]
+
+[domains.hr.entity_config.HolderType]
+role = "root"
+"#;
+    let config = parse_domain_config_str(toml).unwrap();
+
+    let content = owner_crud(&engine, &config, "HolderType", "hr");
+
+    assert!(
+        !before_all_block(&content).contains("createEntityAsAcme(orgContext, '/hr/widget'"),
+        "an uncreatable target must not be dep-created:\n{content}"
+    );
+    assert!(
+        !content.contains("depIds['widget_id']"),
+        "an uncreatable target must not produce a dep or a spread:\n{content}"
+    );
+    assert!(
+        content.contains("'Test Widget Id'"),
+        "the text sentinel is kept for an uncreatable target:\n{content}"
+    );
+    assert!(
+        content.contains("// fixture: convention ref 'widget_id' has no creatable target"),
+        "the emitted payload must name the gap:\n{content}"
+    );
+}
+
+#[test]
+fn text_convention_fk_with_no_matching_entity_names_gap() {
+    // `widget_id` present, but NO widget entity exists anywhere — the name
+    // convention claims a target that is not schema-backed.
+    let holder = schema("HolderType", "holder", "Holder", "hr", "holder");
+    let engine = MockEngine::builder()
+        .with_schema(holder)
+        .with_properties(
+            "HolderType",
+            vec![scalar("name", "TEXT", true), text_fk("widget_id", true)],
+        )
+        .build();
+    let config = config(&[("hr", "HolderType")]);
+
+    let content = owner_crud(&engine, &config, "HolderType", "hr");
+
+    assert!(
+        content.contains("'Test Widget Id'"),
+        "no target schema — the sentinel is kept:\n{content}"
+    );
+    assert!(
+        content.contains("// fixture: convention ref 'widget_id' has no creatable target"),
+        "the emitted payload must name the gap:\n{content}"
+    );
+    assert!(
+        !content.contains("depIds['widget_id']"),
+        "no target schema — no dep:\n{content}"
+    );
+}
+
+// ── Payload typing (issue #468 W2): payloads are keyed to the request ───
+
+#[test]
+fn owner_crud_test_data_is_key_typed_to_the_create_request() {
+    let person = schema("PersonType", "person", "Person", "hr", "person");
+    let engine = MockEngine::builder()
+        .with_schema(person)
+        .with_properties("PersonType", vec![scalar("full_name", "TEXT", true)])
+        .build();
+    let config = config(&[("hr", "PersonType")]);
+
+    let content = owner_crud(&engine, &config, "PersonType", "hr");
+
+    assert!(
+        content.contains("Record<keyof Create"),
+        "testData/updatedData must be keyed to the generated create request:\n{content}"
+    );
+    assert!(
+        !content.contains("function testData(): Record<string, unknown>"),
+        "create-capable entities must not fall back to the free-form record:\n{content}"
+    );
+}
+
+// ── Slice E2: type-driven test-data sentinels (untagged-enum 422s) ──────
+//
+// The generated API body is `#[serde(untagged)] enum CreateXBody` — one
+// mistyped field (e.g. a NUMERIC column sent as `'Test Full Time
+// Equivalent'`) rejects EVERY variant with `data did not match any
+// variant`. Sentinels must be derived from the field's pg column type.
+
+/// A DATE column (the temporal scalar sibling of `timestamp`).
+fn date_field(name: &str, is_required: bool) -> PropertyNode {
+    PropertyNode {
+        is_id: false,
+        rust_field_type: "NaiveDate".into(),
+        ..scalar(name, "DATE", is_required)
+    }
+}
+
+#[test]
+fn numeric_columns_get_numeric_sentinels_not_text() {
+    // The reported crewbase 422 shape: FTE (pg NUMERIC) sent as
+    // 'Test Full Time Equivalent'.
+    let job = schema("JobType", "job", "Job", "core", "job");
+    let engine = MockEngine::builder()
+        .with_schema(job)
+        .with_properties(
+            "JobType",
+            vec![
+                scalar("title", "TEXT", true),
+                numeric("full_time_equivalent", "NUMERIC(5,2)", true),
+                numeric("headcount", "INTEGER", true),
+            ],
+        )
+        .build();
+    let config = config(&[("core", "JobType")]);
+
+    let content = owner_crud(&engine, &config, "JobType", "core");
+
+    assert!(
+        content.contains("'full_time_equivalent': 42.5,"),
+        "NUMERIC column must emit the decimal sentinel:\n{content}"
+    );
+    assert!(
+        !content.contains("'Test Full Time Equivalent'"),
+        "a NUMERIC column must never get the readable text sentinel:\n{content}"
+    );
+    assert!(
+        content.contains("'headcount': 42,"),
+        "INTEGER column must emit the integer sentinel:\n{content}"
+    );
+    assert!(!content.contains("'Test Headcount'"), "{content}");
+}
+
+#[test]
+fn date_and_timestamp_columns_get_iso_sentinels() {
+    let job = schema("JobType", "job", "Job", "core", "job");
+    let engine = MockEngine::builder()
+        .with_schema(job)
+        .with_properties(
+            "JobType",
+            vec![
+                scalar("title", "TEXT", true),
+                date_field("effective_date", true),
+                timestamp("opened_at", true),
+            ],
+        )
+        .build();
+    let config = config(&[("core", "JobType")]);
+
+    let content = owner_crud(&engine, &config, "JobType", "core");
+
+    assert!(
+        content.contains("'effective_date': '2026-01-15',"),
+        "DATE column must emit the date sentinel:\n{content}"
+    );
+    assert!(
+        content.contains("'opened_at': '2026-01-15T08:00:00Z',"),
+        "TIMESTAMPTZ column must emit the datetime sentinel:\n{content}"
+    );
+    assert!(
+        !content.contains("'Test Effective Date'") && !content.contains("'Test Opened At'"),
+        "temporal columns must never get the readable text sentinel:\n{content}"
+    );
+    assert!(
+        !content.contains("'2025-01-15") && !content.contains("'2025-06-"),
+        "the retired 2025 sentinels must be gone:\n{content}"
+    );
+}
+
+#[test]
+fn range_and_typed_array_columns_get_shape_correct_literals() {
+    let booking = schema("BookingType", "booking", "Booking", "core", "booking");
+    let engine = MockEngine::builder()
+        .with_schema(booking)
+        .with_properties(
+            "BookingType",
+            vec![
+                scalar("title", "TEXT", true),
+                with_pg(scalar("validity", "String", true), "DATERANGE"),
+                with_pg(scalar("window", "String", true), "TSTZRANGE"),
+                with_pg(scalar("tags", "Vec<String>", true), "TEXT[]"),
+                with_pg(numeric("scores", "INTEGER[]", true), "INTEGER[]"),
+            ],
+        )
+        .build();
+    let config = config(&[("core", "BookingType")]);
+
+    let content = owner_crud(&engine, &config, "BookingType", "core");
+
+    assert!(
+        content.contains("'validity': '[2026-01-01,2026-12-31)',"),
+        "DATERANGE must emit the half-open date-range literal:\n{content}"
+    );
+    assert!(
+        content.contains("'window': '[2026-01-01T00:00:00Z,2026-12-31T23:59:59Z)',"),
+        "TSTZRANGE must emit the half-open instant-range literal:\n{content}"
+    );
+    assert!(
+        content.contains("'scores': [42],"),
+        "INTEGER[] must emit a numeric array:\n{content}"
+    );
+    // The retired closed-bracket instant range is gone.
+    assert!(
+        !content.contains("2025-12-31T23:59:59Z]"),
+        "range literals must be half-open:\n{content}"
+    );
+}
+
+/// A `scalar` retyped to a specific pg column type (ranges / typed arrays).
+fn with_pg(mut prop: PropertyNode, pg_type: &str) -> PropertyNode {
+    prop.pg_column_type = pg_type.into();
+    if pg_type.ends_with("[]") {
+        prop.is_array = true;
+    }
+    prop
 }
 
 // ── Slice F: ux-rules spec emission + per-block gating (issue #302) ─────
@@ -1260,11 +1727,12 @@ fn ux_spec_alignment_and_format_blocks_reference_plan_columns() {
 
     assert!(content.contains("numeric columns right-align"), "{content}");
     // Money/quantity/time-point expectations run through the kernel's
-    // Intl mirror — the SAME formatters the page computes.
-    assert!(content.contains("'money', 42)"), "{content}");
+    // Intl mirror — the SAME formatters the page computes. Money is a
+    // NUMERIC column → the type-driven 42.5 sentinel (not the integer 42).
+    assert!(content.contains("'money', 42.5)"), "{content}");
     assert!(content.contains("'quantity', 42)"), "{content}");
     assert!(
-        content.contains("'time-point', '2025-01-15T10:30:00Z')"),
+        content.contains("'time-point', '2026-01-15T08:00:00Z')"),
         "{content}"
     );
     // The readable lead column assertion pins column order row 17.
@@ -1299,4 +1767,64 @@ fn ux_spec_random_valued_columns_never_get_copy_or_flip_assertions() {
         !content.contains("copy-chip copies the identifier"),
         "random uuid fixture ⇒ no clipboard prediction:\n{content}"
     );
+}
+
+// ── One testid vocabulary (issue #468 W3): the POM imports the module ───
+
+#[test]
+fn testid_module_pom_resolves_locators_through_the_module() {
+    let person = schema("PersonType", "person", "Person", "hr", "person");
+    let engine = MockEngine::builder()
+        .with_schema(person)
+        .with_properties("PersonType", vec![scalar("full_name", "TEXT", true)])
+        .build();
+    let config = config(&[("hr", "PersonType")]);
+    let project = codegraph::generate::ProjectConfig {
+        codegen: codegraph::generate::CodegenConfig {
+            testid_module: true,
+            ..Default::default()
+        },
+        ..ProjectConfig::default()
+    };
+
+    let files = all_files(&engine, &config, &project, "PersonType", "hr");
+    let page = files
+        .iter()
+        .find(|(p, _)| p.ends_with("person.page.ts"))
+        .expect("POM page emitted")
+        .1
+        .clone();
+
+    // The module import rides the flag.
+    assert!(
+        page.contains("import { shared, testids, tidFor } from '#lib/testids.js';"),
+        "{page}"
+    );
+    // Static locators resolve typed per-entity.
+    assert!(page.contains("testids.person.table}"), "{page}");
+    assert!(page.contains("testids.person.deleteBtn}"), "{page}");
+    // The field locator goes through the typed union.
+    assert!(page.contains("testids.person.field(name)"), "{page}");
+    // Shared dialogs resolve through the shared table — and the old
+    // unprefixed literals are gone from the delete flow.
+    assert!(page.contains("shared.confirmDialog}"), "{page}");
+    assert!(!page.contains("${this.module}-table"), "{page}");
+    assert!(!page.contains("confirm-dialog-confirm"), "{page}");
+
+    // Flag OFF (default): literals as before, no import.
+    let files = all_files(
+        &engine,
+        &config,
+        &ProjectConfig::default(),
+        "PersonType",
+        "hr",
+    );
+    let page = &files
+        .iter()
+        .find(|(p, _)| p.ends_with("person.page.ts"))
+        .expect("POM page emitted")
+        .1;
+    assert!(!page.contains("#lib/testids.js"), "{page}");
+    assert!(page.contains("${this.module}-table"), "{page}");
+    assert!(page.contains("data-testid=\"confirm-dialog\""), "{page}");
 }

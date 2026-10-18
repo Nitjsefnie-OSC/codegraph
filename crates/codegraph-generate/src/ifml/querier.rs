@@ -27,6 +27,28 @@ fn parse_component_spec(raw: Option<&str>) -> Option<ComponentSpec> {
     }
 }
 
+/// Strip the owning-view namespace from a stored view-level component
+/// name. View-level components ingest as `{view}/{comp}` (so same-named
+/// components in different views stay distinct graph nodes); generation
+/// works with the bare name. Nested-container components persist bare and
+/// pass through unchanged.
+fn bare_component_name<'a>(stored: &'a str, container_name: &str) -> &'a str {
+    stored
+        .strip_prefix(container_name)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .unwrap_or(stored)
+}
+
+/// Strip the owning-view namespace from a component event name. Events
+/// hang off the namespaced component id, so a view-level `history`'s
+/// select event persists as `comp_{view}/history_select`; the rendered
+/// handler name stays `comp_history_select`.
+fn bare_event_name(raw: &str, container_name: &str) -> String {
+    raw.strip_prefix(&format!("comp_{container_name}/"))
+        .map(|rest| format!("comp_{rest}"))
+        .unwrap_or_else(|| raw.to_string())
+}
+
 /// Parse the persisted `target_param_binding` JSON into a map.
 ///
 /// Absent or malformed bindings yield an empty map — a malformed binding
@@ -108,14 +130,24 @@ impl ActionIndex {
     fn navigation_edges(&self) -> Vec<NavigationEdge> {
         self.flows
             .iter()
-            .map(|flow| NavigationEdge {
-                source_container: flow.source_container.clone(),
-                source_event: flow.event.clone(),
-                target_container: flow.target.clone(),
-                parameter_binding: parse_param_binding(flow.target_param_binding.as_deref()),
-                conditional_expression: None,
-                source_component: (flow.source != flow.source_container)
-                    .then(|| flow.source.clone()),
+            .map(|flow| {
+                // Component-sourced flows carry the stored (view-namespaced)
+                // component name; render contexts match components by bare
+                // name, so strip the owning-view prefix.
+                let source_component = (flow.source != flow.source_container).then(|| {
+                    flow.source
+                        .strip_prefix(&format!("{}/", flow.source_container))
+                        .unwrap_or(&flow.source)
+                        .to_string()
+                });
+                NavigationEdge {
+                    source_container: flow.source_container.clone(),
+                    source_event: bare_event_name(&flow.event, &flow.source_container),
+                    target_container: flow.target.clone(),
+                    parameter_binding: parse_param_binding(flow.target_param_binding.as_deref()),
+                    conditional_expression: None,
+                    source_component,
+                }
             })
             .collect()
     }
@@ -153,21 +185,23 @@ impl<'a> IfmlGraphQuerier<'a> {
             return Ok(None);
         }
         let grants = self.db.get_grants().await?;
-        let mut actor_caps: Vec<(String, Vec<String>)> = actors
-            .iter()
-            .map(|actor| {
-                let mut caps: Vec<String> =
-                    resolve_effective_permits(&actors, &grants, &actor.name)
-                        .into_iter()
-                        .filter(|permit| permit.effect == "permit")
-                        .map(|permit| permit.capability)
-                        .collect();
-                caps.sort();
-                caps.dedup();
-                (actor.name.clone(), caps)
-            })
+        // Actors repeat across policies (every domain's `.actor` re-imports
+        // the core ladder), so merge by NAME with the union of effective
+        // permits — one entry per actor, not one per ingested policy.
+        let mut merged: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> =
+            Default::default();
+        for actor in &actors {
+            let entry = merged.entry(actor.name.clone()).or_default();
+            for permit in resolve_effective_permits(&actors, &grants, &actor.name) {
+                if permit.effect == "permit" {
+                    entry.insert(permit.capability);
+                }
+            }
+        }
+        let actor_caps: Vec<(String, Vec<String>)> = merged
+            .into_iter()
+            .map(|(name, caps)| (name, caps.into_iter().collect()))
             .collect();
-        actor_caps.sort_by(|a, b| a.0.cmp(&b.0));
         let mut capability_names: Vec<String> =
             capabilities.into_iter().map(|cap| cap.name).collect();
         capability_names.sort();
@@ -187,11 +221,20 @@ impl<'a> IfmlGraphQuerier<'a> {
         let raw = self.db.get_ifml_view_components(container_name).await?;
         let mut components = Vec::new();
         for comp in &raw {
+            // The stored name doubles as the graph key: namespaced for
+            // view-level components (`{view}/{comp}`), bare for
+            // nested-container components. Events and data bindings
+            // resolve against the stored key; the render context carries
+            // the bare name.
             let comp_id = format!("comp:{}", comp.name);
             let raw_events = self.db.get_ifml_events(&comp_id).await?;
             let events: Vec<IfmlEvent> = raw_events
                 .into_iter()
-                .map(|evt| index.build_event(evt))
+                .map(|evt| {
+                    let mut event = index.build_event(evt);
+                    event.name = bare_event_name(&event.name, container_name);
+                    event
+                })
                 .collect();
 
             let mut properties = HashMap::new();
@@ -204,7 +247,7 @@ impl<'a> IfmlGraphQuerier<'a> {
             let fields_with_types = self.resolve_field_types(comp, binding).await?;
 
             components.push(IfmlComponent {
-                name: comp.name.clone(),
+                name: bare_component_name(&comp.name, container_name).to_string(),
                 component_type: comp.component_type.clone(),
                 mode: comp.mode.clone(),
                 entity: comp.entity.clone(),
@@ -1024,6 +1067,137 @@ mod tests {
         let querier = IfmlGraphQuerier::new(&engine);
         let model = querier.get_ifml_model().await.unwrap();
         assert!(model.policy.is_none());
+    }
+
+    #[tokio::test]
+    async fn same_named_components_in_different_views_stay_isolated() {
+        // The wellness/compensation collision shape: two views in different
+        // domains each declare a view-level component named "history". The
+        // ingest driver stores view-level components under `{view}/{comp}`,
+        // so each view must surface ONLY its own component, its own
+        // events (under bare handler names), and its own entity binding.
+        let engine = MockEngine::new();
+        ingest_view_container(&engine, "ActivityDashboard", true).await;
+        ingest_view_container(&engine, "CompensationHistory", true).await;
+
+        // View-level components, persisted exactly as the ingest driver
+        // stores them: namespaced node names, `HasEvent` parents and event
+        // node names derived from the namespaced id.
+        for (view, entity, event_type) in [
+            ("ActivityDashboard", "WellnessActivity", "create"),
+            ("CompensationHistory", "Reward", "select"),
+        ] {
+            let comp_name = format!("{view}/history");
+            engine
+                .ingest_view_component(&ViewComponentNode {
+                    name: comp_name.clone(),
+                    component_type: "list".to_string(),
+                    mode: None,
+                    entity: Some(entity.to_string()),
+                    fields: Some(vec!["name".to_string()]),
+                    filter: None,
+                    api_operation: None,
+                    spec: None,
+                    conditional_expression: None,
+                    expr_json: None,
+                    domain: None,
+                })
+                .await
+                .unwrap();
+            engine
+                .ingest_edge(
+                    &format!("vc:{view}"),
+                    &format!("comp:{comp_name}"),
+                    EdgeType::ContainsViewComponent,
+                    None,
+                )
+                .await
+                .unwrap();
+            let event_name = format!("comp_{comp_name}_{event_type}");
+            engine
+                .ingest_event(&EventNode {
+                    name: event_name.clone(),
+                    event_type: event_type.to_string(),
+                    params: None,
+                    conditional_expression: None,
+                    expr_json: None,
+                    requires: Vec::new(),
+                    domain: None,
+                })
+                .await
+                .unwrap();
+            engine
+                .ingest_edge(
+                    &format!("comp:{comp_name}"),
+                    &format!("evt:{event_name}"),
+                    EdgeType::HasEvent,
+                    None,
+                )
+                .await
+                .unwrap();
+        }
+        // The compensation history navigates on select.
+        engine
+            .ingest_edge(
+                "evt:comp_CompensationHistory/history_select",
+                "vc:RewardEditor",
+                EdgeType::NavigationFlow,
+                None,
+            )
+            .await
+            .unwrap();
+
+        let querier = IfmlGraphQuerier::new(&engine);
+        let containers = querier.get_view_containers().await.unwrap();
+
+        let dashboard = containers
+            .iter()
+            .find(|c| c.name == "ActivityDashboard")
+            .expect("ActivityDashboard container");
+        assert_eq!(
+            dashboard
+                .components
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["history"],
+            "only the view's own component surfaces, under its bare name"
+        );
+        let history = &dashboard.components[0];
+        assert_eq!(history.entity.as_deref(), Some("WellnessActivity"));
+        assert_eq!(
+            history
+                .events
+                .iter()
+                .map(|e| e.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["comp_history_create"],
+            "only the view's own event surfaces, under its bare handler name"
+        );
+
+        let compensation = containers
+            .iter()
+            .find(|c| c.name == "CompensationHistory")
+            .expect("CompensationHistory container");
+        assert_eq!(compensation.components.len(), 1);
+        let comp_history = &compensation.components[0];
+        assert_eq!(comp_history.name, "history");
+        assert_eq!(comp_history.entity.as_deref(), Some("Reward"));
+        assert_eq!(
+            comp_history
+                .events
+                .iter()
+                .map(|e| e.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["comp_history_select"],
+        );
+
+        let edges = querier.get_navigation_edges().await.unwrap();
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].source_container, "CompensationHistory");
+        assert_eq!(edges[0].source_component.as_deref(), Some("history"));
+        assert_eq!(edges[0].source_event, "comp_history_select");
+        assert_eq!(edges[0].target_container, "RewardEditor");
     }
 
     #[test]

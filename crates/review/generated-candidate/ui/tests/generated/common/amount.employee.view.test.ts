@@ -5,6 +5,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi, expectToast } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateAmountRequest } from '#lib/api/types.ts';
+
 import { AmountPage } from './amount.page';
 
 
@@ -18,10 +21,10 @@ const BASE_PATH = '/common/amount';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreateAmountRequest | 'code', unknown>> {
   return {
     'currency': 'USD',
-    'value': 42,
+    'value': 42.5,
 
 
   };

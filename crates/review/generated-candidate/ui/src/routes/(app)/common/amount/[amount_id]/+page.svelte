@@ -17,21 +17,8 @@
 	import { TimeAgo } from '@crewbase/entities';
 	import { toast } from 'svelte-sonner';
 	import * as m from '#lib/paraglide/messages.js';
+	import * as fmt from '#lib/format.ts';
 	import type { AmountResponse } from '#lib/api/types.ts';
-
-	function formatRange(range: unknown): string {
-		if (!range || typeof range !== 'string') return '—';
-		const inner = range.slice(1, -1);
-		const [start, end] = inner.split(',');
-		const fmt = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' });
-		try {
-			const startStr = start && start.trim() ? fmt.format(new Date(start.trim())) : '';
-			if (!end || end.trim() === '') return `${startStr} — Ongoing`;
-			return `${startStr} — ${fmt.format(new Date(end.trim()))}`;
-		} catch {
-			return String(range);
-		}
-	}
 
 	interface Props {
 		data: {

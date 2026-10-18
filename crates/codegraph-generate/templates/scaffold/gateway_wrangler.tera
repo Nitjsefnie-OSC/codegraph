@@ -6,15 +6,19 @@ main = "build/worker/shim.mjs"
 compatibility_date = "2024-12-01"
 
 [build]
-command = "cargo install worker-build && worker-build --release --no-default-features --features cloudflare-worker"
+# Requires `cargo install worker-build` (prerequisite — installing per
+# build re-compiles the toolchain for every worker on every dev start).
+command = "worker-build --release --no-default-features --features cloudflare-worker"
 
 [vars]
 # Set in Cloudflare or in a local .dev.vars file.
 {% for domain in domains %}
+{%- if domain.in_gateway %}
 
 [[services]]
 binding = "{{ domain.binding }}"
 service = "{{ domain.worker_name }}"
+{% endif -%}
 {% endfor %}
 {% if gateway_observability %}
 

@@ -278,6 +278,73 @@ generators become model-driven; `--evt-files` also rides `codegraph doctor`
   `events_{domain}`); publisher/aggregate binding + event domain
   attribution (rexlang issue drafts, see below); LSP for `.evt`.
 
+## Deployment models as generator input (rexlang #49)
+
+rexlang `.deploy` deployment models compile — against their imported `.ddd`
+designs and `.ifml` flows — into the deployment plane: applications of
+components (kinded: api/worker/database/queue/objectStore/frontend) and
+`connects` edges, profiles (closed targets incl. `cloudflareWorkers` +
+defaults/policies/mappings), and deployments. `codegraph run
+--deploy-files fleet.deploy ...` ingests them (driver **Pass 1e**, after
+the evt pass, part of the graph-cache inputs group — a `.deploy` edit
+busts `.graph-cache/`); `--deploy-files` also rides `codegraph doctor`
+(`check_deploy_files`, plus two cross-checks: a `cloudflareWorkers`
+profile ⇔ the resolved `deployment_topology = "workers"`, and per-domain
+component coverage — the second warns, the first is hard).
+
+- **Pipeline**: `ingest_deploy_files`
+  (`crates/codegraph/src/ingest/deploy_ingest.rs`) reads each deployment
+  file, resolves its imports relative to the file (`.ddd` designs compile
+  through the shared `read_and_compile_ddd` union path, `.ifml` flows via
+  `parse_ifml_file`), compiles with `rex_driver::compile_deploy_str`, and
+  hard-errors on any error-severity diagnostic (`Error::DeployModel` — a
+  broken deployment model never half-ingests).
+- **Storage**: ONE `:DeployModel` node per source file — `source_path` +
+  `model_json` (the whole `codegraph_core::types::DeployModelGraph` typed
+  mirror serialized; consumers always want the model whole, so the
+  evt/ddd per-family node split buys nothing here). Upsert-by-source_path;
+  readback deserializes + sorts by `source_path`
+  (`ingestor/nodes_deploy.rs`, `querier/deploy.rs`).
+- **Derivation** (workers scaffold,
+  `codegraph-generate/src/scaffold/worker.rs`): `DeployShape` resolves the
+  first `cloudflareWorkers` profile → its first deployment → that
+  application; absent/unresolvable = pure config behavior (flag-off
+  identity). Component ↔ worker bridges BY NAME (a domain-named api/worker
+  component is that domain's worker); `connects` edges REPLACE the
+  `service_bindings_or_depends()` fallback per domain (explicit
+  `domains.toml` `service_bindings` still win; edges to non-domain
+  components are skipped); an api component named `gateway` narrows the
+  gateway's `[[services]]` to exactly the domains receiving a
+  `connects gateway -> X` (no gateway component ⇒ bind-all, byte-identical
+  template output). Composition children whose
+  `child_table_name(parent, field)` collides with their own `pg_table_name`
+  hoist the parent's child-table column shape into their standalone
+  migration (the `GraphQuerier::composition_table_conflict` plane); the
+  parent's inline block still adds the FK/index to the now-existing table.
+- **Gates**: `cargo test -p codegraph --test deploy_ingest_tests`
+  (conversion/hard-error/cache-input semantics), the grafeo round-trip
+  tests in `querier/deploy.rs`, the doctor cross-check tests in
+  `init_tests.rs`, and the scaffold derivation tests in
+  `scaffold/worker.rs`.
+- **Workerd parity** (from the first full consumer run — hr-platform never
+  exercised these): the gateway carries a CORS layer under the monolith's
+  `CORS_ALLOWED_ORIGINS` contract (dependency-free `gateway/src/cors.rs`,
+  native middleware + wasm fetch-boundary handling — the inbound wasm body
+  is `worker::Body`, so `from_fn` cannot span the seam); wrangler's
+  `[build]` assumes `cargo install worker-build` as a prerequisite (the
+  per-worker reinstall cost three minutes per worker); `pub mod entity`
+  (SeaORM) is `#[cfg(feature = "native")]` — SeaORM cannot link wasm32 and
+  nothing in the wasm slice references it; cornucopia SELECT columns alias
+  to the Rust field names and findByExample headers mark optional params
+  with `?` (nullability is header-driven, and bare `:p IS NULL` references
+  are indeterminate at prepare time).
+- **Deferred**: crons/observability/webhook queues/hyperdrive names as
+  `.deploy` component settings (needs rex-driver setting-vocabulary
+  extensions); `queue`/`objectStore` components driving worker queues;
+  `remote_include_mode = "http"` over service bindings; non-workers
+  targets (standalone/dockerCompose/kubernetes backends do not exist yet
+  — rexlang #49 slice 2).
+
 ## Namespaces as first-class citizens (issue #267)
 
 Namespace = where a type lives + what it can see (hierarchical, dotted,
@@ -686,6 +753,18 @@ container on 127.0.0.1:15432 is bootstrapped as fallback). Unique DB per run,
 dropped on finish; warm run ~110s. Runs locally and on the nightly
 `.github/workflows/ifml-gate.yml` (workflow_dispatch + 03:00 UTC cron, postgres:16
 service, gate logs artifact on failure) — PR CI stays node-free.
+
+### IFML doctor gate (issue #468 phase 1)
+
+`--ifml-files` rides `codegraph doctor` (`check_ifml_files` in
+`crates/codegraph/src/init/commands.rs`): each file goes through the same
+`rex_ifml::parse_ifml_file` the ingest path uses (parse error = hard
+failure), and its `import "….actor"` statements resolve read-only through
+`resolve_actor_policy`. The asymmetry is the point — the run path
+warns-and-continues past an unresolvable policy import (the view guards
+would silently lose their policy), so doctor makes that a hard failure
+instead. `.mox` imports on `.ifml` files are checked for existence but are
+not policy business.
 
 ## Generated integration testing (#463)
 

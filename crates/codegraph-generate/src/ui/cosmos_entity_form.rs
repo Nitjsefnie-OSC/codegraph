@@ -103,6 +103,7 @@ impl EntityGenerator for CosmosEntityFormGenerator {
         let has_child_sections = !child_sections.is_empty();
 
         let ctx = UiFormContext {
+            tid: crate::ui::testids::for_module(&module_name),
             entity_name: entity_name.clone(),
             module_name: module_name.clone(),
             domain: domain.clone(),

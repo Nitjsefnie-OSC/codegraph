@@ -150,6 +150,7 @@ async fn run_generation(
         rosetta_files: &rosetta_files,
         ddd_files: &[],
         evt_files: &[],
+        deploy_files: &[],
         ifml_framework: &[],
         ifml_components: None,
         ifml_design_system: None,

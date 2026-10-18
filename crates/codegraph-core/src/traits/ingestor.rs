@@ -2,10 +2,10 @@ use crate::error::GraphError;
 use crate::types::{
     ActionNode, ActorPolicyModel, ApiOperationNode, ApiResourceNode, AtprotoNamespaceNode,
     CodeList, CollectionNode, CompositeColumn, CompositeRange, ConditionNode, DataBindingNode,
-    DddModelGraph, EdgeProperties, EdgeType, EnumValue, ErrorDefinitionNode, EventNode,
-    EvtModelGraph, FunctionNode, HttpEndpointNode, IngestStats, InteractionNode, LexiconNode,
-    MembershipNode, ModuleDefinitionNode, MoxDomainModel, NamespaceImport, NamespaceNode,
-    ParameterDefinitionNode, PermissionNode, PipelineNode, PolicyNode, PropertyNode,
+    DddModelGraph, DeployModelGraph, EdgeProperties, EdgeType, EnumValue, ErrorDefinitionNode,
+    EventNode, EvtModelGraph, FunctionNode, HttpEndpointNode, IngestStats, InteractionNode,
+    LexiconNode, MembershipNode, ModuleDefinitionNode, MoxDomainModel, NamespaceImport,
+    NamespaceNode, ParameterDefinitionNode, PermissionNode, PipelineNode, PolicyNode, PropertyNode,
     RegulatoryEdgeKind, RegulatoryKind, RegulatoryNode, RegulatoryOwner, RelationshipNode,
     RepositoryNode, RuleNode, SchemaNode, SecurityIdentityNode, TenantNode, ViewComponentNode,
     ViewContainerNode,
@@ -211,6 +211,16 @@ pub trait GraphIngestor: Send + Sync {
     /// intra-file names kept verbatim; resolution against the declaring
     /// file is a consumer concern, never a graph-plane one.
     async fn ingest_evt_model(&self, model: &EvtModelGraph) -> Result<(), GraphError>;
+
+    // ── Deployment plane (rexlang #49) ──────────────────────────────
+
+    /// Ingest a full `.deploy` deployment model: the declared applications
+    /// (components + `connects` edges), profiles (target + defaults +
+    /// policies + mappings), and deployments. Component references
+    /// (`connects` endpoints, `deployment ... for`, `use`) are intra-file
+    /// names kept verbatim; resolution against the declaring file is a
+    /// consumer concern, never a graph-plane one.
+    async fn ingest_deploy_model(&self, model: &DeployModelGraph) -> Result<(), GraphError>;
 
     // ── Constraint plane (issue #261) ─────────────────────────────────
 

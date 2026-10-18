@@ -151,12 +151,13 @@ view "TestView" {
 
     let components = engine.get_ifml_view_components("TestView").await.unwrap();
     assert_eq!(components.len(), 1);
-    assert_eq!(components[0].name, "grid");
+    // View-level components persist under the owning view's namespace.
+    assert_eq!(components[0].name, "TestView/grid");
 
     let bindings = engine.get_data_bindings().await.unwrap();
     assert_eq!(bindings.len(), 1);
     let binding = &bindings[0];
-    assert_eq!(binding.component, "grid");
+    assert_eq!(binding.component, "TestView/grid");
     assert_eq!(binding.entity_title, "ItemType");
     assert_eq!(binding.fields, vec!["name", "value"]);
     assert_eq!(binding.api_operation, None);
@@ -185,18 +186,21 @@ async fn test_ifml_grafeo_round_trip_edges() {
         .await
         .unwrap();
     assert_eq!(components.len(), 1);
-    assert_eq!(components[0].name, "grid");
+    assert_eq!(components[0].name, "CustomerList/grid");
 
-    let events = engine.get_ifml_events("comp:grid").await.unwrap();
+    let events = engine
+        .get_ifml_events("comp:CustomerList/grid")
+        .await
+        .unwrap();
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].name, "comp_grid_select");
+    assert_eq!(events[0].name, "comp_CustomerList/grid_select");
 
     let flows = engine.get_ifml_navigation_flows().await.unwrap();
     let grid_flow = flows
         .iter()
-        .find(|f| f.event == "comp_grid_select")
+        .find(|f| f.event == "comp_CustomerList/grid_select")
         .expect("missing grid->CustomerDetail flow");
-    assert_eq!(grid_flow.source, "grid");
+    assert_eq!(grid_flow.source, "CustomerList/grid");
     assert_eq!(grid_flow.source_container, "CustomerList");
     assert_eq!(grid_flow.target, "CustomerDetail");
     assert_eq!(
@@ -205,9 +209,9 @@ async fn test_ifml_grafeo_round_trip_edges() {
     );
     let info_flow = flows
         .iter()
-        .find(|f| f.event == "comp_info_edit")
+        .find(|f| f.event == "comp_CustomerDetail/info_edit")
         .expect("missing info->CustomerEdit flow");
-    assert_eq!(info_flow.source, "info");
+    assert_eq!(info_flow.source, "CustomerDetail/info");
     assert_eq!(info_flow.source_container, "CustomerDetail");
     assert_eq!(info_flow.target, "CustomerEdit");
     assert_eq!(
@@ -217,7 +221,10 @@ async fn test_ifml_grafeo_round_trip_edges() {
 
     let triggers = engine.get_ifml_action_triggers().await.unwrap();
     assert!(
-        triggers.contains(&("comp_form_save".to_string(), "UpdateCustomer".to_string())),
+        triggers.contains(&(
+            "comp_CustomerEdit/form_save".to_string(),
+            "UpdateCustomer".to_string()
+        )),
         "missing comp_form_save->UpdateCustomer trigger: {triggers:?}"
     );
 
@@ -374,7 +381,7 @@ async fn typed_component_specs_round_trip_through_graph() {
     let find = |name: &str| {
         components
             .iter()
-            .find(|c| c.name == name)
+            .find(|c| c.name == format!("Reports/{name}"))
             .unwrap_or_else(|| panic!("component {name} not found"))
     };
 
@@ -544,7 +551,10 @@ view "Plain" {
     let plain_components = engine.get_ifml_view_components("Plain").await.unwrap();
     assert_eq!(plain_components[0].conditional_expression, None);
 
-    let events = engine.get_ifml_events("comp:adminGrid").await.unwrap();
+    let events = engine
+        .get_ifml_events("comp:AdminDashboard/adminGrid")
+        .await
+        .unwrap();
     assert_eq!(events.len(), 2);
     let select = events
         .iter()
@@ -559,6 +569,154 @@ view "Plain" {
         .find(|e| e.event_type == "load")
         .expect("load event");
     assert_eq!(load.conditional_expression, None);
+}
+
+/// Cross-domain component-name collision (the wellness/compensation
+/// shape): two views in DIFFERENT ingested models each declare a
+/// view-level component named "history". Each view must resolve only its
+/// own component, its own events, and its own entity binding — bare-name
+/// keying used to fuse them into one component per view.
+#[tokio::test]
+async fn same_named_view_components_in_different_domains_stay_isolated() {
+    const WELLNESS_IFML: &str = r#"
+view "ActivityDashboard" {
+    component "history" {
+        type: list;
+        data: WellnessActivity;
+        fields: [note, minutes];
+
+        on create -> navigate("ActivityForm");
+        on refreshData -> refresh("history");
+    }
+}
+
+view "ActivityForm" {
+    component "recorder" {
+        type: form;
+        data: WellnessActivity;
+        fields: [note, minutes];
+
+        on save(values) -> stay;
+        on cancel -> navigate("ActivityDashboard");
+    }
+}
+"#;
+    const COMPENSATION_IFML: &str = r#"
+view "CompensationHistory" {
+    component "history" {
+        type: list;
+        data: Reward;
+        fields: [rewardCode, points];
+
+        on select(row) -> navigate("RewardEditor");
+        on create -> navigate("RewardEditor");
+    }
+}
+
+view "RewardEditor" {
+    component "editor" {
+        type: form;
+        data: Reward;
+        fields: [rewardCode, points];
+
+        on save(values) -> stay;
+        on cancel -> navigate("CompensationHistory");
+    }
+}
+"#;
+    let engine = codegraph_grafeo::GrafeoEngine::in_memory().expect("in-memory Grafeo engine");
+    // Ingested as separate models, mirroring the driver's per-file loop.
+    for (source, description) in [
+        (WELLNESS_IFML, "wellness model"),
+        (COMPENSATION_IFML, "compensation model"),
+    ] {
+        let model = rex_ifml::parse_ifml(source).expect(description);
+        codegraph::ingest::ifml_ingest::ingest_ifml_model(&engine, &model)
+            .await
+            .expect(description);
+    }
+
+    // Each view surfaces exactly its own component — membership no longer
+    // leaks across views through same-named component nodes.
+    let dashboard = engine
+        .get_ifml_view_components("ActivityDashboard")
+        .await
+        .unwrap();
+    assert_eq!(dashboard.len(), 1, "{dashboard:?}");
+    assert_eq!(dashboard[0].name, "ActivityDashboard/history");
+    assert_eq!(dashboard[0].entity.as_deref(), Some("WellnessActivity"));
+    assert_eq!(
+        dashboard[0].fields,
+        Some(vec!["note".to_string(), "minutes".to_string()])
+    );
+
+    let compensation = engine
+        .get_ifml_view_components("CompensationHistory")
+        .await
+        .unwrap();
+    assert_eq!(compensation.len(), 1, "{compensation:?}");
+    assert_eq!(compensation[0].name, "CompensationHistory/history");
+    assert_eq!(compensation[0].entity.as_deref(), Some("Reward"));
+    assert_eq!(
+        compensation[0].fields,
+        Some(vec!["rewardCode".to_string(), "points".to_string()])
+    );
+
+    // Events hang off the namespaced component id, never the shared bare
+    // name — no merged event sets.
+    let wellness_events = engine
+        .get_ifml_events("comp:ActivityDashboard/history")
+        .await
+        .unwrap();
+    assert_eq!(wellness_events.len(), 2, "{wellness_events:?}");
+    assert!(
+        wellness_events
+            .iter()
+            .all(|e| e.name.starts_with("comp_ActivityDashboard/history_"))
+    );
+
+    let compensation_events = engine
+        .get_ifml_events("comp:CompensationHistory/history")
+        .await
+        .unwrap();
+    assert_eq!(compensation_events.len(), 2, "{compensation_events:?}");
+    assert!(
+        compensation_events
+            .iter()
+            .all(|e| e.name.starts_with("comp_CompensationHistory/history_"))
+    );
+
+    // Data bindings resolve per view-scoped component. (Binding rows need
+    // entity resolution, so assert on the mock engine whose binding plane
+    // doesn't require ingested Schema nodes.)
+    let mock = codegraph_core::mock::MockEngine::new();
+    for (source, description) in [
+        (WELLNESS_IFML, "wellness model"),
+        (COMPENSATION_IFML, "compensation model"),
+    ] {
+        let model = rex_ifml::parse_ifml(source).expect(description);
+        codegraph::ingest::ifml_ingest::ingest_ifml_model(&mock, &model)
+            .await
+            .expect(description);
+    }
+    let bindings = mock.get_data_bindings().await.unwrap();
+    let wellness_binding = bindings
+        .iter()
+        .find(|b| b.component == "ActivityDashboard/history")
+        .expect("wellness binding");
+    assert_eq!(wellness_binding.entity_title, "WellnessActivityType");
+    let compensation_binding = bindings
+        .iter()
+        .find(|b| b.component == "CompensationHistory/history")
+        .expect("compensation binding");
+    assert_eq!(compensation_binding.entity_title, "RewardType");
+
+    // The view's other component (the recorder form) still resolves.
+    let form_events = engine
+        .get_ifml_events("comp:ActivityForm/recorder")
+        .await
+        .unwrap();
+    assert_eq!(form_events.len(), 2, "{form_events:?}");
 }
 
 /// Test IFML stale route cleanup

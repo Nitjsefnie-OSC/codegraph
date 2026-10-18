@@ -6,6 +6,7 @@
 	import Input from '@community-os/ui/Input.svelte';
 	import Select from '@community-os/ui/Select.svelte';
 	import { api } from '$lib/api';
+	import type { IdentifierResponse } from '#lib/api/types.ts';
 
 	type FormData = Record<string, unknown>;
 
@@ -14,11 +15,11 @@
 		apiPath: string;
 		routePath: string;
 		id?: string;
-		initialData?: Record<string, unknown>;
+		initialData?: IdentifierResponse;
 		submitting?: boolean;
 	}
 
-	let { mode, apiPath, routePath, id = '', initialData = {}, submitting = $bindable(false) }: Props = $props();
+	let { mode, apiPath, routePath, id = '', initialData = undefined, submitting = $bindable(false) }: Props = $props();
 
 	let error = $state('');
 	let loading = $state(mode === 'edit');
@@ -26,19 +27,19 @@
 	// Form state
 
 
-	let scheme_agency_id = $state(String(initialData['scheme_agency_id'] ?? ''));
+	let scheme_agency_id = $state(String(initialData?.scheme_agency_id ?? ''));
 
 
 
-	let scheme_id = $state(String(initialData['scheme_id'] ?? ''));
+	let scheme_id = $state(String(initialData?.scheme_id ?? ''));
 
 
 
-	let scheme_version_id = $state(String(initialData['scheme_version_id'] ?? ''));
+	let scheme_version_id = $state(String(initialData?.scheme_version_id ?? ''));
 
 
 
-	let value = $state(String(initialData['value'] ?? ''));
+	let value = $state(String(initialData?.value ?? ''));
 
 
 
@@ -46,15 +47,15 @@
 		const payload: Record<string, unknown> = {};
 
 
-		if (scheme_agency_id !== String(initialData['scheme_agency_id'] ?? '')) payload['scheme_agency_id'] = scheme_agency_id;
+		if (scheme_agency_id !== String(initialData?.scheme_agency_id ?? '')) payload['scheme_agency_id'] = scheme_agency_id;
 
 
 
-		if (scheme_id !== String(initialData['scheme_id'] ?? '')) payload['scheme_id'] = scheme_id;
+		if (scheme_id !== String(initialData?.scheme_id ?? '')) payload['scheme_id'] = scheme_id;
 
 
 
-		if (scheme_version_id !== String(initialData['scheme_version_id'] ?? '')) payload['scheme_version_id'] = scheme_version_id;
+		if (scheme_version_id !== String(initialData?.scheme_version_id ?? '')) payload['scheme_version_id'] = scheme_version_id;
 
 
 

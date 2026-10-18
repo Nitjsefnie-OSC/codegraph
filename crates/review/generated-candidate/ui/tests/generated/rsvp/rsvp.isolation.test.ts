@@ -6,6 +6,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateRsvpRequest } from '#lib/api/types.ts';
+
 import { RsvpPage } from './rsvp.page';
 
 
@@ -19,11 +22,11 @@ const BASE_PATH = '/rsvp/rsvp';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreateRsvpRequest | 'code', unknown>> {
   return {
     // 'event': ValueObject — omit, serde default
     'status': 'Confirmed',
-    'timestamp': '2025-03-10T09:00:00Z',
+    'timestamp': '2026-01-15T08:00:00Z',
 
 
   };
@@ -31,7 +34,8 @@ function testData(): Record<string, unknown> {
 
 test.describe('Rsvp Cross-Org Isolation', () => {
   let acmeEntityId: string;
-  const data = testData();
+  // Widened read view: list-column reads may touch response-only fields.
+  const data: Record<string, unknown> = testData();
 
   test.beforeAll(async ({ orgContext }) => {
 
