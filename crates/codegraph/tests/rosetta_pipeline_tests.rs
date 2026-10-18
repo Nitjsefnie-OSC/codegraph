@@ -316,15 +316,19 @@ async fn rosetta_entity_reference_columns_survive_ddl_and_entity() {
             .collect::<Vec<_>>()
     );
 
-    // The migration carries the reference FK column. (The FK *constraint*
-    // plane is governed separately by the config-entity filter
-    // (`retain_generated_fks`) and stays out of scope here: rosetta
-    // domains.toml declares no `entities` lists, so cross-entity
-    // constraints are filtered for every rosetta run, classified or not.)
+    // The migration carries the reference FK column AND the FK constraint
+    // (#448): the constraint plane keys off the same generation-order table
+    // universe the DDL generator emits for, so a bridge-authored reference
+    // whose target keeps a VO-shaped default still gets its
+    // `ALTER TABLE ... REFERENCES` line.
     let ddl = read_generated(&output, "invitee.sql");
     assert!(
         ddl.contains("parent_id UUID"),
         "invitee DDL must carry the parent_id reference column:\n{ddl}"
+    );
+    assert!(
+        ddl.contains("FOREIGN KEY (parent_id) REFERENCES repro.parent(id)"),
+        "invitee DDL must carry the parent_id FK constraint:\n{ddl}"
     );
 
     // The SeaORM model carries the matching field (required → non-Option).
@@ -359,6 +363,160 @@ async fn rosetta_entity_reference_columns_survive_ddl_and_entity() {
     assert!(
         repo.contains("parent_id"),
         "invitee repository_impl must map parent_id:\n{repo}"
+    );
+}
+
+// ── #448: cross-domain FK constraint targets ─────────────────────────────
+
+/// #448: a bridge-authored reference ACROSS domains must materialize its FK
+/// constraint with the target's own postgres schema — `zzz.zeta(id)`, not
+/// the referencing domain. The retention set derives from the generation
+/// order, so `zzz.zeta` generates (its own domain entry) and the constraint
+/// survives the filter.
+#[tokio::test]
+async fn rosetta_cross_domain_reference_constraint_targets_the_target_schema() {
+    let dir = tempfile::tempdir().unwrap();
+    let model = dir.path().join("aaa.rosetta");
+    std::fs::write(
+        &model,
+        r#"
+namespace repro.aaa
+: <"Referencing side of the cross-domain FK fixture.">
+
+version "1.0.0"
+
+import repro.zzz.*
+
+	typeAlias Uuid: <"Postgres uuid."> string(pattern: "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+
+	type AlphaType: <"Entity whose reference crosses domains.">
+		[rootType]
+		id Uuid (1..1) <"Primary key."> [metadata id]
+		name string (1..1) <"Display name.">
+		zeta ZetaType (0..1) <"FK zeta_id -> zzz.zeta.id."> [metadata reference]
+"#,
+    )
+    .unwrap();
+    let zeta_model = dir.path().join("zzz.rosetta");
+    std::fs::write(
+        &zeta_model,
+        r#"
+namespace repro.zzz
+: <"Referenced side of the cross-domain FK fixture.">
+
+version "1.0.0"
+
+	typeAlias Uuid: <"Postgres uuid."> string(pattern: "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+
+	type ZetaType: <"Referenced entity in another domain.">
+		[rootType]
+		id Uuid (1..1) <"Primary key."> [metadata id]
+		label string (1..1) <"Label.">
+"#,
+    )
+    .unwrap();
+    let domains = dir.path().join("domains.toml");
+    std::fs::write(
+        &domains,
+        r#"
+[defaults]
+app_name = "repro"
+operations = ["create", "read", "update", "delete", "list"]
+
+[domains.aaa]
+label = "Aaa"
+schema_dir = "aaa"
+postgres_schema = "aaa"
+depends_on = ["zzz"]
+
+[domains.zzz]
+label = "Zzz"
+schema_dir = "zzz"
+postgres_schema = "zzz"
+"#,
+    )
+    .unwrap();
+    let output = dir.path().join("generated");
+    let config = codegraph_config::config::parse_domain_config_str(
+        r#"
+[defaults]
+app_name = "repro"
+operations = ["create", "read", "update", "delete", "list"]
+
+[domains.aaa]
+label = "Aaa"
+schema_dir = "aaa"
+postgres_schema = "aaa"
+depends_on = ["zzz"]
+
+[domains.zzz]
+label = "Zzz"
+schema_dir = "zzz"
+postgres_schema = "zzz"
+"#,
+    )
+    .unwrap();
+
+    // Bridge-only ingestion (no classification pass — the flywheel compile
+    // gate's shape): both targets keep VO-shaped defaults, the reference
+    // properties still classify as entity references.
+    let backend = codegraph_backend::create_backend(&codegraph_backend::BackendConfig::default())
+        .await
+        .unwrap();
+    codegraph::ingest::rosetta_ingest::ingest_rosetta_files(
+        backend.ingestor(),
+        backend.querier(),
+        &[model, zeta_model],
+        &config,
+        &config.defaults.type_suffix,
+    )
+    .await
+    .unwrap();
+
+    let tera =
+        codegraph::generate::template_engine::create_tera(std::path::Path::new("unused")).unwrap();
+    let hooks_tmp = tempfile::tempdir().unwrap();
+    let report =
+        codegraph::generate::run_generators_with_opts(codegraph::generate::GeneratorOpts {
+            db: backend.querier(),
+            config: &config,
+            output_dir: &output,
+            tera: &tera,
+            ui_overrides: &codegraph_config::UiOverrideConfig::default(),
+            ui_domains: &codegraph_config::UiDomainConfig::default(),
+            schema_base_dir: std::path::Path::new(""),
+            seed_config: None,
+            domain_types_base: None,
+            hooks_base: Some(hooks_tmp.path()),
+            ext_points: None,
+            build_plan: None,
+            ifml_frameworks: vec![],
+            ifml_components: None,
+            ux_rules: None,
+            project_config: None,
+            emdash_plugins: None,
+            domain_config_dir: None,
+        })
+        .await
+        .unwrap();
+    assert!(
+        !report.has_errors(),
+        "generation must be silent: {:?}",
+        report
+            .errors
+            .iter()
+            .map(|e| format!("{}/{}: {}", e.entity, e.generator, e.source))
+            .collect::<Vec<_>>()
+    );
+
+    let ddl = read_generated(&output, "alpha.sql");
+    assert!(
+        ddl.contains("zeta_id UUID"),
+        "alpha DDL must carry the cross-domain zeta_id column:\n{ddl}"
+    );
+    assert!(
+        ddl.contains("FOREIGN KEY (zeta_id) REFERENCES zzz.zeta(id)"),
+        "alpha DDL must carry the cross-domain FK constraint into zzz.zeta:\n{ddl}"
     );
 }
 

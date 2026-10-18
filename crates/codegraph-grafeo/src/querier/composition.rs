@@ -1245,16 +1245,21 @@ impl GrafeoEngine {
         }
 
         if let Some(ts) = target_schema {
-            // Only create FK targets for entities (types with their own tables).
-            // VOs are embedded as child tables, not referenced via FK.
             // Codelists always live in the "common" schema regardless of source domain.
             let schema_name = if ts.is_codelist {
                 "common".to_string()
-            } else if !ts.is_entity {
-                return None;
             } else {
                 ts.domain.unwrap_or_else(|| default_schema.to_string())
             };
+            // Non-entity targets keep their FK target when they carry a
+            // pg_table_name: the generation-order plane generates a table for
+            // EVERY schema with one (issue #448 — the same reasoning the
+            // #446 column fix relies on), so the constraint's target table
+            // exists. VO targets reached through the value-object recursion
+            // never get here (their properties classify ValueObject and
+            // embed as child tables); the surviving non-entity case is the
+            // bridge-authored reference whose target keeps a VO-shaped
+            // default because no classification pass ran.
             if !ts.pg_table_name.is_empty() {
                 return Some(FkTarget {
                     schema: schema_name,

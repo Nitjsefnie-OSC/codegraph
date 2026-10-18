@@ -1,11 +1,11 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use codegraph_core::traits::GraphQuerier;
 use codegraph_core::types::{ColumnInfo, CompositionNode};
 use codegraph_type_contracts::RefClassificationKind;
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use codegraph_config::{DomainConfig, SearchConfig};
 
 use super::DdlGenerator;
@@ -888,15 +888,16 @@ impl DdlGenerator {
         // Convert tree columns to DDL artifacts — no graph queries needed
         add_tree_columns(root, &table_name, &mut artifacts);
 
-        // Filter FK constraints: only keep FKs whose target table belongs to an
-        // entity that is actually configured in some domain (will have a migration).
+        // Filter FK constraints: only keep FKs whose target table belongs to
+        // the generation order's table universe — the set of tables that
+        // will actually have migrations.
         // This prevents phantom FK constraints to:
         // - VO types classified as entities by the auto-classifier but not in any domain's entities list
         // - Excluded types that exist in a different domain
         // - Cross-domain refs pointing to non-existent schemas (e.g. "jdx")
         // Build (schema, table) pairs — a FK is valid only if its target
-        // (references_schema, references_table) matches a generated entity.
-        let generated_tables = generated_table_set(db, config, domain).await;
+        // (references_schema, references_table) matches a generated table.
+        let generated_tables = generated_table_set(db, config).await?;
         retain_generated_fks(&mut artifacts.foreign_keys, &generated_tables);
 
         // Query graph properties for entity-reference columns that the composition
@@ -1284,45 +1285,34 @@ fn add_tree_columns(
 }
 
 /// The set of (schema, table) pairs that will actually have migrations:
-/// the config `entities` lists UNION the graph's own entity tables (mox is
-/// author-declarative — its domains.toml carries no `entities` key, so the
-/// graph's `is_entity` schemas are the authority for FK-target validity,
-/// issue #460). Config-listed entities keep priority for legacy flows;
-/// graph entities are restricted to domains the config knows about so
-/// excluded domains still suppress their FKs.
+/// derived from [`compute_generation_order`] — the exact table universe the
+/// DDL generator emits for (issue #448). The legacy config `entities` lists
+/// ride inside the generation order, as does every graph schema with a
+/// `pg_table_name` (mox/rosetta-first projects carry no `entities` key, and
+/// their FK targets keep VO-shaped defaults until a classification pass
+/// runs — the pre-#448 `is_entity`-only union dropped exactly those
+/// targets, leaving reference columns constraint-less).
 async fn generated_table_set(
     db: &dyn GraphQuerier,
     config: &DomainConfig,
-    default_domain: &str,
-) -> HashSet<(String, String)> {
-    let mut tables: HashSet<(String, String)> = config
-        .domains
-        .values()
-        .flat_map(|d| {
-            let schema = &d.postgres_schema;
-            d.entities.iter().map(move |title| {
-                let table =
-                    codegraph_naming::to_snake_case(&codegraph_naming::strip_suffix(title, "Type"));
-                (schema.clone(), table)
-            })
-        })
+) -> Result<HashSet<(String, String)>> {
+    let order = crate::ordering::compute_generation_order(db, config).await?;
+    let table_by_title: HashMap<String, String> = db
+        .list_schemas(None)
+        .await
+        .map_err(|e| Error::Config(e.to_string()))?
+        .into_iter()
+        .filter(|s| !s.pg_table_name.is_empty())
+        .map(|s| (s.title, s.pg_table_name))
         .collect();
-    if let Ok(schemas) = db.list_schemas(None).await {
-        for schema in schemas {
-            if !schema.is_entity || schema.pg_table_name.is_empty() {
-                continue;
-            }
-            let domain = match schema.domain.as_deref() {
-                Some(d) if config.domains.contains_key(d) => d.to_string(),
-                // Graph-assigned domains unknown to the config are excluded
-                // surfaces — their tables never generate.
-                Some(_) => continue,
-                None => default_domain.to_string(),
-            };
-            tables.insert((domain, schema.pg_table_name));
-        }
-    }
-    tables
+    Ok(order
+        .into_iter()
+        .filter_map(|entry| {
+            table_by_title
+                .get(&entry.schema_title)
+                .map(|table| (entry.domain, table.clone()))
+        })
+        .collect())
 }
 
 fn retain_generated_fks(
