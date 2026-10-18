@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use std::sync::RwLock;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Mutex, RwLock};
 
 use async_trait::async_trait;
 
@@ -22,6 +22,37 @@ use crate::types::{
 /// Cached codelist-for-property value: `Option<(CodeList, render_as)>`.
 type CodelistPropertyVal = Option<(CodeList, String)>;
 
+/// Process-wide cache hit/miss counters per cached method family
+/// (issue #473). Keyed by method name → `(hits, misses)`; a miss means the
+/// lookup went to the inner querier. Populated by `CachingQuerier` calls
+/// only — `warm()`'s bulk fills are neither hits nor misses.
+static CACHE_STATS: Mutex<BTreeMap<&'static str, (u64, u64)>> = Mutex::new(BTreeMap::new());
+
+fn cache_record(method: &'static str, hit: bool) {
+    let mut stats = CACHE_STATS.lock().unwrap();
+    let entry = stats.entry(method).or_insert((0, 0));
+    if hit {
+        entry.0 += 1;
+    } else {
+        entry.1 += 1;
+    }
+}
+
+/// Snapshot the cache hit/miss counters: method family → `(hits, misses)`.
+pub fn cache_stats_snapshot() -> BTreeMap<String, (u64, u64)> {
+    CACHE_STATS
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(k, (hits, misses))| ((*k).to_string(), (*hits, *misses)))
+        .collect()
+}
+
+/// Zero the cache hit/miss counters.
+pub fn cache_stats_reset() {
+    CACHE_STATS.lock().unwrap().clear();
+}
+
 /// A caching wrapper around a `&dyn GraphQuerier`.
 ///
 /// Caches the results of frequently-called query methods (get_schema,
@@ -34,7 +65,9 @@ pub struct CachingQuerier<'a> {
     inner: &'a dyn GraphQuerier,
     schema_cache: RwLock<HashMap<String, Option<SchemaNode>>>,
     schema_id_cache: RwLock<HashMap<String, Option<SchemaNode>>>,
+    schema_in_domain_cache: RwLock<HashMap<(String, String), Option<SchemaNode>>>,
     properties_cache: RwLock<HashMap<String, Vec<PropertyNode>>>,
+    properties_by_schema_id_cache: RwLock<HashMap<String, Vec<PropertyNode>>>,
     child_schemas_cache: RwLock<HashMap<String, Vec<SchemaNode>>>,
     composite_columns_cache: RwLock<HashMap<(String, String), Vec<CompositeColumn>>>,
     structured_sub_fields_cache: RwLock<HashMap<String, Vec<StructuredSubField>>>,
@@ -52,6 +85,7 @@ pub struct CachingQuerier<'a> {
     property_ref_target_cache: RwLock<HashMap<(String, String), Option<SchemaNode>>>,
     property_ref_target_by_id_cache: RwLock<HashMap<(String, String), Option<SchemaNode>>>,
     array_item_schema_cache: RwLock<HashMap<(String, String), Option<SchemaNode>>>,
+    pipeline_for_endpoint_cache: RwLock<HashMap<String, Option<PipelineNode>>>,
     api_resources_cache: RwLock<Option<Vec<ApiResourceNode>>>,
     api_operations_cache: RwLock<HashMap<String, Vec<ApiOperationNode>>>,
     policies_cache: RwLock<HashMap<String, Vec<PolicyNode>>>,
@@ -61,6 +95,19 @@ pub struct CachingQuerier<'a> {
     ddd_models_cache: RwLock<Option<Vec<DddModelGraph>>>,
     evt_models_cache: RwLock<Option<Vec<EvtModelGraph>>>,
     deploy_models_cache: RwLock<Option<Vec<DeployModelGraph>>>,
+    codelists_cache: RwLock<Option<Vec<CodeList>>>,
+    parent_candidates_cache: RwLock<Option<Vec<ParentCandidate>>>,
+    /// Whole-store families cached first-read-wins (issue #350: the
+    /// generation loop re-reads these per entity; the graph is immutable
+    /// under this wrapper, so one fetch serves the whole pass).
+    entity_names_cache: RwLock<Option<Vec<String>>>,
+    list_schemas_cache: RwLock<HashMap<String, Vec<SchemaNode>>>,
+    list_all_properties_cache: RwLock<Option<HashMap<String, Vec<PropertyNode>>>>,
+    mox_derived_features_cache: RwLock<Option<Vec<MoxDerivedFeatureNode>>>,
+    /// Whether the ref-target per-key cache has been bulk-seeded via the
+    /// `list_all_property_ref_targets` batch (issue #350). The batch result
+    /// itself is not cached — it populates the per-key entries.
+    property_ref_targets_seeded: RwLock<bool>,
     /// Populated for future tenant-scoped queries; not read yet.
     #[allow(dead_code)]
     tenants_cache: RwLock<HashMap<String, TenantNode>>,
@@ -72,7 +119,9 @@ impl<'a> CachingQuerier<'a> {
             inner,
             schema_cache: RwLock::new(HashMap::new()),
             schema_id_cache: RwLock::new(HashMap::new()),
+            schema_in_domain_cache: RwLock::new(HashMap::new()),
             properties_cache: RwLock::new(HashMap::new()),
+            properties_by_schema_id_cache: RwLock::new(HashMap::new()),
             child_schemas_cache: RwLock::new(HashMap::new()),
             composite_columns_cache: RwLock::new(HashMap::new()),
             structured_sub_fields_cache: RwLock::new(HashMap::new()),
@@ -90,6 +139,7 @@ impl<'a> CachingQuerier<'a> {
             property_ref_target_cache: RwLock::new(HashMap::new()),
             property_ref_target_by_id_cache: RwLock::new(HashMap::new()),
             array_item_schema_cache: RwLock::new(HashMap::new()),
+            pipeline_for_endpoint_cache: RwLock::new(HashMap::new()),
             api_resources_cache: RwLock::new(None),
             api_operations_cache: RwLock::new(HashMap::new()),
             policies_cache: RwLock::new(HashMap::new()),
@@ -99,6 +149,13 @@ impl<'a> CachingQuerier<'a> {
             ddd_models_cache: RwLock::new(None),
             evt_models_cache: RwLock::new(None),
             deploy_models_cache: RwLock::new(None),
+            codelists_cache: RwLock::new(None),
+            parent_candidates_cache: RwLock::new(None),
+            entity_names_cache: RwLock::new(None),
+            list_schemas_cache: RwLock::new(HashMap::new()),
+            list_all_properties_cache: RwLock::new(None),
+            mox_derived_features_cache: RwLock::new(None),
+            property_ref_targets_seeded: RwLock::new(false),
             tenants_cache: RwLock::new(HashMap::new()),
         }
     }
@@ -238,13 +295,15 @@ impl<'a> CachingQuerier<'a> {
 
 /// Helper macro to implement a cached method with a single string key.
 macro_rules! cached_single {
-    ($self:ident, $cache:ident, $key:expr, $inner_call:expr) => {{
+    ($self:ident, $cache:ident, $method:expr, $key:expr, $inner_call:expr) => {{
         {
             let cache = $self.$cache.read().unwrap();
             if let Some(val) = cache.get($key) {
+                cache_record($method, true);
                 return Ok(val.clone());
             }
         }
+        cache_record($method, false);
         let result = $inner_call.await?;
         {
             let mut cache = $self.$cache.write().unwrap();
@@ -256,14 +315,16 @@ macro_rules! cached_single {
 
 /// Helper macro for cached methods with a two-string key.
 macro_rules! cached_pair {
-    ($self:ident, $cache:ident, $k1:expr, $k2:expr, $inner_call:expr) => {{
+    ($self:ident, $cache:ident, $method:expr, $k1:expr, $k2:expr, $inner_call:expr) => {{
         let key = ($k1.to_string(), $k2.to_string());
         {
             let cache = $self.$cache.read().unwrap();
             if let Some(val) = cache.get(&key) {
+                cache_record($method, true);
                 return Ok(val.clone());
             }
         }
+        cache_record($method, false);
         let result = $inner_call.await?;
         {
             let mut cache = $self.$cache.write().unwrap();
@@ -276,16 +337,24 @@ macro_rules! cached_pair {
 #[async_trait]
 impl GraphQuerier for CachingQuerier<'_> {
     async fn get_schema(&self, title: &str) -> Result<Option<SchemaNode>, GraphError> {
-        cached_single!(self, schema_cache, title, self.inner.get_schema(title))
+        cached_single!(
+            self,
+            schema_cache,
+            "get_schema",
+            title,
+            self.inner.get_schema(title)
+        )
     }
 
     async fn get_schema_by_id(&self, schema_id: &str) -> Result<Option<SchemaNode>, GraphError> {
         {
             let cache = self.schema_id_cache.read().unwrap();
             if let Some(val) = cache.get(schema_id) {
+                cache_record("get_schema_by_id", true);
                 return Ok(val.clone());
             }
         }
+        cache_record("get_schema_by_id", false);
         let result = self.inner.get_schema_by_id(schema_id).await?;
         {
             let mut cache = self.schema_id_cache.write().unwrap();
@@ -299,17 +368,36 @@ impl GraphQuerier for CachingQuerier<'_> {
         title: &str,
         domain: &str,
     ) -> Result<Option<SchemaNode>, GraphError> {
-        self.inner.get_schema_in_domain(title, domain).await
+        cached_pair!(
+            self,
+            schema_in_domain_cache,
+            "get_schema_in_domain",
+            title,
+            domain,
+            self.inner.get_schema_in_domain(title, domain)
+        )
     }
 
     async fn list_schemas(&self, domain: Option<&str>) -> Result<Vec<SchemaNode>, GraphError> {
-        self.inner.list_schemas(domain).await
+        let key = domain.unwrap_or("");
+        if let Some(cached) = self.list_schemas_cache.read().unwrap().get(key) {
+            cache_record("list_schemas", true);
+            return Ok(cached.clone());
+        }
+        cache_record("list_schemas", false);
+        let schemas = self.inner.list_schemas(domain).await?;
+        self.list_schemas_cache
+            .write()
+            .unwrap()
+            .insert(key.to_string(), schemas.clone());
+        Ok(schemas)
     }
 
     async fn get_properties(&self, schema_title: &str) -> Result<Vec<PropertyNode>, GraphError> {
         cached_single!(
             self,
             properties_cache,
+            "get_properties",
             schema_title,
             self.inner.get_properties(schema_title)
         )
@@ -319,6 +407,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             child_schemas_cache,
+            "get_child_schemas",
             schema_title,
             self.inner.get_child_schemas(schema_title)
         )
@@ -329,7 +418,14 @@ impl GraphQuerier for CachingQuerier<'_> {
     }
 
     async fn get_entity_names(&self) -> Result<Vec<String>, GraphError> {
-        self.inner.get_entity_names().await
+        if let Some(cached) = self.entity_names_cache.read().unwrap().as_ref() {
+            cache_record("get_entity_names", true);
+            return Ok(cached.clone());
+        }
+        cache_record("get_entity_names", false);
+        let names = self.inner.get_entity_names().await?;
+        *self.entity_names_cache.write().unwrap() = Some(names.clone());
+        Ok(names)
     }
 
     async fn get_entity_schema_map(&self) -> Result<HashMap<String, String>, GraphError> {
@@ -341,21 +437,48 @@ impl GraphQuerier for CachingQuerier<'_> {
     }
 
     async fn get_parent_candidates(&self) -> Result<Vec<ParentCandidate>, GraphError> {
-        self.inner.get_parent_candidates().await
+        if let Some(cached) = self.parent_candidates_cache.read().unwrap().as_ref() {
+            cache_record("get_parent_candidates", true);
+            return Ok(cached.clone());
+        }
+        cache_record("get_parent_candidates", false);
+        let candidates = self.inner.get_parent_candidates().await?;
+        self.parent_candidates_cache
+            .write()
+            .unwrap()
+            .replace(candidates.clone());
+        Ok(candidates)
     }
 
     async fn get_codelist(&self, name: &str) -> Result<Option<CodeList>, GraphError> {
-        cached_single!(self, codelist_cache, name, self.inner.get_codelist(name))
+        cached_single!(
+            self,
+            codelist_cache,
+            "get_codelist",
+            name,
+            self.inner.get_codelist(name)
+        )
     }
 
     async fn list_codelists(&self) -> Result<Vec<CodeList>, GraphError> {
-        self.inner.list_codelists().await
+        if let Some(cached) = self.codelists_cache.read().unwrap().as_ref() {
+            cache_record("list_codelists", true);
+            return Ok(cached.clone());
+        }
+        cache_record("list_codelists", false);
+        let codelists = self.inner.list_codelists().await?;
+        self.codelists_cache
+            .write()
+            .unwrap()
+            .replace(codelists.clone());
+        Ok(codelists)
     }
 
     async fn get_enum_values(&self, codelist_name: &str) -> Result<Vec<EnumValue>, GraphError> {
         cached_single!(
             self,
             enum_values_cache,
+            "get_enum_values",
             codelist_name,
             self.inner.get_enum_values(codelist_name)
         )
@@ -369,6 +492,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_pair!(
             self,
             composite_columns_cache,
+            "get_composite_columns",
             property_name,
             schema_title,
             self.inner
@@ -383,6 +507,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             structured_sub_fields_cache,
+            "get_structured_sub_fields",
             schema_title,
             self.inner.get_structured_sub_fields(schema_title)
         )
@@ -395,6 +520,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             composite_range_cache,
+            "get_composite_range",
             schema_title,
             self.inner.get_composite_range(schema_title)
         )
@@ -407,6 +533,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             consumed_fields_cache,
+            "get_consumed_fields",
             schema_title,
             self.inner.get_consumed_fields(schema_title)
         )
@@ -420,6 +547,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_pair!(
             self,
             codelist_for_property_cache,
+            "get_codelist_for_property",
             property_name,
             schema_title,
             self.inner
@@ -434,6 +562,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             extensions_cache,
+            "get_required_extensions",
             schema_title,
             self.inner.get_required_extensions(schema_title)
         )
@@ -446,6 +575,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             composition_tree_cache,
+            "get_composition_tree",
             schema_title,
             self.inner.get_composition_tree(schema_title)
         )
@@ -455,6 +585,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             allof_targets_cache,
+            "get_allof_targets",
             schema_title,
             self.inner.get_allof_targets(schema_title)
         )
@@ -464,6 +595,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             referencing_cache,
+            "get_referencing_schemas",
             schema_title,
             self.inner.get_referencing_schemas(schema_title)
         )
@@ -476,6 +608,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             schemas_that_extend_cache,
+            "get_schemas_that_extend",
             parent_title,
             self.inner.get_schemas_that_extend(parent_title)
         )
@@ -488,6 +621,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_single!(
             self,
             referenced_cache,
+            "get_referenced_schemas",
             schema_title,
             self.inner.get_referenced_schemas(schema_title)
         )
@@ -498,14 +632,45 @@ impl GraphQuerier for CachingQuerier<'_> {
         property_name: &str,
         schema_title: &str,
     ) -> Result<Option<SchemaNode>, GraphError> {
-        cached_pair!(
-            self,
-            property_ref_target_cache,
-            property_name,
-            schema_title,
-            self.inner
-                .get_property_ref_target(property_name, schema_title)
-        )
+        let key = (property_name.to_string(), schema_title.to_string());
+        {
+            let cache = self.property_ref_target_cache.read().unwrap();
+            if let Some(val) = cache.get(&key) {
+                cache_record("get_property_ref_target", true);
+                return Ok(val.clone());
+            }
+        }
+        // Miss: bulk-seed the per-key cache once via the batch API (issue
+        // #350 — ref-target keys are unique per call, so per-key caching
+        // alone never hits on first touch). The batch result itself is not
+        // cached; it populates the per-key entries. An inner querier
+        // without batch support returns an empty map and we degrade to the
+        // per-key call below.
+        if !*self.property_ref_targets_seeded.read().unwrap() {
+            let batch = self.inner.list_all_property_ref_targets().await?;
+            {
+                let mut cache = self.property_ref_target_cache.write().unwrap();
+                for (batch_key, target) in batch {
+                    cache.insert(batch_key, target);
+                }
+            }
+            *self.property_ref_targets_seeded.write().unwrap() = true;
+            let cache = self.property_ref_target_cache.read().unwrap();
+            if let Some(val) = cache.get(&key) {
+                cache_record("get_property_ref_target", false);
+                return Ok(val.clone());
+            }
+        }
+        cache_record("get_property_ref_target", false);
+        let result = self
+            .inner
+            .get_property_ref_target(property_name, schema_title)
+            .await?;
+        {
+            let mut cache = self.property_ref_target_cache.write().unwrap();
+            cache.insert(key, result.clone());
+        }
+        Ok(result)
     }
 
     async fn get_property_ref_target_by_id(
@@ -516,6 +681,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_pair!(
             self,
             property_ref_target_by_id_cache,
+            "get_property_ref_target_by_id",
             property_name,
             schema_id,
             self.inner
@@ -527,7 +693,13 @@ impl GraphQuerier for CachingQuerier<'_> {
         &self,
         schema_id: &str,
     ) -> Result<Vec<PropertyNode>, GraphError> {
-        self.inner.get_properties_by_schema_id(schema_id).await
+        cached_single!(
+            self,
+            properties_by_schema_id_cache,
+            "get_properties_by_schema_id",
+            schema_id,
+            self.inner.get_properties_by_schema_id(schema_id)
+        )
     }
 
     async fn get_array_item_schema(
@@ -538,6 +710,7 @@ impl GraphQuerier for CachingQuerier<'_> {
         cached_pair!(
             self,
             array_item_schema_cache,
+            "get_array_item_schema",
             property_name,
             schema_title,
             self.inner
@@ -560,7 +733,14 @@ impl GraphQuerier for CachingQuerier<'_> {
     }
 
     async fn list_all_properties(&self) -> Result<HashMap<String, Vec<PropertyNode>>, GraphError> {
-        self.inner.list_all_properties().await
+        if let Some(cached) = self.list_all_properties_cache.read().unwrap().as_ref() {
+            cache_record("list_all_properties", true);
+            return Ok(cached.clone());
+        }
+        cache_record("list_all_properties", false);
+        let all = self.inner.list_all_properties().await?;
+        *self.list_all_properties_cache.write().unwrap() = Some(all.clone());
+        Ok(all)
     }
 
     // ── IFML query delegation ──────────────────────────────────────────
@@ -726,8 +906,10 @@ impl GraphQuerier for CachingQuerier<'_> {
 
     async fn get_api_resources(&self) -> Result<Vec<ApiResourceNode>, GraphError> {
         if let Some(cached) = self.api_resources_cache.read().unwrap().as_ref() {
+            cache_record("get_api_resources", true);
             return Ok(cached.clone());
         }
+        cache_record("get_api_resources", false);
         let result = self.inner.get_api_resources().await?;
         self.api_resources_cache
             .write()
@@ -758,8 +940,10 @@ impl GraphQuerier for CachingQuerier<'_> {
         resource_name: &str,
     ) -> Result<Vec<ApiOperationNode>, GraphError> {
         if let Some(cached) = self.api_operations_cache.read().unwrap().get(resource_name) {
+            cache_record("get_api_operations", true);
             return Ok(cached.clone());
         }
+        cache_record("get_api_operations", false);
         let result = self.inner.get_api_operations(resource_name).await?;
         self.api_operations_cache
             .write()
@@ -795,7 +979,13 @@ impl GraphQuerier for CachingQuerier<'_> {
         &self,
         endpoint_path: &str,
     ) -> Result<Option<PipelineNode>, GraphError> {
-        self.inner.get_pipeline_for_endpoint(endpoint_path).await
+        cached_single!(
+            self,
+            pipeline_for_endpoint_cache,
+            "get_pipeline_for_endpoint",
+            endpoint_path,
+            self.inner.get_pipeline_for_endpoint(endpoint_path)
+        )
     }
 
     // ── Persistence metamodel queries ──────────────────────────────────
@@ -807,9 +997,11 @@ impl GraphQuerier for CachingQuerier<'_> {
         {
             let cache = self.policies_cache.read().unwrap();
             if let Some(policies) = cache.get(schema_title) {
+                cache_record("get_policies_for_schema", true);
                 return Ok(policies.clone());
             }
         }
+        cache_record("get_policies_for_schema", false);
         let policies = self.inner.get_policies_for_schema(schema_title).await?;
         self.policies_cache
             .write()
@@ -825,9 +1017,11 @@ impl GraphQuerier for CachingQuerier<'_> {
         {
             let cache = self.relationships_cache.read().unwrap();
             if let Some(rels) = cache.get(schema_title) {
+                cache_record("get_relationships_for_schema", true);
                 return Ok(rels.clone());
             }
         }
+        cache_record("get_relationships_for_schema", false);
         let rels = self
             .inner
             .get_relationships_for_schema(schema_title)
@@ -850,9 +1044,11 @@ impl GraphQuerier for CachingQuerier<'_> {
         {
             let cache = self.all_policies_cache.read().unwrap();
             if let Some(policies) = cache.as_ref() {
+                cache_record("list_all_policies", true);
                 return Ok(policies.clone());
             }
         }
+        cache_record("list_all_policies", false);
         let policies = self.inner.list_all_policies().await?;
         *self.all_policies_cache.write().unwrap() = Some(policies.clone());
         Ok(policies)
@@ -862,9 +1058,11 @@ impl GraphQuerier for CachingQuerier<'_> {
         {
             let cache = self.all_relationships_cache.read().unwrap();
             if let Some(rels) = cache.as_ref() {
+                cache_record("list_all_relationships", true);
                 return Ok(rels.clone());
             }
         }
+        cache_record("list_all_relationships", false);
         let rels = self.inner.list_all_relationships().await?;
         *self.all_relationships_cache.write().unwrap() = Some(rels.clone());
         Ok(rels)
@@ -918,8 +1116,10 @@ impl GraphQuerier for CachingQuerier<'_> {
 
     async fn get_ddd_models(&self) -> Result<Vec<DddModelGraph>, GraphError> {
         if let Some(models) = self.ddd_models_cache.read().unwrap().clone() {
+            cache_record("get_ddd_models", true);
             return Ok(models);
         }
+        cache_record("get_ddd_models", false);
         let models = self.inner.get_ddd_models().await?;
         *self.ddd_models_cache.write().unwrap() = Some(models.clone());
         Ok(models)
@@ -927,8 +1127,10 @@ impl GraphQuerier for CachingQuerier<'_> {
 
     async fn get_evt_models(&self) -> Result<Vec<EvtModelGraph>, GraphError> {
         if let Some(models) = self.evt_models_cache.read().unwrap().clone() {
+            cache_record("get_evt_models", true);
             return Ok(models);
         }
+        cache_record("get_evt_models", false);
         let models = self.inner.get_evt_models().await?;
         *self.evt_models_cache.write().unwrap() = Some(models.clone());
         Ok(models)
@@ -961,7 +1163,14 @@ impl GraphQuerier for CachingQuerier<'_> {
     }
 
     async fn get_mox_derived_features(&self) -> Result<Vec<MoxDerivedFeatureNode>, GraphError> {
-        self.inner.get_mox_derived_features().await
+        if let Some(cached) = self.mox_derived_features_cache.read().unwrap().as_ref() {
+            cache_record("get_mox_derived_features", true);
+            return Ok(cached.clone());
+        }
+        cache_record("get_mox_derived_features", false);
+        let features = self.inner.get_mox_derived_features().await?;
+        *self.mox_derived_features_cache.write().unwrap() = Some(features.clone());
+        Ok(features)
     }
 
     async fn get_mox_derived_features_for_schema(
@@ -971,5 +1180,473 @@ impl GraphQuerier for CachingQuerier<'_> {
         self.inner
             .get_mox_derived_features_for_schema(schema_title)
             .await
+    }
+}
+
+#[cfg(test)]
+mod cache_stats_tests {
+    use super::*;
+    use crate::mock::MockEngine;
+    use std::sync::Mutex;
+
+    /// Serializes tests in this module: the counters are process-global, so
+    /// exact/reset assertions must not interleave. Poison-tolerant (a failed
+    /// test must not cascade into its siblings).
+    static STATS_LOCK: Mutex<()> = Mutex::new(());
+
+    fn stats_lock() -> std::sync::MutexGuard<'static, ()> {
+        STATS_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(fut)
+    }
+
+    fn ddd_hits_misses() -> (u64, u64) {
+        cache_stats_snapshot()
+            .get("get_ddd_models")
+            .copied()
+            .unwrap_or((0, 0))
+    }
+
+    #[test]
+    fn double_read_records_one_miss_then_one_hit() {
+        let _guard = stats_lock();
+        block_on(async {
+            let mock = MockEngine::default();
+            let querier = CachingQuerier::new(&mock);
+
+            let (before_hits, before_misses) = ddd_hits_misses();
+            let first = querier.get_ddd_models().await.unwrap();
+            let after_first = ddd_hits_misses();
+            let second = querier.get_ddd_models().await.unwrap();
+            let after_second = ddd_hits_misses();
+
+            assert_eq!(first, second, "first-read-wins semantics unchanged");
+            assert_eq!(after_first.1 - before_misses, 1, "first call is a miss");
+            assert_eq!(after_first.0, before_hits, "first call is not a hit");
+            assert_eq!(
+                after_second.0 - after_first.0,
+                1,
+                "second call is served from cache"
+            );
+            assert_eq!(after_second.1, after_first.1, "second call is not a miss");
+        });
+    }
+
+    #[test]
+    fn every_cached_family_records_under_its_own_name() {
+        let _guard = stats_lock();
+        block_on(async {
+            let mock = MockEngine::default();
+            let querier = CachingQuerier::new(&mock);
+            cache_stats_reset();
+
+            let _ = querier.get_ddd_models().await.unwrap();
+            let _ = querier.get_evt_models().await.unwrap();
+            let _ = querier.get_ddd_models().await.unwrap();
+            let _ = querier.list_all_policies().await.unwrap();
+
+            let snapshot = cache_stats_snapshot();
+            assert_eq!(snapshot.get("get_ddd_models"), Some(&(1, 1)));
+            assert_eq!(snapshot.get("get_evt_models"), Some(&(0, 1)));
+            assert_eq!(snapshot.get("list_all_policies"), Some(&(0, 1)));
+        });
+    }
+
+    /// One miss then one hit per family added by issue #483. The mock
+    /// returns empty/None results, so the "hit" assertions also pin that
+    /// negative results are cached (a repeated not-found lookup must not
+    /// re-query).
+    #[test]
+    fn miss_heavy_families_added_by_483_record_miss_then_hit() {
+        let _guard = stats_lock();
+        block_on(async {
+            let mock = MockEngine::default();
+            let querier = CachingQuerier::new(&mock);
+            cache_stats_reset();
+            let baseline = cache_stats_snapshot();
+
+            // (title, domain) pair-keyed: the same lookup repeated across
+            // generators must serve the second call from cache.
+            let _ = querier.get_schema_in_domain("Widget", "pkg0").await;
+            let _ = querier.get_schema_in_domain("Widget", "pkg0").await;
+            let _ = assert_family(&baseline, "get_schema_in_domain");
+
+            let _ = querier.get_properties_by_schema_id("ns::Widget").await;
+            let _ = querier.get_properties_by_schema_id("ns::Widget").await;
+            let _ = assert_family(&baseline, "get_properties_by_schema_id");
+
+            let _ = querier.get_pipeline_for_endpoint("/api/v1/widgets").await;
+            let _ = querier.get_pipeline_for_endpoint("/api/v1/widgets").await;
+            let _ = assert_family(&baseline, "get_pipeline_for_endpoint");
+
+            let _ = querier.list_codelists().await;
+            let _ = querier.list_codelists().await;
+            let _ = assert_family(&baseline, "list_codelists");
+
+            let _ = querier.get_parent_candidates().await;
+            let _ = querier.get_parent_candidates().await;
+            let _ = assert_family(&baseline, "get_parent_candidates");
+        });
+    }
+
+    /// Assert `family` recorded exactly one miss then one hit in the
+    /// delta between `before` and the current snapshot; returns the
+    /// current snapshot for the next delta.
+    fn assert_family(
+        before: &BTreeMap<String, (u64, u64)>,
+        family: &str,
+    ) -> BTreeMap<String, (u64, u64)> {
+        let after = cache_stats_snapshot();
+        let (hits, misses) = after.get(family).copied().unwrap_or((0, 0));
+        let (prev_hits, prev_misses) = before.get(family).copied().unwrap_or((0, 0));
+        assert_eq!(
+            (hits - prev_hits, misses - prev_misses),
+            (1, 1),
+            "{family}: expected one miss then one hit"
+        );
+        after
+    }
+
+    #[test]
+    fn cache_stats_reset_clears_counters() {
+        let _guard = stats_lock();
+        cache_record("cache_stats_test_family", true);
+        assert!(cache_stats_snapshot().contains_key("cache_stats_test_family"));
+        cache_stats_reset();
+        assert!(!cache_stats_snapshot().contains_key("cache_stats_test_family"));
+    }
+
+    /// Whole-store families cached first-read-wins (issue #350): the
+    /// generation loop re-reads these per entity; one miss then cache hits.
+    #[test]
+    fn whole_store_families_record_miss_then_hit() {
+        let _guard = stats_lock();
+        block_on(async {
+            let mock = MockEngine::default();
+            let querier = CachingQuerier::new(&mock);
+            cache_stats_reset();
+
+            let _ = querier.get_entity_names().await.unwrap();
+            let _ = querier.get_entity_names().await.unwrap();
+            let snapshot = cache_stats_snapshot();
+            assert_eq!(snapshot.get("get_entity_names"), Some(&(1, 1)));
+
+            let _ = querier.list_all_properties().await.unwrap();
+            let _ = querier.list_all_properties().await.unwrap();
+            let snapshot = cache_stats_snapshot();
+            assert_eq!(snapshot.get("list_all_properties"), Some(&(1, 1)));
+
+            let _ = querier.list_schemas(None).await.unwrap();
+            let _ = querier.list_schemas(None).await.unwrap();
+            let snapshot = cache_stats_snapshot();
+            assert_eq!(snapshot.get("list_schemas"), Some(&(1, 1)));
+
+            let _ = querier.get_mox_derived_features().await.unwrap();
+            let _ = querier.get_mox_derived_features().await.unwrap();
+            let snapshot = cache_stats_snapshot();
+            assert_eq!(snapshot.get("get_mox_derived_features"), Some(&(1, 1)));
+        });
+    }
+}
+
+#[cfg(test)]
+mod batch_tests {
+    //! Issue #350: batch-backed miss path + whole-store family caching.
+
+    use super::*;
+    use crate::mock::MockEngine;
+    use crate::test_fixtures::{gender_codelist_schema, person_properties};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(fut)
+    }
+
+    /// Inner querier double that counts batch vs per-key ref-target calls.
+    struct CountingInner {
+        mock: MockEngine,
+        batch_calls: AtomicUsize,
+        point_calls: AtomicUsize,
+    }
+
+    impl CountingInner {
+        fn new(mock: MockEngine) -> Self {
+            Self {
+                mock,
+                batch_calls: AtomicUsize::new(0),
+                point_calls: AtomicUsize::new(0),
+            }
+        }
+
+        fn batch_calls(&self) -> usize {
+            self.batch_calls.load(Ordering::Relaxed)
+        }
+
+        fn point_calls(&self) -> usize {
+            self.point_calls.load(Ordering::Relaxed)
+        }
+    }
+
+    #[async_trait]
+    impl GraphQuerier for CountingInner {
+        async fn get_schema(&self, title: &str) -> Result<Option<SchemaNode>, GraphError> {
+            self.mock.get_schema(title).await
+        }
+
+        async fn list_schemas(&self, domain: Option<&str>) -> Result<Vec<SchemaNode>, GraphError> {
+            self.mock.list_schemas(domain).await
+        }
+
+        async fn get_properties(
+            &self,
+            schema_title: &str,
+        ) -> Result<Vec<PropertyNode>, GraphError> {
+            self.mock.get_properties(schema_title).await
+        }
+
+        async fn get_child_schemas(
+            &self,
+            schema_title: &str,
+        ) -> Result<Vec<SchemaNode>, GraphError> {
+            self.mock.get_child_schemas(schema_title).await
+        }
+
+        async fn get_classification_data(
+            &self,
+        ) -> Result<Vec<SchemaClassificationData>, GraphError> {
+            self.mock.get_classification_data().await
+        }
+
+        async fn get_entity_names(&self) -> Result<Vec<String>, GraphError> {
+            self.mock.get_entity_names().await
+        }
+
+        async fn get_entity_schema_map(&self) -> Result<HashMap<String, String>, GraphError> {
+            self.mock.get_entity_schema_map().await
+        }
+
+        async fn get_value_object_schemas(&self) -> Result<Vec<SchemaNode>, GraphError> {
+            self.mock.get_value_object_schemas().await
+        }
+
+        async fn get_parent_candidates(&self) -> Result<Vec<ParentCandidate>, GraphError> {
+            self.mock.get_parent_candidates().await
+        }
+
+        async fn get_codelist(&self, name: &str) -> Result<Option<CodeList>, GraphError> {
+            self.mock.get_codelist(name).await
+        }
+
+        async fn list_codelists(&self) -> Result<Vec<CodeList>, GraphError> {
+            self.mock.list_codelists().await
+        }
+
+        async fn get_enum_values(&self, codelist_name: &str) -> Result<Vec<EnumValue>, GraphError> {
+            self.mock.get_enum_values(codelist_name).await
+        }
+
+        async fn get_composite_columns(
+            &self,
+            property_name: &str,
+            schema_title: &str,
+        ) -> Result<Vec<CompositeColumn>, GraphError> {
+            self.mock
+                .get_composite_columns(property_name, schema_title)
+                .await
+        }
+
+        async fn get_structured_sub_fields(
+            &self,
+            schema_title: &str,
+        ) -> Result<Vec<StructuredSubField>, GraphError> {
+            self.mock.get_structured_sub_fields(schema_title).await
+        }
+
+        async fn get_composite_range(
+            &self,
+            schema_title: &str,
+        ) -> Result<Option<CompositeRange>, GraphError> {
+            self.mock.get_composite_range(schema_title).await
+        }
+
+        async fn get_consumed_fields(
+            &self,
+            schema_title: &str,
+        ) -> Result<Vec<(PropertyNode, String)>, GraphError> {
+            self.mock.get_consumed_fields(schema_title).await
+        }
+
+        async fn get_codelist_for_property(
+            &self,
+            property_name: &str,
+            schema_title: &str,
+        ) -> Result<Option<(CodeList, String)>, GraphError> {
+            self.mock
+                .get_codelist_for_property(property_name, schema_title)
+                .await
+        }
+
+        async fn get_required_extensions(
+            &self,
+            schema_title: &str,
+        ) -> Result<Vec<Extension>, GraphError> {
+            self.mock.get_required_extensions(schema_title).await
+        }
+
+        async fn get_composition_tree(
+            &self,
+            schema_title: &str,
+        ) -> Result<CompositionTree, GraphError> {
+            self.mock.get_composition_tree(schema_title).await
+        }
+
+        async fn get_allof_targets(&self, schema_title: &str) -> Result<Vec<String>, GraphError> {
+            self.mock.get_allof_targets(schema_title).await
+        }
+
+        async fn get_referencing_schemas(
+            &self,
+            schema_title: &str,
+        ) -> Result<Vec<String>, GraphError> {
+            self.mock.get_referencing_schemas(schema_title).await
+        }
+
+        async fn get_referenced_schemas(
+            &self,
+            schema_title: &str,
+        ) -> Result<Vec<SchemaNode>, GraphError> {
+            self.mock.get_referenced_schemas(schema_title).await
+        }
+
+        async fn get_property_ref_target(
+            &self,
+            property_name: &str,
+            schema_title: &str,
+        ) -> Result<Option<SchemaNode>, GraphError> {
+            self.point_calls.fetch_add(1, Ordering::Relaxed);
+            self.mock
+                .get_property_ref_target(property_name, schema_title)
+                .await
+        }
+
+        async fn get_array_item_schema(
+            &self,
+            property_name: &str,
+            schema_title: &str,
+        ) -> Result<Option<SchemaNode>, GraphError> {
+            self.mock
+                .get_array_item_schema(property_name, schema_title)
+                .await
+        }
+
+        async fn get_generation_order(&self) -> Result<Vec<String>, GraphError> {
+            self.mock.get_generation_order().await
+        }
+
+        async fn list_all_property_ref_targets(
+            &self,
+        ) -> Result<HashMap<(String, String), Option<SchemaNode>>, GraphError> {
+            self.batch_calls.fetch_add(1, Ordering::Relaxed);
+            self.mock.list_all_property_ref_targets().await
+        }
+    }
+
+    fn ref_target_mock() -> MockEngine {
+        MockEngine::builder()
+            .with_properties("PersonType", person_properties())
+            .with_ref_target("gender", "PersonType", gender_codelist_schema())
+            .build()
+    }
+
+    #[test]
+    fn ref_target_batch_seeds_per_key_cache_once() {
+        block_on(async {
+            let inner = CountingInner::new(ref_target_mock());
+            let querier = CachingQuerier::new(&inner);
+
+            let gender = gender_codelist_schema();
+
+            // First miss bulk-seeds every key from the batch; covered keys
+            // never reach the point query.
+            let first = querier
+                .get_property_ref_target("gender", "PersonType")
+                .await
+                .unwrap();
+            assert_eq!(first.as_ref(), Some(&gender));
+            assert_eq!(inner.batch_calls(), 1);
+            assert_eq!(inner.point_calls(), 0);
+
+            // A negative-space key (property without a reference edge) is
+            // served from the seed's None entry.
+            let none = querier
+                .get_property_ref_target("givenName", "PersonType")
+                .await
+                .unwrap();
+            assert_eq!(none, None);
+            assert_eq!(inner.batch_calls(), 1);
+            assert_eq!(inner.point_calls(), 0);
+
+            // Repeat reads are plain cache hits.
+            let _ = querier
+                .get_property_ref_target("gender", "PersonType")
+                .await
+                .unwrap();
+            assert_eq!(inner.batch_calls(), 1);
+            assert_eq!(inner.point_calls(), 0);
+
+            // A key the batch did not cover (no such property) degrades to
+            // the point query.
+            let miss = querier
+                .get_property_ref_target("absent", "PersonType")
+                .await
+                .unwrap();
+            assert_eq!(miss, None);
+            assert_eq!(inner.batch_calls(), 1);
+            assert_eq!(inner.point_calls(), 1);
+        });
+    }
+
+    #[test]
+    fn mock_batch_matches_point_lookups() {
+        block_on(async {
+            let mock = ref_target_mock();
+            let batch = mock.list_all_property_ref_targets().await.unwrap();
+            // The property universe: the fixture's three PersonType props.
+            assert_eq!(batch.len(), 3);
+            let gender = gender_codelist_schema();
+            assert_eq!(
+                batch
+                    .get(&("gender".to_string(), "PersonType".to_string()))
+                    .cloned()
+                    .flatten(),
+                Some(gender)
+            );
+            assert_eq!(
+                batch
+                    .get(&("givenName".to_string(), "PersonType".to_string()))
+                    .cloned()
+                    .flatten(),
+                None
+            );
+            for ((pname, stitle), target) in &batch {
+                assert_eq!(
+                    target.as_ref(),
+                    mock.get_property_ref_target(pname, stitle)
+                        .await
+                        .unwrap()
+                        .as_ref()
+                );
+            }
+        });
     }
 }

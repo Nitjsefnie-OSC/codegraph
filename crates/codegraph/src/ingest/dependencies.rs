@@ -117,6 +117,7 @@ pub fn dependency_meta_from_bytes(bytes: &[u8]) -> Result<DependencyArtifactMeta
 /// `ingestor`. Consumer domains are visited in sorted order and each face
 /// exactly once (a face pinned by two consumer domains loads once).
 /// Returns the aggregate load stats.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub async fn load_dependency_artifacts(
     ingestor: &dyn GraphIngestor,
     querier: &dyn GraphQuerier,
@@ -157,6 +158,7 @@ pub async fn load_dependency_artifacts(
 /// generation and validation treat the foreign faces as bounded contexts.
 /// The entries carry no model config of their own (no entities, no schema
 /// dir): generation reads the face from the graph.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn inject_dependency_domains(config: &mut DomainConfig) -> usize {
     let mut names: BTreeSet<String> = BTreeSet::new();
     for entry in config.domains.values() {

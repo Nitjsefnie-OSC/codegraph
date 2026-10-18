@@ -19,6 +19,11 @@ pub fn ddl_statements() -> Vec<&'static str> {
 }
 
 /// Returns property names that should be indexed via `GrafeoDB::create_property_index()`.
+///
+/// Every entry is a property an ingestor edge MATCH (or querier MATCH)
+/// actually keys on — property indexes are global by name, so only real
+/// MATCH keys earn their maintenance cost (issue #482 additions: the
+/// composite/enum/error/regulator keys `insert_edge` matches on).
 pub fn indexed_properties() -> Vec<&'static str> {
     vec![
         "title",
@@ -36,6 +41,18 @@ pub fn indexed_properties() -> Vec<&'static str> {
         "subject",
         "identity",
         "tenant",
+        // CompositeColumn natural key (`ExpandsTo` target MATCH).
+        "suffix",
+        "wrapper_schema",
+        // CompositeRange natural key (`CollapsesTo`/`ConsumesField` MATCH).
+        "pg_column_name",
+        // EnumValue natural key (`HasEnumValue` target MATCH).
+        "value",
+        // ErrorDefinition natural key (`CanReturnError` target MATCH).
+        "code",
+        // Regulatory natural key (`regulatory_reference_gql` MATCH —
+        // `Regulatory {name, kind}`).
+        "kind",
     ]
 }
 

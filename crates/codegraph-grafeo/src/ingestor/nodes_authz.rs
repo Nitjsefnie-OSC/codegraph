@@ -1,12 +1,16 @@
+use std::collections::HashMap;
+
 use codegraph_core::error::GraphError;
 use codegraph_core::types::{ActorPolicyModel, PolicyNode};
 
-use super::gql::{escape_gql, opt_str};
+use super::gql::CountingSession;
+use super::gql::{escape_gql, opt_str, opt_to_grafeo_value};
+use super::registry;
 use crate::engine::GrafeoEngine;
 
 impl GrafeoEngine {
     pub(super) async fn insert_policy(&self, policy: &PolicyNode) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let kind_json =
             serde_json::to_string(&policy.kind).map_err(|e| GraphError::Ingest(e.to_string()))?;
         let domain = policy.domain.clone().unwrap_or_default();
@@ -31,48 +35,72 @@ impl GrafeoEngine {
         &self,
         model: &ActorPolicyModel,
     ) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
 
         for actor in &model.actors {
-            let gql = format!(
-                "INSERT (:Actor {{ name: '{}', kind: {}, extends: {}, block: {} }})",
-                escape_gql(&actor.name),
-                opt_str(&actor.kind),
-                opt_str(&actor.extends),
-                opt_str(&actor.block),
-            );
-            session.execute(&gql).map_err(|e| {
-                GraphError::Ingest(format!("ingest_actor_policy actor failed: {e}"))
-            })?;
+            let props = HashMap::from([
+                (
+                    "name".to_string(),
+                    grafeo::Value::String(actor.name.clone().into()),
+                ),
+                ("kind".to_string(), opt_to_grafeo_value(&actor.kind)),
+                ("extends".to_string(), opt_to_grafeo_value(&actor.extends)),
+                ("block".to_string(), opt_to_grafeo_value(&actor.block)),
+            ]);
+            self.create_registered_node("Actor", &[registry::keys::actor(&actor.name)], &props)?;
         }
 
         for capability in &model.capabilities {
-            let gql = format!(
-                "INSERT (:Capability {{ name: '{}', class: '{}', block: {} }})",
-                escape_gql(&capability.name),
-                escape_gql(&capability.class),
-                opt_str(&capability.block),
-            );
-            session.execute(&gql).map_err(|e| {
-                GraphError::Ingest(format!("ingest_actor_policy capability failed: {e}"))
-            })?;
+            let props = HashMap::from([
+                (
+                    "name".to_string(),
+                    grafeo::Value::String(capability.name.clone().into()),
+                ),
+                (
+                    "class".to_string(),
+                    grafeo::Value::String(capability.class.clone().into()),
+                ),
+                ("block".to_string(), opt_to_grafeo_value(&capability.block)),
+            ]);
+            self.create_registered_node(
+                "Capability",
+                &[registry::keys::capability(&capability.name)],
+                &props,
+            )?;
         }
 
         for grant in &model.grants {
             let obligations_json = serde_json::to_string(&grant.obligations)
                 .map_err(|e| GraphError::Ingest(e.to_string()))?;
-            let gql = format!(
-                "MATCH (a:Actor {{name: '{actor}'}}), (c:Capability {{name: '{capability}'}}) \
-                 INSERT (a)-[:Grant {{ effect: '{effect}', when_expr: {when}, obligations: '{obligations}' }}]->(c)",
-                actor = escape_gql(&grant.actor),
-                capability = escape_gql(&grant.capability),
-                effect = escape_gql(&grant.effect),
-                when = opt_str(&grant.when),
-                obligations = escape_gql(&obligations_json),
-            );
-            session.execute(&gql).map_err(|e| {
-                GraphError::Ingest(format!("ingest_actor_policy grant failed: {e}"))
-            })?;
+            if let (Some(actor_node), Some(capability_node)) = (
+                self.lookup_node(&registry::keys::actor(&grant.actor)),
+                self.lookup_node(&registry::keys::capability(&grant.capability)),
+            ) {
+                crate::perf::bump_registry_edge_hit();
+                let props: Vec<(&str, grafeo::Value)> = vec![
+                    ("effect", grafeo::Value::String(grant.effect.clone().into())),
+                    ("when_expr", opt_to_grafeo_value(&grant.when)),
+                    (
+                        "obligations",
+                        grafeo::Value::String(obligations_json.into()),
+                    ),
+                ];
+                self.create_edge_direct(actor_node, capability_node, "Grant", &props)?;
+            } else {
+                crate::perf::bump_registry_edge_miss();
+                let gql = format!(
+                    "MATCH (a:Actor {{name: '{actor}'}}), (c:Capability {{name: '{capability}'}}) \
+                     INSERT (a)-[:Grant {{ effect: '{effect}', when_expr: {when}, obligations: '{obligations}' }}]->(c)",
+                    actor = escape_gql(&grant.actor),
+                    capability = escape_gql(&grant.capability),
+                    effect = escape_gql(&grant.effect),
+                    when = opt_str(&grant.when),
+                    obligations = escape_gql(&obligations_json),
+                );
+                session.execute(&gql).map_err(|e| {
+                    GraphError::Ingest(format!("ingest_actor_policy grant failed: {e}"))
+                })?;
+            }
         }
 
         let blocks_json = serde_json::to_string(&model.policy.blocks)

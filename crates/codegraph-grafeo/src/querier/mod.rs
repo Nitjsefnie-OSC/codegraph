@@ -265,10 +265,12 @@ impl GrafeoEngine {
 #[async_trait]
 impl GraphQuerier for GrafeoEngine {
     async fn get_schema(&self, title: &str) -> Result<Option<SchemaNode>, GraphError> {
+        crate::perf::bump_method_read("get_schema");
         self.query_schema(title).await
     }
 
     async fn get_schema_by_id(&self, schema_id: &str) -> Result<Option<SchemaNode>, GraphError> {
+        crate::perf::bump_method_read("get_schema_by_id");
         self.query_schema_by_id(schema_id).await
     }
 
@@ -277,14 +279,17 @@ impl GraphQuerier for GrafeoEngine {
         title: &str,
         domain: &str,
     ) -> Result<Option<SchemaNode>, GraphError> {
+        crate::perf::bump_method_read("get_schema_in_domain");
         self.query_schema_in_domain(title, domain).await
     }
 
     async fn list_schemas(&self, domain: Option<&str>) -> Result<Vec<SchemaNode>, GraphError> {
+        crate::perf::bump_method_read("list_schemas");
         self.query_schemas(domain).await
     }
 
     async fn get_properties(&self, schema_title: &str) -> Result<Vec<PropertyNode>, GraphError> {
+        crate::perf::bump_method_read("get_properties");
         self.query_properties(schema_title).await
     }
 
@@ -293,42 +298,52 @@ impl GraphQuerier for GrafeoEngine {
         schema_title: &str,
         domain: &str,
     ) -> Result<Vec<PropertyNode>, GraphError> {
+        crate::perf::bump_method_read("get_properties_in_domain");
         self.query_properties_in_domain(schema_title, domain).await
     }
 
     async fn get_child_schemas(&self, schema_title: &str) -> Result<Vec<SchemaNode>, GraphError> {
+        crate::perf::bump_method_read("get_child_schemas");
         self.query_child_schemas(schema_title).await
     }
 
     async fn get_classification_data(&self) -> Result<Vec<SchemaClassificationData>, GraphError> {
+        crate::perf::bump_method_read("get_classification_data");
         self.query_classification_data().await
     }
 
     async fn get_entity_names(&self) -> Result<Vec<String>, GraphError> {
+        crate::perf::bump_method_read("get_entity_names");
         self.query_entity_names().await
     }
 
     async fn get_entity_schema_map(&self) -> Result<HashMap<String, String>, GraphError> {
+        crate::perf::bump_method_read("get_entity_schema_map");
         self.query_entity_schema_map().await
     }
 
     async fn get_value_object_schemas(&self) -> Result<Vec<SchemaNode>, GraphError> {
+        crate::perf::bump_method_read("get_value_object_schemas");
         self.query_value_object_schemas().await
     }
 
     async fn get_parent_candidates(&self) -> Result<Vec<ParentCandidate>, GraphError> {
+        crate::perf::bump_method_read("get_parent_candidates");
         self.query_parent_candidates().await
     }
 
     async fn get_codelist(&self, name: &str) -> Result<Option<CodeList>, GraphError> {
+        crate::perf::bump_method_read("get_codelist");
         self.query_codelist(name).await
     }
 
     async fn list_codelists(&self) -> Result<Vec<CodeList>, GraphError> {
+        crate::perf::bump_method_read("list_codelists");
         self.query_codelists().await
     }
 
     async fn get_enum_values(&self, codelist_name: &str) -> Result<Vec<EnumValue>, GraphError> {
+        crate::perf::bump_method_read("get_enum_values");
         self.query_enum_values(codelist_name).await
     }
 
@@ -337,6 +352,7 @@ impl GraphQuerier for GrafeoEngine {
         property_name: &str,
         schema_title: &str,
     ) -> Result<Vec<CompositeColumn>, GraphError> {
+        crate::perf::bump_method_read("get_composite_columns");
         self.query_composite_columns(property_name, schema_title)
             .await
     }
@@ -345,6 +361,7 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         schema_title: &str,
     ) -> Result<Vec<StructuredSubField>, GraphError> {
+        crate::perf::bump_method_read("get_structured_sub_fields");
         self.query_structured_sub_fields(schema_title).await
     }
 
@@ -352,6 +369,7 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         schema_title: &str,
     ) -> Result<Option<CompositeRange>, GraphError> {
+        crate::perf::bump_method_read("get_composite_range");
         self.query_composite_range(schema_title).await
     }
 
@@ -359,6 +377,7 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         schema_title: &str,
     ) -> Result<Vec<(PropertyNode, String)>, GraphError> {
+        crate::perf::bump_method_read("get_consumed_fields");
         self.query_consumed_fields(schema_title).await
     }
 
@@ -367,6 +386,7 @@ impl GraphQuerier for GrafeoEngine {
         property_name: &str,
         schema_title: &str,
     ) -> Result<Option<(CodeList, String)>, GraphError> {
+        crate::perf::bump_method_read("get_codelist_for_property");
         self.query_codelist_for_property(property_name, schema_title)
             .await
     }
@@ -375,6 +395,7 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         schema_title: &str,
     ) -> Result<Vec<Extension>, GraphError> {
+        crate::perf::bump_method_read("get_required_extensions");
         self.query_required_extensions(schema_title).await
     }
 
@@ -382,10 +403,12 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         schema_title: &str,
     ) -> Result<CompositionTree, GraphError> {
+        crate::perf::bump_method_read("get_composition_tree");
         self.query_composition_tree(schema_title).await
     }
 
     async fn get_allof_targets(&self, schema_title: &str) -> Result<Vec<String>, GraphError> {
+        crate::perf::bump_method_read("get_allof_targets");
         self.query_allof_targets(schema_title).await
     }
 
@@ -393,10 +416,12 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         parent_title: &str,
     ) -> Result<Vec<SchemaNode>, GraphError> {
+        crate::perf::bump_method_read("get_schemas_that_extend");
         self.query_schemas_that_extend(parent_title).await
     }
 
     async fn get_referencing_schemas(&self, schema_title: &str) -> Result<Vec<String>, GraphError> {
+        crate::perf::bump_method_read("get_referencing_schemas");
         self.query_referencing_schemas(schema_title).await
     }
 
@@ -404,6 +429,7 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         schema_title: &str,
     ) -> Result<Vec<SchemaNode>, GraphError> {
+        crate::perf::bump_method_read("get_referenced_schemas");
         self.query_referenced_schemas(schema_title).await
     }
 
@@ -412,6 +438,7 @@ impl GraphQuerier for GrafeoEngine {
         property_name: &str,
         schema_title: &str,
     ) -> Result<Option<SchemaNode>, GraphError> {
+        crate::perf::bump_method_read("get_property_ref_target");
         self.query_property_ref_target(property_name, schema_title)
             .await
     }
@@ -421,14 +448,23 @@ impl GraphQuerier for GrafeoEngine {
         property_name: &str,
         schema_id: &str,
     ) -> Result<Option<SchemaNode>, GraphError> {
+        crate::perf::bump_method_read("get_property_ref_target_by_id");
         self.query_property_ref_target_by_id(property_name, schema_id)
             .await
+    }
+
+    async fn list_all_property_ref_targets(
+        &self,
+    ) -> Result<HashMap<(String, String), Option<SchemaNode>>, GraphError> {
+        crate::perf::bump_method_read("list_all_property_ref_targets");
+        self.query_all_property_ref_targets().await
     }
 
     async fn get_properties_by_schema_id(
         &self,
         schema_id: &str,
     ) -> Result<Vec<PropertyNode>, GraphError> {
+        crate::perf::bump_method_read("get_properties_by_schema_id");
         self.query_properties_by_schema_id(schema_id).await
     }
 
@@ -437,33 +473,40 @@ impl GraphQuerier for GrafeoEngine {
         property_name: &str,
         schema_title: &str,
     ) -> Result<Option<SchemaNode>, GraphError> {
+        crate::perf::bump_method_read("get_array_item_schema");
         self.query_array_item_schema(property_name, schema_title)
             .await
     }
 
     async fn get_generation_order(&self) -> Result<Vec<String>, GraphError> {
+        crate::perf::bump_method_read("get_generation_order");
         self.query_generation_order().await
     }
 
     async fn list_all_schema_references(&self) -> Result<Vec<(String, String)>, GraphError> {
+        crate::perf::bump_method_read("list_all_schema_references");
         self.query_all_schema_references().await
     }
 
     async fn list_property_target_titles(
         &self,
     ) -> Result<std::collections::HashSet<String>, GraphError> {
+        crate::perf::bump_method_read("list_property_target_titles");
         self.query_property_target_titles().await
     }
 
     async fn list_all_properties(&self) -> Result<HashMap<String, Vec<PropertyNode>>, GraphError> {
+        crate::perf::bump_method_read("list_all_properties");
         self.query_all_properties().await
     }
 
     async fn get_ifml_view_containers(&self) -> Result<Vec<ViewContainerNode>, GraphError> {
+        crate::perf::bump_method_read("get_ifml_view_containers");
         self.query_ifml_view_containers().await
     }
 
     async fn get_ifml_modules(&self) -> Result<Vec<ModuleDefinitionNode>, GraphError> {
+        crate::perf::bump_method_read("get_ifml_modules");
         self.query_ifml_modules().await
     }
 
@@ -471,6 +514,7 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         parent: &str,
     ) -> Result<Vec<ViewContainerNode>, GraphError> {
+        crate::perf::bump_method_read("get_ifml_container_children");
         self.query_ifml_container_children(parent).await
     }
 
@@ -478,32 +522,39 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         container_name: &str,
     ) -> Result<Vec<ViewComponentNode>, GraphError> {
+        crate::perf::bump_method_read("get_ifml_view_components");
         self.query_ifml_view_components(container_name).await
     }
 
     async fn get_ifml_events(&self, parent_id: &str) -> Result<Vec<EventNode>, GraphError> {
+        crate::perf::bump_method_read("get_ifml_events");
         self.query_ifml_events(parent_id).await
     }
 
     async fn get_ifml_navigation_flows(&self) -> Result<Vec<NavigationFlowRecord>, GraphError> {
+        crate::perf::bump_method_read("get_ifml_navigation_flows");
         self.query_ifml_navigation_flows().await
     }
 
     async fn get_ifml_action_triggers(&self) -> Result<Vec<(String, String)>, GraphError> {
+        crate::perf::bump_method_read("get_ifml_action_triggers");
         self.query_ifml_action_triggers().await
     }
 
     async fn get_ifml_data_flows(
         &self,
     ) -> Result<Vec<(String, String, Option<String>, Option<String>)>, GraphError> {
+        crate::perf::bump_method_read("get_ifml_data_flows");
         self.query_ifml_data_flows().await
     }
 
     async fn get_ifml_actions(&self) -> Result<Vec<ActionNode>, GraphError> {
+        crate::perf::bump_method_read("get_ifml_actions");
         self.query_ifml_actions().await
     }
 
     async fn get_ifml_parameters(&self) -> Result<Vec<ParameterDefinitionNode>, GraphError> {
+        crate::perf::bump_method_read("get_ifml_parameters");
         self.query_ifml_parameters().await
     }
 
@@ -511,18 +562,22 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         container_name: &str,
     ) -> Result<Vec<ParameterDefinitionNode>, GraphError> {
+        crate::perf::bump_method_read("get_parameters_for_view");
         self.query_parameters_for_view(container_name).await
     }
 
     async fn get_data_bindings(&self) -> Result<Vec<DataBindingResolution>, GraphError> {
+        crate::perf::bump_method_read("get_data_bindings");
         self.query_data_bindings().await
     }
 
     async fn get_atproto_namespaces(&self) -> Result<Vec<AtprotoNamespaceNode>, GraphError> {
+        crate::perf::bump_method_read("get_atproto_namespaces");
         self.query_atproto_namespaces().await
     }
 
     async fn get_lexicons(&self, domain: &str) -> Result<Vec<LexiconNode>, GraphError> {
+        crate::perf::bump_method_read("get_lexicons");
         self.query_lexicons(domain).await
     }
 
@@ -530,26 +585,32 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         schema_title: &str,
     ) -> Result<Option<LexiconNode>, GraphError> {
+        crate::perf::bump_method_read("get_lexicon_by_schema");
         self.query_lexicon_by_schema(schema_title).await
     }
 
     async fn get_collections(&self, domain: &str) -> Result<Vec<CollectionNode>, GraphError> {
+        crate::perf::bump_method_read("get_collections");
         self.query_collections(domain).await
     }
 
     async fn get_repositories(&self) -> Result<Vec<RepositoryNode>, GraphError> {
+        crate::perf::bump_method_read("get_repositories");
         self.query_repositories().await
     }
 
     async fn get_lexicon_references(&self, nsid: &str) -> Result<Vec<LexiconNode>, GraphError> {
+        crate::perf::bump_method_read("get_lexicon_references");
         self.query_lexicon_references(nsid).await
     }
 
     async fn get_api_resources(&self) -> Result<Vec<ApiResourceNode>, GraphError> {
+        crate::perf::bump_method_read("get_api_resources");
         self.query_api_resources().await
     }
 
     async fn get_api_resource(&self, name: &str) -> Result<Option<ApiResourceNode>, GraphError> {
+        crate::perf::bump_method_read("get_api_resource");
         self.query_api_resource(name).await
     }
 
@@ -557,10 +618,12 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         resource_name: &str,
     ) -> Result<Vec<ApiOperationNode>, GraphError> {
+        crate::perf::bump_method_read("get_api_operations");
         self.query_api_operations(resource_name).await
     }
 
     async fn get_api_operation(&self, name: &str) -> Result<Option<ApiOperationNode>, GraphError> {
+        crate::perf::bump_method_read("get_api_operation");
         self.query_api_operation(name).await
     }
 
@@ -568,6 +631,7 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         operation_name: &str,
     ) -> Result<Option<HttpEndpointNode>, GraphError> {
+        crate::perf::bump_method_read("get_http_endpoint_for_operation");
         self.query_http_endpoint_for_operation(operation_name).await
     }
 
@@ -575,22 +639,27 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         _operation_name: &str,
     ) -> Result<Vec<InteractionNode>, GraphError> {
+        crate::perf::bump_method_read("get_interactions");
         self.query_interactions(_operation_name).await
     }
 
     async fn get_http_endpoints(&self) -> Result<Vec<HttpEndpointNode>, GraphError> {
+        crate::perf::bump_method_read("get_http_endpoints");
         self.query_http_endpoints().await
     }
 
     async fn get_error_definitions(&self) -> Result<Vec<ErrorDefinitionNode>, GraphError> {
+        crate::perf::bump_method_read("get_error_definitions");
         self.query_error_definitions().await
     }
 
     async fn get_permissions(&self) -> Result<Vec<PermissionNode>, GraphError> {
+        crate::perf::bump_method_read("get_permissions");
         self.query_permissions().await
     }
 
     async fn get_pipelines(&self) -> Result<Vec<PipelineNode>, GraphError> {
+        crate::perf::bump_method_read("get_pipelines");
         self.query_pipelines().await
     }
 
@@ -598,6 +667,7 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         endpoint_path: &str,
     ) -> Result<Option<PipelineNode>, GraphError> {
+        crate::perf::bump_method_read("get_pipeline_for_endpoint");
         self.query_pipeline_for_endpoint(endpoint_path).await
     }
 
@@ -605,6 +675,7 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         schema_title: &str,
     ) -> Result<Vec<PolicyNode>, GraphError> {
+        crate::perf::bump_method_read("get_policies_for_schema");
         self.query_policies_for_schema(schema_title).await
     }
 
@@ -612,6 +683,7 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         schema_title: &str,
     ) -> Result<Vec<RelationshipNode>, GraphError> {
+        crate::perf::bump_method_read("get_relationships_for_schema");
         self.query_relationships_for_schema(schema_title).await
     }
 
@@ -619,14 +691,17 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         name: &str,
     ) -> Result<Option<RelationshipNode>, GraphError> {
+        crate::perf::bump_method_read("get_relationship_by_name");
         self.query_relationship_by_name(name).await
     }
 
     async fn list_all_policies(&self) -> Result<Vec<PolicyNode>, GraphError> {
+        crate::perf::bump_method_read("list_all_policies");
         self.query_all_policies().await
     }
 
     async fn list_all_relationships(&self) -> Result<Vec<RelationshipNode>, GraphError> {
+        crate::perf::bump_method_read("list_all_relationships");
         self.query_all_relationships().await
     }
 
@@ -634,6 +709,7 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         subject: &str,
     ) -> Result<Option<SecurityIdentityNode>, GraphError> {
+        crate::perf::bump_method_read("get_security_identity");
         self.query_security_identity(subject).await
     }
 
@@ -641,42 +717,52 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         identity_name: &str,
     ) -> Result<Vec<MembershipNode>, GraphError> {
+        crate::perf::bump_method_read("get_memberships_for_identity");
         self.query_memberships_for_identity(identity_name).await
     }
 
     async fn get_tenant(&self, name: &str) -> Result<Option<TenantNode>, GraphError> {
+        crate::perf::bump_method_read("get_tenant");
         self.query_tenant(name).await
     }
 
     async fn list_all_tenants(&self) -> Result<Vec<TenantNode>, GraphError> {
+        crate::perf::bump_method_read("list_all_tenants");
         self.query_all_tenants().await
     }
 
     async fn get_actors(&self) -> Result<Vec<ActorNode>, GraphError> {
+        crate::perf::bump_method_read("get_actors");
         self.query_actors().await
     }
 
     async fn get_capabilities(&self) -> Result<Vec<CapabilityNode>, GraphError> {
+        crate::perf::bump_method_read("get_capabilities");
         self.query_capabilities().await
     }
 
     async fn get_grants(&self) -> Result<Vec<GrantEdge>, GraphError> {
+        crate::perf::bump_method_read("get_grants");
         self.query_grants().await
     }
 
     async fn get_actor_policy(&self) -> Result<Option<ActorPolicyNode>, GraphError> {
+        crate::perf::bump_method_read("get_actor_policy");
         self.query_actor_policy().await
     }
 
     async fn effective_permits(&self, actor: &str) -> Result<Vec<Permit>, GraphError> {
+        crate::perf::bump_method_read("effective_permits");
         self.query_effective_permits(actor).await
     }
 
     async fn get_ddd_models(&self) -> Result<Vec<DddModelGraph>, GraphError> {
+        crate::perf::bump_method_read("get_ddd_models");
         self.query_ddd_models().await
     }
 
     async fn get_evt_models(&self) -> Result<Vec<EvtModelGraph>, GraphError> {
+        crate::perf::bump_method_read("get_evt_models");
         self.query_evt_models().await
     }
 
@@ -692,14 +778,17 @@ impl GraphQuerier for GrafeoEngine {
     }
 
     async fn get_mox_vocabularies(&self) -> Result<Vec<MoxVocabularyNode>, GraphError> {
+        crate::perf::bump_method_read("get_mox_vocabularies");
         self.query_mox_vocabularies().await
     }
 
     async fn get_mox_operations(&self) -> Result<Vec<MoxOperationNode>, GraphError> {
+        crate::perf::bump_method_read("get_mox_operations");
         self.query_mox_operations().await
     }
 
     async fn get_mox_derived_features(&self) -> Result<Vec<MoxDerivedFeatureNode>, GraphError> {
+        crate::perf::bump_method_read("get_mox_derived_features");
         self.query_mox_derived_features().await
     }
 
@@ -707,6 +796,7 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         schema_title: &str,
     ) -> Result<Vec<MoxDerivedFeatureNode>, GraphError> {
+        crate::perf::bump_method_read("get_mox_derived_features_for_schema");
         self.query_mox_derived_features_for_schema(schema_title)
             .await
     }
@@ -715,42 +805,52 @@ impl GraphQuerier for GrafeoEngine {
         &self,
         schema_title: &str,
     ) -> Result<Vec<ConditionNode>, GraphError> {
+        crate::perf::bump_method_read("get_conditions_for_schema");
         self.query_conditions_for_schema(schema_title).await
     }
 
     async fn list_conditions(&self) -> Result<Vec<ConditionNode>, GraphError> {
+        crate::perf::bump_method_read("list_conditions");
         self.query_conditions().await
     }
 
     async fn list_regulatory(&self) -> Result<Vec<RegulatoryNode>, GraphError> {
+        crate::perf::bump_method_read("list_regulatory");
         self.query_regulatory().await
     }
 
     async fn list_regulatory_references(&self) -> Result<Vec<RegulatoryRefRecord>, GraphError> {
+        crate::perf::bump_method_read("list_regulatory_references");
         self.query_regulatory_references().await
     }
 
     async fn list_functions(&self) -> Result<Vec<FunctionNode>, GraphError> {
+        crate::perf::bump_method_read("list_functions");
         self.query_functions().await
     }
 
     async fn list_function_extends(&self) -> Result<Vec<(String, String)>, GraphError> {
+        crate::perf::bump_method_read("list_function_extends");
         self.query_function_extends().await
     }
 
     async fn list_rules(&self) -> Result<Vec<RuleNode>, GraphError> {
+        crate::perf::bump_method_read("list_rules");
         self.query_rules().await
     }
 
     async fn list_rule_applies_to(&self) -> Result<Vec<(String, String)>, GraphError> {
+        crate::perf::bump_method_read("list_rule_applies_to");
         self.query_rule_applies_to().await
     }
 
     async fn list_rule_references(&self) -> Result<Vec<RuleRefRecord>, GraphError> {
+        crate::perf::bump_method_read("list_rule_references");
         self.query_rule_references().await
     }
 
     async fn list_namespaces(&self) -> Result<Vec<NamespaceNode>, GraphError> {
+        crate::perf::bump_method_read("list_namespaces");
         self.query_namespaces().await
     }
 
@@ -759,14 +859,17 @@ impl GraphQuerier for GrafeoEngine {
         fqn: &str,
         recursive: bool,
     ) -> Result<Vec<SchemaNode>, GraphError> {
+        crate::perf::bump_method_read("list_schemas_by_namespace");
         self.query_schemas_by_namespace(fqn, recursive).await
     }
 
     async fn get_namespace_imports(&self, fqn: &str) -> Result<Vec<NamespaceImport>, GraphError> {
+        crate::perf::bump_method_read("get_namespace_imports");
         self.query_namespace_imports(fqn).await
     }
 
     async fn namespace_generation_order(&self) -> Result<Vec<String>, GraphError> {
+        crate::perf::bump_method_read("namespace_generation_order");
         self.query_namespace_generation_order().await
     }
 }

@@ -390,6 +390,30 @@ pub async fn assert_conformance_queries(querier: &dyn crate::traits::GraphQuerie
     let refs = querier.get_referenced_schemas("PersonType").await.unwrap();
     assert!(refs.iter().any(|s| s.title == "GenderCodeList"));
 
+    // list_all_property_ref_targets (issue #350): the batch must agree
+    // with the per-key point lookup for every key it returns — including
+    // the negative space (properties without a reference edge).
+    let batch_targets = querier.list_all_property_ref_targets().await.unwrap();
+    let gender_target = querier
+        .get_property_ref_target("gender", "PersonType")
+        .await
+        .unwrap();
+    assert_eq!(
+        batch_targets
+            .get(&("gender".to_string(), "PersonType".to_string()))
+            .cloned()
+            .flatten(),
+        gender_target,
+        "batch ref-target resolution must match the per-key lookup"
+    );
+    assert_eq!(
+        batch_targets
+            .get(&("givenName".to_string(), "PersonType".to_string()))
+            .and_then(|v| v.as_ref()),
+        None,
+        "properties without a reference edge carry None in the batch"
+    );
+
     // ── Persistence Metamodel queries ──
     let policies = querier.get_policies_for_schema("PersonType").await.unwrap();
     assert_eq!(policies.len(), 3, "PersonType should have 3 policies");

@@ -1,0 +1,30 @@
+{
+  "$id": "DeploymentType.json",
+  "title": "DeploymentType",
+  "description": "A deployment referencing jobs and workers",
+  "type": "object",
+  "properties": {
+    "assignments": {
+      "type": "array",
+      "items": { "$ref": "JobType.json" },
+      "description": "Jobs in this deployment (array entity reference)"
+    },
+    "crew": {
+      "type": "array",
+      "items": { "$ref": "WorkerType.json" },
+      "description": "Workers in this deployment (array entity reference)"
+    },
+    "externalRef": {
+      "type": "string",
+      "description": "Unformatted text identifier on a FK-bearing entity"
+    },
+    "job": {
+      "$ref": "JobType.json",
+      "description": "Primary job (scalar entity reference)"
+    },
+    "lead": {
+      "$ref": "WorkerType.json",
+      "description": "Lead worker (scalar entity reference)"
+    }
+  }
+}

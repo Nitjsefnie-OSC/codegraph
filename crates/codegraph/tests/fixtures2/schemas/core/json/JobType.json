@@ -1,0 +1,17 @@
+{
+  "$id": "JobType.json",
+  "title": "JobType",
+  "description": "A scheduled job",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Job name"
+    },
+    "deployment": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Deployment notes (array — never a direct column)"
+    }
+  }
+}

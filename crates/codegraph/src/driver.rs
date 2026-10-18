@@ -204,7 +204,26 @@ pub struct RunOutcome {
     pub inputs_hash: Option<String>,
 }
 
+fn perf_counters_enabled() -> bool {
+    std::env::var_os("CODEGRAPH_PERF_COUNTERS").is_some_and(|v| v != "0")
+}
+
+fn format_cache_stats() -> String {
+    let stats = codegraph_core::caching_querier::cache_stats_snapshot();
+    let parts: Vec<String> = stats
+        .iter()
+        .filter(|(_, (hits, misses))| *hits > 0 || *misses > 0)
+        .map(|(method, (hits, misses))| format!("{method}={hits}/{misses}"))
+        .collect();
+    if parts.is_empty() {
+        "(none)".to_string()
+    } else {
+        parts.join(" ")
+    }
+}
+
 /// Run the full pipeline: ingest + classify + generate.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub async fn run(args: RunArgs<'_>) -> Result<()> {
     run_with_graph_cache(args, None).await.map(|_| ())
 }
@@ -216,6 +235,7 @@ pub async fn run(args: RunArgs<'_>) -> Result<()> {
 /// entirely (an INFO notice goes to stderr). Otherwise the model is
 /// ingested into a fresh persistent engine which is checkpointed and
 /// recorded for the next run.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub async fn run_with_graph_cache(
     args: RunArgs<'_>,
     graph_cache: Option<&Path>,
@@ -797,6 +817,21 @@ pub async fn run_with_graph_cache(
         );
     }
 
+    // Perf counters (issues #469/#473): one ingest summary line after the
+    // ingest passes, one validate+generate line after generation — both only
+    // when CODEGRAPH_PERF_COUNTERS is set.
+    if perf_counters_enabled() {
+        let perf = codegraph_grafeo::perf::perf_snapshot();
+        eprintln!(
+            "[perf] ingest: nodes={} edges={} gql_ingest={} gql_read={}",
+            perf.ingest_node_inserts,
+            perf.ingest_edge_inserts,
+            perf.ingest_gql_calls,
+            perf.read_gql_calls
+        );
+    }
+    let perf_generate_start = codegraph_grafeo::perf::perf_snapshot();
+
     let override_dirs: Vec<&Path> = template_dir.iter().map(|p| p.as_path()).collect();
 
     // Precedence: project template dirs > design-system pack templates >
@@ -855,6 +890,16 @@ pub async fn run_with_graph_cache(
     print!("{}", report.summary());
     if report.has_errors() {
         eprintln!("Generation completed with errors. Some entities were skipped.");
+    }
+
+    if perf_counters_enabled() {
+        let perf_end = codegraph_grafeo::perf::perf_snapshot();
+        eprintln!(
+            "[perf] validate+generate: gql_read=+{} (total {}) | cache hits/misses: {}",
+            perf_end.read_gql_calls - perf_generate_start.read_gql_calls,
+            perf_end.read_gql_calls,
+            format_cache_stats()
+        );
     }
 
     // Run post-generation scripts from the profile plan.
@@ -1022,6 +1067,7 @@ fn last_lines(s: &str, max: usize) -> String {
 /// IFML-only UI generation: ingest IFML DSL files (+ optional schemas) and
 /// emit framework routes/navigation for the requested frameworks. No entity,
 /// DDL, API, or UI-scaffold generators run, and validation is skipped.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub async fn ifml_generate(args: IfmlGenerateArgs<'_>) -> Result<()> {
     let IfmlGenerateArgs {
         config_path,
@@ -1292,7 +1338,7 @@ pub async fn ifml_generate(args: IfmlGenerateArgs<'_>) -> Result<()> {
 
     print!("{}", report.summary());
     if report.has_errors() {
-        eprintln!("Generation completed with errors. Some views were skipped.");
+        eprintln!("Generation completed with errors. Some entities were skipped.");
     }
 
     println!("Done.");
@@ -1301,6 +1347,7 @@ pub async fn ifml_generate(args: IfmlGenerateArgs<'_>) -> Result<()> {
 
 /// Generate code from an already-ingested backend (no schema ingestion).
 #[allow(clippy::too_many_arguments)]
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub async fn generate(
     config_path: &Path,
     output: &Path,
@@ -1390,6 +1437,7 @@ pub async fn generate(
 /// `schemas` is optional when `mox_files` is provided (mox-first, issue
 /// #231); the classifier config is only loaded when `classifier_path` is
 /// given (an empty config is used otherwise, mirroring `run`).
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub async fn classify(
     schemas: Option<&Path>,
     classifier_path: Option<&Path>,
@@ -1542,6 +1590,7 @@ pub async fn classify(
     Ok(())
 }
 
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 async fn run_validation(
     querier: &dyn codegraph_core::traits::GraphQuerier,
     config: &codegraph_config::DomainConfig,

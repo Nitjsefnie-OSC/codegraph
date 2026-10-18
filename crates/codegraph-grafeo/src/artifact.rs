@@ -298,12 +298,14 @@ fn apply_document(engine: &GrafeoEngine, doc: &GraphDocument) -> Result<(), Arti
     let session = engine.db().session();
     let mut key_to_id: HashMap<&str, grafeo::NodeId> = HashMap::with_capacity(doc.nodes.len());
     for node in &doc.nodes {
-        let id = session.create_node(&[node.label.as_str()]);
-        for (key, value) in &node.properties {
-            session
-                .set_node_property(id, key, prop_to_value(value))
-                .map_err(|e| ingest_error(format!("set node property {key} on {}", node.key), e))?;
-        }
+        let props: Vec<(&str, Value)> = node
+            .properties
+            .iter()
+            .map(|(key, value)| (key.as_str(), prop_to_value(value)))
+            .collect();
+        let id = session
+            .create_node_with_props(&[node.label.as_str()], props)
+            .map_err(|e| ingest_error(format!("create node {}", node.key), e))?;
         key_to_id.insert(node.key.as_str(), id);
     }
     for edge in &doc.edges {
@@ -318,17 +320,14 @@ fn apply_document(engine: &GrafeoEngine, doc: &GraphDocument) -> Result<(), Arti
                 .ok_or_else(|| ArtifactError::UnknownEdgeEndpoint {
                     key: edge.to.clone(),
                 })?;
-        let eid = session.create_edge(*from, *to, &edge.edge_type);
-        for (key, value) in &edge.properties {
-            session
-                .set_edge_property(eid, key, prop_to_value(value))
-                .map_err(|e| {
-                    ingest_error(
-                        format!("set edge property {key} on {} -> {}", edge.from, edge.to),
-                        e,
-                    )
-                })?;
-        }
+        let props: Vec<(&str, Value)> = edge
+            .properties
+            .iter()
+            .map(|(key, value)| (key.as_str(), prop_to_value(value)))
+            .collect();
+        session
+            .create_edge_with_props(*from, *to, &edge.edge_type, props)
+            .map_err(|e| ingest_error(format!("create edge {} -> {}", edge.from, edge.to), e))?;
     }
     Ok(())
 }

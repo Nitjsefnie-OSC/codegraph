@@ -231,6 +231,7 @@ pub struct RosettaIngestOutcome {
 /// Hard-errors on syntax or resolution failures via
 /// [`Error::RosettaModel`] (codes/spans surfaced) — a broken model never
 /// half-ingests, mirroring the `MoxSchemaImport` precedent.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub async fn ingest_rosetta_files(
     ingestor: &dyn GraphIngestor,
     querier: &dyn GraphQuerier,

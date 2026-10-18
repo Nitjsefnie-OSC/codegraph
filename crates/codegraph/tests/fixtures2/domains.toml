@@ -1,0 +1,15 @@
+[defaults]
+operations = ["create", "read", "update", "delete", "list"]
+
+[domains.core]
+label = "Core"
+schema_dir = "core"
+postgres_schema = "core"
+entities = ["JobType", "WorkerType", "DeploymentType", "PositionType"]
+
+[domains.core.entity_config.DeploymentType]
+role = "root"
+
+[domains.core.entity_config.PositionType]
+role = "root"
+allow_include = ["job"]

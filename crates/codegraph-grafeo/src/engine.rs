@@ -1,3 +1,4 @@
+use crate::ingestor::registry::NodeRegistry;
 use crate::schema_ddl;
 use codegraph_core::error::GraphError;
 use grafeo::GrafeoDB;
@@ -8,6 +9,10 @@ use std::time::Instant;
 pub struct GrafeoEngine {
     db: Arc<GrafeoDB>,
     start_time: Instant,
+    /// Natural-key → NodeId registry for the direct edge path (issue #482).
+    /// Populated only by this engine instance's node ingests; empty after a
+    /// persistent reopen, which sends every edge to the GQL fallback.
+    pub(crate) node_registry: NodeRegistry,
 }
 
 impl GrafeoEngine {
@@ -17,6 +22,7 @@ impl GrafeoEngine {
         let engine = Self {
             db: Arc::new(db),
             start_time: Instant::now(),
+            node_registry: NodeRegistry::new(),
         };
         engine.init_schema()?;
         Ok(engine)
@@ -29,6 +35,7 @@ impl GrafeoEngine {
         let engine = Self {
             db: Arc::new(db),
             start_time: Instant::now(),
+            node_registry: NodeRegistry::new(),
         };
         engine.init_schema()?;
         Ok(engine)
@@ -71,14 +78,26 @@ impl GrafeoEngine {
     /// level. Schema DDL is NOT re-run — the checkpoint snapshot already
     /// carries the catalog — so call this only on a database that was
     /// checkpointed before.
+    ///
+    /// Property indexes ARE re-created (issue #485): the grafeo v2 load
+    /// path never rebuilds them (grafeo-engine catalog_section deserializes
+    /// the index names for reference only), so every MATCH keyed on an
+    /// indexed property degrades to a full node scan for the whole warm
+    /// generation phase. Restoring the known set costs one O(N) scan per
+    /// property at open.
     pub fn open_read_only(path: &Path) -> Result<Self, GraphError> {
         let config = grafeo::Config::read_only(path);
         let db = GrafeoDB::with_config(config)
             .map_err(|e| GraphError::Connection(format!("read-only open failed: {e}")))?;
-        Ok(Self {
+        let engine = Self {
             db: Arc::new(db),
             start_time: Instant::now(),
-        })
+            node_registry: NodeRegistry::new(),
+        };
+        for prop in schema_ddl::indexed_properties() {
+            engine.db.create_property_index(prop);
+        }
+        Ok(engine)
     }
 
     /// Flush the write-ahead log into the storage file so all committed

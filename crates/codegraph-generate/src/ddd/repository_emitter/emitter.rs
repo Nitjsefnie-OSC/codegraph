@@ -205,6 +205,7 @@ impl RepositoryImplEmitter {
         let mut include_segment_is_codelist: Vec<Vec<Vec<bool>>> = Vec::new();
         let mut include_segment_dto_rust_types: Vec<Vec<Vec<Option<String>>>> = Vec::new();
         let mut include_segment_is_nullable: Vec<Vec<Vec<bool>>> = Vec::new();
+        let mut include_segment_col_rust_types: Vec<Vec<Vec<String>>> = Vec::new();
         for path in &include_paths {
             let mut per_seg_dto: Vec<Vec<String>> = Vec::new();
             let mut per_seg_col: Vec<Vec<String>> = Vec::new();
@@ -212,6 +213,7 @@ impl RepositoryImplEmitter {
             let mut per_seg_is_codelist: Vec<Vec<bool>> = Vec::new();
             let mut per_seg_dto_rust_types: Vec<Vec<Option<String>>> = Vec::new();
             let mut per_seg_is_nullable: Vec<Vec<bool>> = Vec::new();
+            let mut per_seg_col_rust_types: Vec<Vec<String>> = Vec::new();
             for (seg_idx, seg) in path.segments.iter().enumerate() {
                 // Use schema_title directly — include_path.rs already resolves
                 // it to the canonical title for each segment. The fallback graph
@@ -233,6 +235,7 @@ impl RepositoryImplEmitter {
                 let mut is_codelist: Vec<bool> = Vec::new();
                 let mut dto_rust_types: Vec<Option<String>> = Vec::new();
                 let mut is_nullable: Vec<bool> = Vec::new();
+                let mut col_rust_types: Vec<String> = Vec::new();
                 // When the segment has a child table override (VO→entity), use
                 // the VO's properties instead of the entity's properties.
                 let props_key = seg
@@ -341,10 +344,48 @@ impl RepositoryImplEmitter {
                                 Some(RefClassificationKind::CodelistReference)
                                     | Some(RefClassificationKind::CodelistCheck)
                             ));
-                            dto_rust_types.push(crate::ddd::dto::codelist_enum_name_from_ref(
-                                &prop.ref_target,
-                            ));
+                            // Entity model column rust type — the same rule the
+                            // entity generator (entity.rs) and the tree context
+                            // (context.rs) apply: FK columns are Uuid, codelists
+                            // String, structured wrappers JSONB; everything else
+                            // keeps the graph-declared type.
+                            let col_rust_type = match prop.effective_kind() {
+                                Some(RefClassificationKind::EntityReference) => "Uuid".to_string(),
+                                Some(
+                                    RefClassificationKind::CodelistReference
+                                    | RefClassificationKind::CodelistCheck,
+                                ) => "String".to_string(),
+                                Some(RefClassificationKind::StructuredWrapper) => {
+                                    "serde_json::Value".to_string()
+                                }
+                                _ => prop.rust_field_type.clone(),
+                            };
+                            // The DTO field type the Response template renders:
+                            // entity refs are uuid::Uuid, codelists the enum name,
+                            // everything else the graph-declared type (bare —
+                            // nullability rides is_nullable). Recorded only when it
+                            // differs from the column type so the hydrator adapts
+                            // (issue #459) without touching matching-type output.
+                            let dto_rust_type = match prop.effective_kind() {
+                                Some(
+                                    RefClassificationKind::CodelistReference
+                                    | RefClassificationKind::CodelistCheck,
+                                ) => crate::ddd::dto::codelist_enum_name_from_ref(&prop.ref_target),
+                                Some(RefClassificationKind::EntityReference) => {
+                                    Some("Uuid".to_string())
+                                }
+                                _ => {
+                                    let raw = prop.rust_field_type.as_str();
+                                    let bare = raw
+                                        .strip_prefix("Option<")
+                                        .and_then(|r| r.strip_suffix('>'))
+                                        .unwrap_or(raw);
+                                    (bare != col_rust_type).then(|| bare.to_string())
+                                }
+                            };
+                            dto_rust_types.push(dto_rust_type);
                             is_nullable.push(prop.is_nullable);
+                            col_rust_types.push(col_rust_type);
                         }
                     }
                 }
@@ -354,6 +395,7 @@ impl RepositoryImplEmitter {
                 per_seg_is_codelist.push(is_codelist);
                 per_seg_dto_rust_types.push(dto_rust_types);
                 per_seg_is_nullable.push(is_nullable);
+                per_seg_col_rust_types.push(col_rust_types);
             }
             include_segment_dto_fields.push(per_seg_dto);
             include_segment_col_fields.push(per_seg_col);
@@ -361,6 +403,7 @@ impl RepositoryImplEmitter {
             include_segment_is_codelist.push(per_seg_is_codelist);
             include_segment_dto_rust_types.push(per_seg_dto_rust_types);
             include_segment_is_nullable.push(per_seg_is_nullable);
+            include_segment_col_rust_types.push(per_seg_col_rust_types);
         }
 
         if !include_paths.is_empty() {
@@ -648,6 +691,7 @@ impl RepositoryImplEmitter {
                 &include_segment_is_codelist,
                 &include_segment_dto_rust_types,
                 &include_segment_is_nullable,
+                &include_segment_col_rust_types,
             );
             wln!(code, "}}");
         }
