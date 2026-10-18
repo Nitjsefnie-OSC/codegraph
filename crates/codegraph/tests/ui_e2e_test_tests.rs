@@ -1828,3 +1828,103 @@ fn testid_module_pom_resolves_locators_through_the_module() {
     assert!(page.contains("${this.module}-table"), "{page}");
     assert!(page.contains("data-testid=\"confirm-dialog\""), "{page}");
 }
+
+// ── Identity PKs ride the dep payload (issue #479) ──────────────────────
+
+fn uuid_pk(name: &str) -> PropertyNode {
+    PropertyNode {
+        is_id: true,
+        name: name.into(),
+        prop_type: "string".into(),
+        description: None,
+        format: Some("uuid".into()),
+        is_required: true,
+        is_nullable: false,
+        is_array: false,
+        min_items: None,
+        max_items: None,
+        pattern: None,
+        min_length: None,
+        max_length: None,
+        minimum: None,
+        maximum: None,
+        pg_column_name: name.into(),
+        pg_column_type: "UUID".into(),
+        rust_field_name: name.into(),
+        rust_field_type: "Uuid".into(),
+        sea_orm_type: "Uuid".into(),
+        render_strategy: "scalar".into(),
+        ref_target: None,
+        classification: Some("scalar".into()),
+        projection: None,
+        classification_kind: None,
+        ui_override_detail: None,
+        ui_override_list_cell: None,
+        ui_override_form: None,
+        ui_override_inline: None,
+        type_expr: None,
+    }
+}
+
+#[tokio::test]
+async fn identity_pk_fields_carry_the_uuid_literal_in_dep_payloads() {
+    // Worker.worker_id: a REQUIRED `uuid::Uuid` member of the create body
+    // (no serde default). The dep payload used to skip every `*_id` field,
+    // so dep-created entities 422'd with "did not match any variant".
+    let worker = schema("WorkerType", "worker", "worker", "hr", "worker");
+    let engine = MockEngine::builder()
+        .with_schema(worker)
+        .with_properties(
+            "WorkerType",
+            vec![
+                scalar("status_code_reason", "TEXT", true),
+                uuid_pk("worker_id"),
+            ],
+        )
+        .build();
+    let config = config(&[("hr", "WorkerType")]);
+
+    let payload = codegraph::generate::ui::e2e_test::fixtures::build_test_data_json(
+        &engine,
+        "WorkerType",
+        Some("hr"),
+        &config,
+    )
+    .await;
+    assert!(
+        payload.contains("'worker_id': `00000000-0000-4000-8000-"),
+        "identity PK must carry the runtime uuid literal: {payload}"
+    );
+    assert!(
+        payload.contains("'status_code_reason': 'Test Status Code Reason'"),
+        "sanity: scalar sentinel still present: {payload}"
+    );
+}
+
+#[tokio::test]
+async fn non_uuid_id_columns_stay_omitted() {
+    let worker = schema("WorkerType", "worker", "worker", "hr", "worker");
+    let engine = MockEngine::builder()
+        .with_schema(worker)
+        .with_properties(
+            "WorkerType",
+            vec![
+                scalar("status_code_reason", "TEXT", true),
+                scalar("legacy_id", "TEXT", false),
+            ],
+        )
+        .build();
+    let config = config(&[("hr", "WorkerType")]);
+
+    let payload = codegraph::generate::ui::e2e_test::fixtures::build_test_data_json(
+        &engine,
+        "WorkerType",
+        Some("hr"),
+        &config,
+    )
+    .await;
+    assert!(
+        !payload.contains("legacy_id"),
+        "non-UUID `_id` columns keep the omission: {payload}"
+    );
+}

@@ -188,6 +188,7 @@ fn run_args<'a>(layout: &'a ModelLayout, output: &'a Path) -> RunArgs<'a> {
         rosetta_files: &[],
         ddd_files: &[],
         evt_files: &[],
+        deploy_files: &[],
         ifml_framework: &[],
         ifml_components: None,
         ifml_design_system: None,
