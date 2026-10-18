@@ -1321,7 +1321,7 @@ mod query_count_tests {
     //! recursion, re-measure and update the pinned number — the count must
     //! only ever go DOWN.
 
-    use super::super::query::{query_count, reset_query_count};
+    use super::super::query::{COUNTER_LOCK, query_count, reset_query_count};
     use super::*;
     use codegraph_core::traits::{GraphIngestor, GraphQuerier};
     use codegraph_core::types::{EdgeProperties, EdgeType};
@@ -1576,6 +1576,9 @@ mod query_count_tests {
 
     #[tokio::test]
     async fn composition_tree_query_count_pin() {
+        // QUERY_COUNT is process-global: hold the counter lock so no
+        // concurrent in-crate read test lands inside the measurement.
+        let _counter = COUNTER_LOCK.lock().await;
         let engine = representative_engine().await;
 
         reset_query_count();

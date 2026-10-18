@@ -26,6 +26,14 @@ pub(crate) fn reset_query_count() {
     QUERY_COUNT.store(0, Ordering::Relaxed);
 }
 
+/// Serialize the counter-sensitive lib tests (the #389 composition pin vs
+/// any other in-crate read test): `QUERY_COUNT` is process-global, so a
+/// concurrent read test executing inside the pin's reset→assert window
+/// inflates the measurement. Both sides take this lock. Async-aware (the
+/// tests hold it across await points).
+#[cfg(test)]
+pub(crate) static COUNTER_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// Query result wrapper holding columns and rows from Grafeo.
 pub(super) struct QResult {
     pub(super) columns: Vec<String>,

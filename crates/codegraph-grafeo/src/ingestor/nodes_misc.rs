@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use codegraph_core::error::GraphError;
 use codegraph_core::types::{
     ApiOperationNode, ApiResourceNode, AtprotoNamespaceNode, CollectionNode, ErrorDefinitionNode,
@@ -7,7 +9,10 @@ use codegraph_core::types::{
 };
 
 use super::gql::CountingSession;
-use super::gql::{escape_gql, opt_str, regulatory_reference_gql, serde_enum_str};
+use super::gql::{
+    escape_gql, opt_str, opt_to_grafeo_value, regulatory_reference_gql, serde_enum_str,
+};
+use super::registry;
 use crate::engine::GrafeoEngine;
 
 impl GrafeoEngine {
@@ -50,27 +55,30 @@ impl GrafeoEngine {
     }
 
     pub(super) async fn insert_function(&self, node: &FunctionNode) -> Result<(), GraphError> {
-        let session = CountingSession::new(self.db().session());
         let payload_json = serde_json::to_string(&node).map_err(|e| {
             GraphError::Ingest(format!("ingest_function payload serialization failed: {e}"))
         })?;
-        // The payload embeds nested JSON (expr payloads) whose escaped
-        // quotes `\"` would terminate the GQL string literal early —
-        // backslashes must be doubled BEFORE the single-quote escape.
-        let payload_escaped = payload_json.replace('\\', "\\\\").replace('\'', "\\'");
-        let gql = format!(
-            "INSERT (:Function {{name: '{name}', domain: {domain}, \
-             definition: {definition}, extends_function: {extends}, \
-             payload_json: '{payload}'}})",
-            name = escape_gql(&node.name),
-            domain = opt_str(&node.domain),
-            definition = opt_str(&node.definition),
-            extends = opt_str(&node.extends),
-            payload = payload_escaped,
-        );
-        session
-            .execute(&gql)
-            .map_err(|e| GraphError::Ingest(format!("ingest_function INSERT failed: {e}")))?;
+        // Direct create (issue #482): real Values, no GQL escaping needed.
+        let props = HashMap::from([
+            (
+                "name".to_string(),
+                grafeo::Value::String(node.name.clone().into()),
+            ),
+            ("domain".to_string(), opt_to_grafeo_value(&node.domain)),
+            (
+                "definition".to_string(),
+                opt_to_grafeo_value(&node.definition),
+            ),
+            (
+                "extends_function".to_string(),
+                opt_to_grafeo_value(&node.extends),
+            ),
+            (
+                "payload_json".to_string(),
+                grafeo::Value::String(payload_json.into()),
+            ),
+        ]);
+        self.create_registered_node("Function", &[registry::keys::function(&node.name)], &props)?;
         // The `FunctionExtends` edge is written separately (generic
         // `ingest_edge`) AFTER every node of the run exists — name-ordered
         // ingestion is not parent-first, so linking at node time would
@@ -79,29 +87,34 @@ impl GrafeoEngine {
     }
 
     pub(super) async fn insert_rule(&self, node: &RuleNode) -> Result<(), GraphError> {
-        let session = CountingSession::new(self.db().session());
         let payload_json = serde_json::to_string(&node).map_err(|e| {
             GraphError::Ingest(format!("ingest_rule payload serialization failed: {e}"))
         })?;
-        // Same escaping discipline as ingest_function: the payload embeds
-        // nested JSON whose escaped quotes `\"` would terminate the GQL
-        // string literal early — backslashes doubled BEFORE the
-        // single-quote escape.
-        let payload_escaped = payload_json.replace('\\', "\\\\").replace('\'', "\\'");
-        let gql = format!(
-            "INSERT (:Rule {{name: '{name}', domain: {domain}, \
-             definition: {definition}, kind: '{kind}', input_type: {input_type}, \
-             payload_json: '{payload}'}})",
-            name = escape_gql(&node.name),
-            domain = opt_str(&node.domain),
-            definition = opt_str(&node.definition),
-            kind = node.kind.as_str(),
-            input_type = opt_str(&node.input_type),
-            payload = payload_escaped,
-        );
-        session
-            .execute(&gql)
-            .map_err(|e| GraphError::Ingest(format!("ingest_rule INSERT failed: {e}")))?;
+        // Direct create (issue #482): real Values, no GQL escaping needed.
+        let props = HashMap::from([
+            (
+                "name".to_string(),
+                grafeo::Value::String(node.name.clone().into()),
+            ),
+            ("domain".to_string(), opt_to_grafeo_value(&node.domain)),
+            (
+                "definition".to_string(),
+                opt_to_grafeo_value(&node.definition),
+            ),
+            (
+                "kind".to_string(),
+                grafeo::Value::String(node.kind.as_str().into()),
+            ),
+            (
+                "input_type".to_string(),
+                opt_to_grafeo_value(&node.input_type),
+            ),
+            (
+                "payload_json".to_string(),
+                grafeo::Value::String(payload_json.into()),
+            ),
+        ]);
+        self.create_registered_node("Rule", &[registry::keys::rule(&node.name)], &props)?;
         Ok(())
     }
 
@@ -109,38 +122,59 @@ impl GrafeoEngine {
         &self,
         node: &AtprotoNamespaceNode,
     ) -> Result<String, GraphError> {
-        let session = CountingSession::new(self.db().session());
-        let gql = format!(
-            "INSERT (:AtprotoNamespace {{ authority: '{}', segment: '{}', domain: '{}' }})",
-            escape_gql(&node.authority),
-            escape_gql(&node.segment),
-            escape_gql(&node.domain),
-        );
-        session
-            .execute(&gql)
-            .map_err(|e| GraphError::Ingest(format!("ingest_atproto_namespace failed: {e}")))?;
+        let props = HashMap::from([
+            (
+                "authority".to_string(),
+                grafeo::Value::String(node.authority.clone().into()),
+            ),
+            (
+                "segment".to_string(),
+                grafeo::Value::String(node.segment.clone().into()),
+            ),
+            (
+                "domain".to_string(),
+                grafeo::Value::String(node.domain.clone().into()),
+            ),
+        ]);
+        self.create_registered_node(
+            "AtprotoNamespace",
+            &[registry::keys::atproto_namespace(&node.authority)],
+            &props,
+        )?;
         Ok(node.authority.clone())
     }
 
     pub(super) async fn insert_lexicon(&self, node: &LexiconNode) -> Result<String, GraphError> {
-        let session = CountingSession::new(self.db().session());
-        let revision_val = match &node.revision {
-            Some(v) => v.to_string(),
-            None => "null".to_string(),
-        };
-        let gql = format!(
-            "INSERT (:Lexicon {{ nsid: '{}', lex_type: '{}', key_strategy: '{}', \
-             revision: {}, description: {}, domain: '{}' }})",
-            escape_gql(&node.nsid),
-            escape_gql(&node.lex_type),
-            escape_gql(&node.key_strategy),
-            revision_val,
-            opt_str(&node.description),
-            escape_gql(&node.domain),
-        );
-        session
-            .execute(&gql)
-            .map_err(|e| GraphError::Ingest(format!("ingest_lexicon failed: {e}")))?;
+        let props = HashMap::from([
+            (
+                "nsid".to_string(),
+                grafeo::Value::String(node.nsid.clone().into()),
+            ),
+            (
+                "lex_type".to_string(),
+                grafeo::Value::String(node.lex_type.clone().into()),
+            ),
+            (
+                "key_strategy".to_string(),
+                grafeo::Value::String(node.key_strategy.clone().into()),
+            ),
+            (
+                "revision".to_string(),
+                match node.revision {
+                    Some(v) => grafeo::Value::Int64(v),
+                    None => grafeo::Value::Null,
+                },
+            ),
+            (
+                "description".to_string(),
+                opt_to_grafeo_value(&node.description),
+            ),
+            (
+                "domain".to_string(),
+                grafeo::Value::String(node.domain.clone().into()),
+            ),
+        ]);
+        self.create_registered_node("Lexicon", &[registry::keys::lexicon(&node.nsid)], &props)?;
         Ok(node.nsid.clone())
     }
 
@@ -148,16 +182,25 @@ impl GrafeoEngine {
         &self,
         node: &CollectionNode,
     ) -> Result<String, GraphError> {
-        let session = CountingSession::new(self.db().session());
-        let gql = format!(
-            "INSERT (:Collection {{ nsid: '{}', key_strategy: '{}', domain: '{}' }})",
-            escape_gql(&node.nsid),
-            escape_gql(&node.key_strategy),
-            escape_gql(&node.domain),
-        );
-        session
-            .execute(&gql)
-            .map_err(|e| GraphError::Ingest(format!("ingest_collection failed: {e}")))?;
+        let props = HashMap::from([
+            (
+                "nsid".to_string(),
+                grafeo::Value::String(node.nsid.clone().into()),
+            ),
+            (
+                "key_strategy".to_string(),
+                grafeo::Value::String(node.key_strategy.clone().into()),
+            ),
+            (
+                "domain".to_string(),
+                grafeo::Value::String(node.domain.clone().into()),
+            ),
+        ]);
+        self.create_registered_node(
+            "Collection",
+            &[registry::keys::collection(&node.nsid)],
+            &props,
+        )?;
         Ok(node.nsid.clone())
     }
 
@@ -165,19 +208,30 @@ impl GrafeoEngine {
         &self,
         node: &RepositoryNode,
     ) -> Result<String, GraphError> {
-        let session = CountingSession::new(self.db().session());
-        let gql = format!(
-            "INSERT (:Repository {{ did: '{}', handle: {}, pds_endpoint: '{}', \
-             org_name: '{}', tenancy_mode: '{}' }})",
-            escape_gql(&node.did),
-            opt_str(&node.handle),
-            escape_gql(&node.pds_endpoint),
-            escape_gql(&node.org_name),
-            escape_gql(&node.tenancy_mode),
-        );
-        session
-            .execute(&gql)
-            .map_err(|e| GraphError::Ingest(format!("ingest_repository failed: {e}")))?;
+        let props = HashMap::from([
+            (
+                "did".to_string(),
+                grafeo::Value::String(node.did.clone().into()),
+            ),
+            ("handle".to_string(), opt_to_grafeo_value(&node.handle)),
+            (
+                "pds_endpoint".to_string(),
+                grafeo::Value::String(node.pds_endpoint.clone().into()),
+            ),
+            (
+                "org_name".to_string(),
+                grafeo::Value::String(node.org_name.clone().into()),
+            ),
+            (
+                "tenancy_mode".to_string(),
+                grafeo::Value::String(node.tenancy_mode.clone().into()),
+            ),
+        ]);
+        self.create_registered_node(
+            "Repository",
+            &[registry::keys::repository(&node.did)],
+            &props,
+        )?;
         Ok(node.did.clone())
     }
 
@@ -187,23 +241,35 @@ impl GrafeoEngine {
         &self,
         node: &ApiResourceNode,
     ) -> Result<String, GraphError> {
-        let session = CountingSession::new(self.db().session());
         let id = format!("ar:{}", node.name);
-        let gql = format!(
-            "INSERT (:ApiResource {{ \
-                _node_id: '{}', name: '{}', schema_title: '{}', domain: '{}', \
-                label: {}, path_segment: '{}' \
-            }})",
-            escape_gql(&id),
-            escape_gql(&node.name),
-            escape_gql(&node.schema_title),
-            escape_gql(&node.domain),
-            opt_str(&node.label),
-            escape_gql(&node.path_segment),
-        );
-        session
-            .execute(&gql)
-            .map_err(|e| GraphError::Ingest(format!("ingest_api_resource failed: {e}")))?;
+        let props = HashMap::from([
+            (
+                "_node_id".to_string(),
+                grafeo::Value::String(id.clone().into()),
+            ),
+            (
+                "name".to_string(),
+                grafeo::Value::String(node.name.clone().into()),
+            ),
+            (
+                "schema_title".to_string(),
+                grafeo::Value::String(node.schema_title.clone().into()),
+            ),
+            (
+                "domain".to_string(),
+                grafeo::Value::String(node.domain.clone().into()),
+            ),
+            ("label".to_string(), opt_to_grafeo_value(&node.label)),
+            (
+                "path_segment".to_string(),
+                grafeo::Value::String(node.path_segment.clone().into()),
+            ),
+        ]);
+        self.create_registered_node(
+            "ApiResource",
+            &[registry::keys::api_resource(&node.name)],
+            &props,
+        )?;
         Ok(id)
     }
 
@@ -211,26 +277,38 @@ impl GrafeoEngine {
         &self,
         node: &ApiOperationNode,
     ) -> Result<String, GraphError> {
-        let session = CountingSession::new(self.db().session());
         let id = format!("ao:{}", node.name);
-        let gql = format!(
-            "INSERT (:ApiOperation {{ \
-                _node_id: '{}', name: '{}', kind: '{}', input_schema: {}, output_schema: '{}', \
-                paging: {}, sorting: {}, filtering: {}, domain: {} \
-            }})",
-            escape_gql(&id),
-            escape_gql(&node.name),
-            escape_gql(&node.kind),
-            opt_str(&node.input_schema),
-            escape_gql(&node.output_schema),
-            node.paging,
-            node.sorting,
-            node.filtering,
-            opt_str(&node.domain),
-        );
-        session
-            .execute(&gql)
-            .map_err(|e| GraphError::Ingest(format!("ingest_api_operation failed: {e}")))?;
+        let props = HashMap::from([
+            (
+                "_node_id".to_string(),
+                grafeo::Value::String(id.clone().into()),
+            ),
+            (
+                "name".to_string(),
+                grafeo::Value::String(node.name.clone().into()),
+            ),
+            (
+                "kind".to_string(),
+                grafeo::Value::String(node.kind.clone().into()),
+            ),
+            (
+                "input_schema".to_string(),
+                opt_to_grafeo_value(&node.input_schema),
+            ),
+            (
+                "output_schema".to_string(),
+                grafeo::Value::String(node.output_schema.clone().into()),
+            ),
+            ("paging".to_string(), grafeo::Value::Bool(node.paging)),
+            ("sorting".to_string(), grafeo::Value::Bool(node.sorting)),
+            ("filtering".to_string(), grafeo::Value::Bool(node.filtering)),
+            ("domain".to_string(), opt_to_grafeo_value(&node.domain)),
+        ]);
+        self.create_registered_node(
+            "ApiOperation",
+            &[registry::keys::api_operation(&node.name)],
+            &props,
+        )?;
         Ok(id)
     }
 
@@ -238,17 +316,16 @@ impl GrafeoEngine {
         &self,
         node: &InteractionNode,
     ) -> Result<String, GraphError> {
-        let session = CountingSession::new(self.db().session());
         let id = format!("ia:{}", uuid::Uuid::new_v4());
-        let gql = format!(
-            "INSERT (:Interaction {{ name: '{}', transport: '{}', domain: {} }})",
-            escape_gql(&id),
-            escape_gql(&node.transport),
-            opt_str(&node.domain),
-        );
-        session
-            .execute(&gql)
-            .map_err(|e| GraphError::Ingest(format!("ingest_interaction failed: {e}")))?;
+        let props = HashMap::from([
+            ("name".to_string(), grafeo::Value::String(id.clone().into())),
+            (
+                "transport".to_string(),
+                grafeo::Value::String(node.transport.clone().into()),
+            ),
+            ("domain".to_string(), opt_to_grafeo_value(&node.domain)),
+        ]);
+        self.create_registered_node("Interaction", &[registry::keys::interaction(&id)], &props)?;
         Ok(id)
     }
 
@@ -256,38 +333,49 @@ impl GrafeoEngine {
         &self,
         node: &HttpEndpointNode,
     ) -> Result<String, GraphError> {
-        let session = CountingSession::new(self.db().session());
         let id = format!("he:{}", uuid::Uuid::new_v4());
-        let gql = format!(
-            "INSERT (:HttpEndpoint {{ name: '{}', method: '{}', path_template: '{}', domain: {} }})",
-            escape_gql(&id),
-            escape_gql(&node.method),
-            escape_gql(&node.path_template),
-            opt_str(&node.domain),
-        );
-        session
-            .execute(&gql)
-            .map_err(|e| GraphError::Ingest(format!("ingest_http_endpoint failed: {e}")))?;
+        let props = HashMap::from([
+            ("name".to_string(), grafeo::Value::String(id.clone().into())),
+            (
+                "method".to_string(),
+                grafeo::Value::String(node.method.clone().into()),
+            ),
+            (
+                "path_template".to_string(),
+                grafeo::Value::String(node.path_template.clone().into()),
+            ),
+            ("domain".to_string(), opt_to_grafeo_value(&node.domain)),
+        ]);
+        self.create_registered_node(
+            "HttpEndpoint",
+            &[registry::keys::http_endpoint(&id)],
+            &props,
+        )?;
         Ok(id)
     }
 
     pub(super) async fn insert_pipeline(&self, node: &PipelineNode) -> Result<String, GraphError> {
-        let session = CountingSession::new(self.db().session());
         let id = format!("pl:{}", node.name);
         let middleware_str = node
             .middleware
             .as_ref()
             .map(|m| serde_json::to_string(m).unwrap_or_default());
-        let gql = format!(
-            "INSERT (:Pipeline {{ _node_id: '{}', name: '{}', middleware: {}, domain: {} }})",
-            escape_gql(&id),
-            escape_gql(&node.name),
-            opt_str(&middleware_str),
-            opt_str(&node.domain),
-        );
-        session
-            .execute(&gql)
-            .map_err(|e| GraphError::Ingest(format!("ingest_pipeline failed: {e}")))?;
+        let props = HashMap::from([
+            (
+                "_node_id".to_string(),
+                grafeo::Value::String(id.clone().into()),
+            ),
+            (
+                "name".to_string(),
+                grafeo::Value::String(node.name.clone().into()),
+            ),
+            (
+                "middleware".to_string(),
+                opt_to_grafeo_value(&middleware_str),
+            ),
+            ("domain".to_string(), opt_to_grafeo_value(&node.domain)),
+        ]);
+        self.create_registered_node("Pipeline", &[registry::keys::pipeline(&node.name)], &props)?;
         Ok(id)
     }
 
@@ -295,20 +383,27 @@ impl GrafeoEngine {
         &self,
         node: &ErrorDefinitionNode,
     ) -> Result<String, GraphError> {
-        let session = CountingSession::new(self.db().session());
         let id = format!("ed:{}", node.code);
-        let gql = format!(
-            "INSERT (:ErrorDefinition {{ \
-                code: '{}', description: '{}', http_status: {}, domain: {} \
-            }})",
-            escape_gql(&node.code),
-            escape_gql(&node.description),
-            node.http_status,
-            opt_str(&node.domain),
-        );
-        session
-            .execute(&gql)
-            .map_err(|e| GraphError::Ingest(format!("ingest_error_definition failed: {e}")))?;
+        let props = HashMap::from([
+            (
+                "code".to_string(),
+                grafeo::Value::String(node.code.clone().into()),
+            ),
+            (
+                "description".to_string(),
+                grafeo::Value::String(node.description.clone().into()),
+            ),
+            (
+                "http_status".to_string(),
+                grafeo::Value::Int64(i64::from(node.http_status)),
+            ),
+            ("domain".to_string(), opt_to_grafeo_value(&node.domain)),
+        ]);
+        self.create_registered_node(
+            "ErrorDefinition",
+            &[registry::keys::error_definition(&node.code)],
+            &props,
+        )?;
         Ok(id)
     }
 
@@ -316,17 +411,23 @@ impl GrafeoEngine {
         &self,
         node: &PermissionNode,
     ) -> Result<String, GraphError> {
-        let session = CountingSession::new(self.db().session());
         let id = format!("pm:{}", node.name);
-        let gql = format!(
-            "INSERT (:Permission {{ _node_id: '{}', name: '{}', domain: {} }})",
-            escape_gql(&id),
-            escape_gql(&node.name),
-            opt_str(&node.domain),
-        );
-        session
-            .execute(&gql)
-            .map_err(|e| GraphError::Ingest(format!("ingest_permission failed: {e}")))?;
+        let props = HashMap::from([
+            (
+                "_node_id".to_string(),
+                grafeo::Value::String(id.clone().into()),
+            ),
+            (
+                "name".to_string(),
+                grafeo::Value::String(node.name.clone().into()),
+            ),
+            ("domain".to_string(), opt_to_grafeo_value(&node.domain)),
+        ]);
+        self.create_registered_node(
+            "Permission",
+            &[registry::keys::permission(&node.name)],
+            &props,
+        )?;
         Ok(id)
     }
 
