@@ -6,7 +6,7 @@ use super::page::UiField;
 
 /// Build a JS object-literal body (without outer braces) for creating an entity
 /// via the API.  Used for parent and grandparent entity creation in tests.
-pub(super) async fn build_test_data_json(
+pub async fn build_test_data_json(
     db: &dyn GraphQuerier,
     schema_title: &str,
     domain: Option<&str>,
@@ -39,6 +39,16 @@ pub(super) async fn build_test_data_json(
             continue;
         }
         if f.name.ends_with("_id") && !f.is_codelist {
+            // Identity PKs (e.g. Worker.worker_id) are REQUIRED members of
+            // the create body — the API's untagged body enum rejects a
+            // payload without them (issue #479: every dep-created entity
+            // with a PK-carrying create body 422'd). True refs skip via
+            // branch 1 (dep-created); identity/plain-UUID `_id` columns
+            // carry the same runtime uuid literal the JS testData path
+            // emits.
+            if f.pg_type == "UUID" {
+                entries.push(format!("'{}': {}", f.name, uuid_literal()));
+            }
             continue;
         }
         // ValueObject fields: omit non-array nested types entirely.

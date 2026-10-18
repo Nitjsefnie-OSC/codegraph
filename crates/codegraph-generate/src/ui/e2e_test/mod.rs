@@ -1,6 +1,6 @@
 mod context;
 mod deps;
-mod fixtures;
+pub mod fixtures;
 mod generator;
 mod include;
 mod pom_ctx;
