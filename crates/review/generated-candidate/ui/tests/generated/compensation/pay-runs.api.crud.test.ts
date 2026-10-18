@@ -5,6 +5,9 @@
 
 import { test, expect } from '../../e2e/fixtures/personas';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreatePayRunRequest } from '#lib/api/types.ts';
+
 import {
   createEntityAsAcme,
   createEntityViaApi,
@@ -26,21 +29,19 @@ const BASE_PATH = '/compensation/pay-runs';
 const depIds: Record<string, string | string[]> = {};
 
 
-
-function testData(): Record<string, unknown> {
-
+function testData(): Partial<Record<keyof CreatePayRunRequest | 'code', unknown>> {
   return {
 
 
-    'pay_run_id': 'Test Pay Run Id',
+    // 'pay_run_id': entity ref — emitted by _dep_setup.tera
 
 
 
-    'run_date': '2025-01-15',
+    'run_date': '2026-01-15',
 
 
 
-    'total_amount': 42,
+    'total_amount': 42.5,
 
 
 
@@ -49,24 +50,24 @@ function testData(): Record<string, unknown> {
 
 
 
+    ...(depIds['pay_run_id'] ? { 'pay_run_id': depIds['pay_run_id'] } : {}),
+
   };
 }
 
-
-function updatedData(): Record<string, unknown> {
-
+function updatedData(): Partial<Record<keyof CreatePayRunRequest | 'code', unknown>> {
   return {
 
 
-    'pay_run_id': 'Updated Pay Run Id',
+    // 'pay_run_id': entity ref — emitted by _dep_setup.tera
 
 
 
-    'run_date': '2025-06-20',
+    'run_date': '2026-06-20',
 
 
 
-    'total_amount': 99,
+    'total_amount': 99.5,
 
 
 
@@ -75,11 +76,27 @@ function updatedData(): Record<string, unknown> {
 
 
 
+    ...(depIds['pay_run_id'] ? { 'pay_run_id': depIds['pay_run_id'] } : {}),
+
   };
 }
 
 test.describe('PayRun CRUD', () => {
 
+
+  test.beforeAll(async ({ orgContext }) => {
+
+
+
+
+  });
+
+  test.afterAll(async ({ orgContext }) => {
+
+const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
+
+
+  });
 
 
   test('list page loads with table', async ({ ownerPage: page }) => {
@@ -96,11 +113,14 @@ test.describe('PayRun CRUD', () => {
     await ui.gotoCreate();
     // Wait for SvelteKit to hydrate so the form's onsubmit handler is attached
     await ui.waitForForm();
-    const data = testData();
+    // Widened read view: the keyed testData() checks the payload's keys;
+    // form-fill reads may touch convention-resolved FK columns the
+    // generated Create request type does not declare.
+    const data: Record<string, unknown> = testData();
 
 
 
-    await ui.fillPayRunId(String(data['pay_run_id']));
+    await ui.fillPayRunId(String(data['pay_run_id'] ?? ''));
 
 
 
@@ -224,11 +244,11 @@ test.describe('PayRun CRUD', () => {
 
     await ui.gotoEdit(myId);
     await ui.waitForForm();
-    const data = updatedData();
+    const data: Record<string, unknown> = updatedData();
 
 
 
-    await ui.fillPayRunId(String(data['pay_run_id']));
+    await ui.fillPayRunId(String(data['pay_run_id'] ?? ''));
 
 
 

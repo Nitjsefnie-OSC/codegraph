@@ -299,15 +299,18 @@ impl RustCodelistGenerator {
             available.insert(cl.name.clone());
         }
 
-        // Workers re-export exactly the codelists their routed DTO code
-        // references (`crate::codelist::<Name>`) — tight per-worker lists.
+        // Re-export exactly the codelists the crate's own code references
+        // (`crate::codelist::<Name>`) — tight per-crate lists. The scan
+        // covers the whole `src/` tree (skipping `src/codelist` itself):
+        // beyond routed DTO code under `src/domain`/`src/api`, the root
+        // placeholder crate references codelists from `src/events/
+        // contracts.rs` and the loose `src/webhook_*.rs` modules, and a
+        // per-dir allowlist would silently miss the next root module.
         let mut used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         let prefix = "crate::codelist::";
-        for subdir in &["domain", "api"] {
-            let dir = base.join("src").join(subdir);
-            if dir.is_dir() {
-                scan_rs_files_for_prefix(&dir, prefix, &mut used);
-            }
+        let src_dir = base.join("src");
+        if src_dir.is_dir() {
+            scan_rs_files_for_prefix_except(&src_dir, prefix, "codelist", &mut used);
         }
 
         // Only re-export codelists that are both available and referenced.
@@ -333,9 +336,12 @@ impl RustCodelistGenerator {
 
 /// Recursively scan `.rs` files under `dir` for occurrences of `prefix`
 /// and collect the identifier that immediately follows each match.
-fn scan_rs_files_for_prefix(
+/// Directories named `skip_dir` are pruned (used to exclude the re-export
+/// module's own `codelist` directory from the scan).
+fn scan_rs_files_for_prefix_except(
     dir: &std::path::Path,
     prefix: &str,
+    skip_dir: &str,
     out: &mut std::collections::BTreeSet<String>,
 ) {
     let entries = match std::fs::read_dir(dir) {
@@ -345,7 +351,10 @@ fn scan_rs_files_for_prefix(
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            scan_rs_files_for_prefix(&path, prefix, out);
+            if path.file_name().is_some_and(|n| n == skip_dir) {
+                continue;
+            }
+            scan_rs_files_for_prefix_except(&path, prefix, skip_dir, out);
         } else if path.extension().is_some_and(|e| e == "rs")
             && let Ok(content) = std::fs::read_to_string(&path)
         {

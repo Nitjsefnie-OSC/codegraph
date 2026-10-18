@@ -316,6 +316,7 @@ async fn run_generator_pipeline(
         rosetta_files: &[model],
         ddd_files: &[],
         evt_files: &[],
+        deploy_files: &[],
         ifml_framework: &[],
         ifml_components: None,
         ifml_design_system: None,

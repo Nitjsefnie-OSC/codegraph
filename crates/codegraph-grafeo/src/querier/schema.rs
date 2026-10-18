@@ -389,6 +389,50 @@ impl GrafeoEngine {
         .await
     }
 
+    /// Composition table-conflict detection (see
+    /// `GraphQuerier::composition_table_conflict`): a ValueObject-classified
+    /// property on some OTHER schema references this schema (value targets
+    /// only — refers-wins entity targets keep their own table), and the
+    /// parent's `{parent}_{feature}` child-table projection equals this
+    /// schema's `pg_table_name`. The three property fields mirror
+    /// `PropertyNode::effective_kind`'s resolution order; the edge is the
+    /// property→target link the mox lowering writes — `ItemsOf` for the
+    /// child-table (contains) semantics, `ReferencesSchema` for the JSON
+    /// path.
+    pub(super) async fn query_composition_table_conflict(
+        &self,
+        schema_title: &str,
+    ) -> Result<Option<(String, String)>, GraphError> {
+        let params = HashMap::from([(
+            "title".to_string(),
+            grafeo::Value::String(schema_title.into()),
+        )]);
+        let result = query_gql_params(
+            self,
+            "MATCH (p:Property)-[:ItemsOf|ReferencesSchema]->(me:Schema), (parent:Schema) \
+             WHERE (me.title = $title OR me.pg_table_name = $title) \
+               AND parent.title = p._schema_title \
+               AND (p.classification_kind = 'value_object' \
+                OR p.classification = 'value_object' \
+                OR p.render_strategy = 'value_object') \
+               AND me.is_entity = false \
+             RETURN parent.title, parent.pg_table_name, p.pg_column_name, me.pg_table_name",
+            params,
+        )?;
+        let reader = RowReader::from_columns(&result.columns);
+        for row in &result.rows {
+            let parent_table = reader.get_string(row, "parent.pg_table_name")?;
+            let feature = reader.get_string(row, "p.pg_column_name")?;
+            let own_table = reader.get_string(row, "me.pg_table_name")?;
+            let projected = codegraph_naming::child_table_name(&parent_table, &feature);
+            if projected == own_table {
+                let parent_title = reader.get_string(row, "parent.title")?;
+                return Ok(Some((parent_title, projected)));
+            }
+        }
+        Ok(None)
+    }
+
     pub(super) async fn query_codelists(&self) -> Result<Vec<CodeList>, GraphError> {
         query_many(
             self,

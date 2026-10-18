@@ -11,18 +11,18 @@
 	import { ArrayField } from '#lib/components/ui/array-field/index.js';
 	import { StructuredWrapperField } from '#lib/components/ui/structured-wrapper-field/index.js';
 	import * as m from '#lib/paraglide/messages.js';
-	import type { CreateFormattedDateTimeRequest, UpdateFormattedDateTimeRequest } from '#lib/api/types.ts';
+	import type { CreateFormattedDateTimeRequest, UpdateFormattedDateTimeRequest, FormattedDateTimeResponse } from '#lib/api/types.ts';
 
 	type FormData = CreateFormattedDateTimeRequest | UpdateFormattedDateTimeRequest;
 
 	interface Props {
 		mode: 'create' | 'edit';
-		initialData?: Record<string, unknown>;
+		initialData?: FormattedDateTimeResponse;
 		onSubmit: (data: FormData) => void;
 		submitting?: boolean;
 	}
 
-	let { mode, initialData = {}, onSubmit, submitting = false }: Props = $props();
+	let { mode, initialData = undefined, onSubmit, submitting = false }: Props = $props();
 
 	// Form state
 

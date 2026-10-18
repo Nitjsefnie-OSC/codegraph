@@ -5,6 +5,9 @@
 
 import { test, expect } from '../../e2e/fixtures/personas';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateEffectiveDateRequest } from '#lib/api/types.ts';
+
 import {
   createEntityAsAcme,
   createEntityViaApi,
@@ -26,17 +29,15 @@ const BASE_PATH = '/common/effective-date';
 const depIds: Record<string, string | string[]> = {};
 
 
-
-function testData(): Record<string, unknown> {
-
+function testData(): Partial<Record<keyof CreateEffectiveDateRequest | 'code', unknown>> {
   return {
 
 
-    'valid_from': '2025-01-15',
+    'valid_from': '2026-01-15',
 
 
 
-    'valid_to': '2025-01-15',
+    'valid_to': '2026-01-15',
 
 
 
@@ -44,17 +45,15 @@ function testData(): Record<string, unknown> {
   };
 }
 
-
-function updatedData(): Record<string, unknown> {
-
+function updatedData(): Partial<Record<keyof CreateEffectiveDateRequest | 'code', unknown>> {
   return {
 
 
-    'valid_from': '2025-06-20',
+    'valid_from': '2026-06-20',
 
 
 
-    'valid_to': '2025-06-20',
+    'valid_to': '2026-06-20',
 
 
 
@@ -80,7 +79,10 @@ test.describe('EffectiveDate CRUD', () => {
     await ui.gotoCreate();
     // Wait for SvelteKit to hydrate so the form's onsubmit handler is attached
     await ui.waitForForm();
-    const data = testData();
+    // Widened read view: the keyed testData() checks the payload's keys;
+    // form-fill reads may touch convention-resolved FK columns the
+    // generated Create request type does not declare.
+    const data: Record<string, unknown> = testData();
 
 
 
@@ -184,7 +186,7 @@ test.describe('EffectiveDate CRUD', () => {
 
     await ui.gotoEdit(myId);
     await ui.waitForForm();
-    const data = updatedData();
+    const data: Record<string, unknown> = updatedData();
 
 
 

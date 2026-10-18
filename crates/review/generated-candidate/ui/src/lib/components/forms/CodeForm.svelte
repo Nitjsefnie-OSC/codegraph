@@ -11,18 +11,18 @@
 	import { ArrayField } from '#lib/components/ui/array-field/index.js';
 	import { StructuredWrapperField } from '#lib/components/ui/structured-wrapper-field/index.js';
 	import * as m from '#lib/paraglide/messages.js';
-	import type { CreateCodeRequest, UpdateCodeRequest } from '#lib/api/types.ts';
+	import type { CreateCodeRequest, UpdateCodeRequest, CodeResponse } from '#lib/api/types.ts';
 
 	type FormData = CreateCodeRequest | UpdateCodeRequest;
 
 	interface Props {
 		mode: 'create' | 'edit';
-		initialData?: Record<string, unknown>;
+		initialData?: CodeResponse;
 		onSubmit: (data: FormData) => void;
 		submitting?: boolean;
 	}
 
-	let { mode, initialData = {}, onSubmit, submitting = false }: Props = $props();
+	let { mode, initialData = undefined, onSubmit, submitting = false }: Props = $props();
 
 	// Form state
 

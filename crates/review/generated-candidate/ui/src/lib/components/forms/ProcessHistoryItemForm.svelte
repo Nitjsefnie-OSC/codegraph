@@ -11,35 +11,35 @@
 	import { ArrayField } from '#lib/components/ui/array-field/index.js';
 	import { StructuredWrapperField } from '#lib/components/ui/structured-wrapper-field/index.js';
 	import * as m from '#lib/paraglide/messages.js';
-	import type { CreateProcessHistoryItemRequest, UpdateProcessHistoryItemRequest } from '#lib/api/types.ts';
+	import type { CreateProcessHistoryItemRequest, UpdateProcessHistoryItemRequest, ProcessHistoryItemResponse } from '#lib/api/types.ts';
 
 	type FormData = CreateProcessHistoryItemRequest | UpdateProcessHistoryItemRequest;
 
 	interface Props {
 		mode: 'create' | 'edit';
-		initialData?: Record<string, unknown>;
+		initialData?: ProcessHistoryItemResponse;
 		onSubmit: (data: FormData) => void;
 		submitting?: boolean;
 	}
 
-	let { mode, initialData = {}, onSubmit, submitting = false }: Props = $props();
+	let { mode, initialData = undefined, onSubmit, submitting = false }: Props = $props();
 
 	// Form state
 
 
-	let action_date = $state(String(initialData['action_date'] ?? ''));
+	let action_date = $state(String(initialData?.action_date ?? ''));
 
 
 
 	let descriptions = $state<string[]>(
-		Array.isArray(initialData['descriptions'])
-			? initialData['descriptions'] as string[]
-			: ['']
+		Array.isArray(initialData?.descriptions)
+			? initialData?.descriptions as string[]
+			: []
 	);
 
 
 
-	let id = $state(String(initialData['id'] ?? ''));
+	let id = $state(String(initialData?.id ?? ''));
 
 
 
@@ -68,19 +68,19 @@
 			// Edit mode: only send changed fields
 
 
-			if (action_date !== String(initialData['action_date'] ?? '')) data['action_date'] = action_date.includes('Z') ? action_date : action_date + ':00Z';
+			if (action_date !== String(initialData?.action_date ?? '')) data['action_date'] = action_date.includes('Z') ? action_date : action_date + ':00Z';
 
 
 
 			{
 				const filtered = descriptions.filter((v: string) => v.trim() !== '');
-				const original = Array.isArray(initialData['descriptions']) ? initialData['descriptions'] : [];
+				const original = Array.isArray(initialData?.descriptions) ? initialData?.descriptions : [];
 				if (JSON.stringify(filtered) !== JSON.stringify(original)) data['descriptions'] = filtered;
 			}
 
 
 
-			if (id !== String(initialData['id'] ?? '')) data['id'] = id;
+			if (id !== String(initialData?.id ?? '')) data['id'] = id;
 
 
 		}

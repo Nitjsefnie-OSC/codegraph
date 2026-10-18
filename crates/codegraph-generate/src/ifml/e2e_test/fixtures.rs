@@ -8,7 +8,7 @@ use super::super::context::{IfmlAction, IfmlComponent, IfmlEvent, IfmlViewContai
 use codegraph_config::DomainConfig;
 use codegraph_core::traits::GraphQuerier;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Fixture {
     pub base_path: String,
     pub entries: Vec<(String, String)>,

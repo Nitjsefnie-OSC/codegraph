@@ -5,6 +5,9 @@
 
 import { test, expect } from '../../e2e/fixtures/personas';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateStringTypeArrayRequest } from '#lib/api/types.ts';
+
 import {
   createEntityAsAcme,
   createEntityViaApi,
@@ -26,9 +29,7 @@ const BASE_PATH = '/common/string-type-array';
 const depIds: Record<string, string | string[]> = {};
 
 
-
-function testData(): Record<string, unknown> {
-
+function testData(): Partial<Record<keyof CreateStringTypeArrayRequest | 'code', unknown>> {
   return {
 
 
@@ -36,9 +37,7 @@ function testData(): Record<string, unknown> {
   };
 }
 
-
-function updatedData(): Record<string, unknown> {
-
+function updatedData(): Partial<Record<keyof CreateStringTypeArrayRequest | 'code', unknown>> {
   return {
 
 

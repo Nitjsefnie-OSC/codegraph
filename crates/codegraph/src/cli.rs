@@ -149,6 +149,11 @@ pub enum Commands {
         /// imported .mox domains and ingested as the events plane
         #[arg(long)]
         evt_files: Vec<PathBuf>,
+        /// Paths to rexlang .deploy deployment files; compiled against their
+        /// imported .ddd designs and .ifml flows and ingested as the
+        /// deployment plane
+        #[arg(long)]
+        deploy_files: Vec<PathBuf>,
         /// IFML framework targets for code generation (e.g. svelte, react)
         #[arg(long)]
         ifml_framework: Vec<String>,
@@ -370,6 +375,19 @@ pub enum Commands {
         /// Error-severity diagnostics are hard failures
         #[arg(long)]
         evt_files: Vec<PathBuf>,
+
+        /// Paths to rexlang .deploy deployment files; compile-verified
+        /// against their imported .ddd designs and .ifml flows, plus
+        /// profile/topology and component-coverage cross-checks.
+        /// Error-severity diagnostics are hard failures
+        #[arg(long)]
+        deploy_files: Vec<PathBuf>,
+
+        /// Paths to rexlang .ifml interaction-model files; parse-verified
+        /// and their `import "….actor"` policy imports resolved. Errors
+        /// and unresolvable imports are hard failures
+        #[arg(long)]
+        ifml_files: Vec<PathBuf>,
     },
     /// Add to an existing consumer project
     Add {

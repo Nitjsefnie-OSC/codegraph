@@ -1755,7 +1755,7 @@ fn load_context_renders_param_default_fallbacks() {
         events: Vec::new(),
         containers: Vec::new(),
     };
-    let ctx = build_load_context("v1", &vc, &[list, details], "/");
+    let ctx = build_load_context("v1", &vc, &[list, details], "/", false);
     let rendered = render_template(&tera, "ifml/svelte/page_load.tera", &ctx).expect("render");
     assert!(
         rendered.contains("viewParams['slug'] = url.searchParams.get('slug') ?? 'home';"),
@@ -1789,7 +1789,7 @@ fn load_context_renders_param_default_fallbacks() {
         ..vc
     };
     let list = page_component_context_sync(&component_with_spec(Some(table_spec())));
-    let ctx = build_load_context("v1", &bare_vc, &[list], "/");
+    let ctx = build_load_context("v1", &bare_vc, &[list], "/", false);
     let rendered = render_template(&tera, "ifml/svelte/page_load.tera", &ctx).expect("render");
     assert!(
         rendered.contains("viewParams['customerId'] = url.searchParams.get('customerId') ?? '';"),
@@ -1802,7 +1802,7 @@ fn paramless_view_load_stays_free_of_param_resolution() {
     let tera = create_tera(Path::new(".")).expect("tera");
     let list = page_component_context_sync(&component_with_spec(Some(table_spec())));
     let vc = plain_vc("CustomerList");
-    let ctx = build_load_context("v1", &vc, &[list], "/");
+    let ctx = build_load_context("v1", &vc, &[list], "/", false);
     let rendered = render_template(&tera, "ifml/svelte/page_load.tera", &ctx).expect("render");
     assert!(!rendered.contains("viewParams"), "{rendered}");
     assert!(!rendered.contains("result.params"), "{rendered}");
@@ -1827,7 +1827,7 @@ fn role_guard_renders_at_top_of_load_function() {
         events: Vec::new(),
         containers: Vec::new(),
     };
-    let ctx = build_load_context("v1", &vc, &[], "/");
+    let ctx = build_load_context("v1", &vc, &[], "/", false);
     let rendered = render_template(&tera, "ifml/svelte/page_load.tera", &ctx).expect("render");
     assert!(
         rendered.contains("import { redirect } from '@sveltejs/kit';"),
@@ -1882,7 +1882,7 @@ fn no_roles_load_is_byte_identical_to_pre_guard_output() {
         events: Vec::new(),
         containers: Vec::new(),
     };
-    let ctx = build_load_context("v1", &vc, &[], "/");
+    let ctx = build_load_context("v1", &vc, &[], "/", false);
     let rendered = render_template(&tera, "ifml/svelte/page_load.tera", &ctx).expect("render");
     assert_eq!(
         rendered,
@@ -2070,7 +2070,7 @@ fn capability_guard_renders_can_checks_and_denial_target() {
     ]);
     let target = denial_target(&model);
     assert_eq!(target, "/customerlist");
-    let ctx = build_load_context("v1", &model.view_containers[0], &[], &target);
+    let ctx = build_load_context("v1", &model.view_containers[0], &[], &target, false);
     let rendered = render_template(&tera, "ifml/svelte/page_load.tera", &ctx).expect("render");
     assert!(
         rendered.contains("import { redirect } from '@sveltejs/kit';"),
@@ -2107,7 +2107,7 @@ fn combined_guard_renders_capability_check_before_roles_check() {
         vec!["admin".to_string()],
         vec!["manage_refunds".to_string()],
     );
-    let ctx = build_load_context("v1", &vc, &[], "/");
+    let ctx = build_load_context("v1", &vc, &[], "/", false);
     let rendered = render_template(&tera, "ifml/svelte/page_load.tera", &ctx).expect("render");
     assert!(
         rendered.contains("import { currentRoles } from '$lib/roles';"),
@@ -2751,7 +2751,7 @@ fn load_context_wires_first_list_with_pagination() {
         events: Vec::new(),
         containers: Vec::new(),
     };
-    let ctx = build_load_context("v1", &vc, &[list, second_list, details], "/");
+    let ctx = build_load_context("v1", &vc, &[list, second_list, details], "/", false);
     assert!(ctx.has_fetch);
     assert_eq!(ctx.components.len(), 3);
     assert!(ctx.components[0].fetch_list);
@@ -3807,5 +3807,231 @@ fn guard_template_renders_from_ast_gated() {
     assert!(
         rendered.contains("const view_guard = $derived(Boolean((row.active === true)));"),
         "expr_ir ON must render the lowered guard: {rendered}"
+    );
+}
+
+/// Issue #468 W1b: integrated mode scopes the shell layout to the `(views)`
+/// route group (never the entity app's root layout), while standalone keeps
+/// the historical `src/routes/+layout.svelte` path.
+#[test]
+fn route_layout_honors_the_route_root() {
+    let tmp = tempfile::tempdir().unwrap();
+    let standalone = IfmlRouteGenerator::new(tmp.path(), "svelte");
+    assert_eq!(
+        standalone.route_layout(),
+        Some(std::path::PathBuf::from("src/routes/+layout.svelte"))
+    );
+
+    let integrated =
+        IfmlRouteGenerator::new(tmp.path(), "svelte").with_route_root(super::ROUTE_GROUP);
+    assert_eq!(
+        integrated.route_layout(),
+        Some(std::path::PathBuf::from(
+            "src/routes/(views)/+layout.svelte"
+        ))
+    );
+
+    let react = IfmlRouteGenerator::new(tmp.path(), "react").with_route_root(super::ROUTE_GROUP);
+    assert_eq!(react.route_layout(), None, "layout is svelte-only");
+}
+
+// ── Role hydration (issue #468) ──────────────────────────────────────────────
+
+fn policy_with(actors: &[(&str, &[&str])]) -> super::super::context::PolicyContext {
+    super::super::context::PolicyContext {
+        actors: actors
+            .iter()
+            .map(|(name, caps)| {
+                (
+                    name.to_string(),
+                    caps.iter().map(|c| c.to_string()).collect(),
+                )
+            })
+            .collect(),
+        capabilities: Vec::new(),
+    }
+}
+
+/// The mapping convention: basejump 'owner' → the actor whose snake_case
+/// name is 'owner', else the FIRST policy actor; 'member' → snake 'member',
+/// else the LAST. Both forms (policy token + snake_case) are exposed.
+#[test]
+fn basejump_role_tokens_follow_the_documented_convention() {
+    use super::hydration::basejump_role_tokens;
+
+    // Name match wins: Owner/Member actors map to themselves.
+    let policy = policy_with(&[
+        ("Admin", &["manage"]),
+        ("Member", &["record"]),
+        ("Owner", &["manage", "delete"]),
+    ]);
+    assert_eq!(
+        basejump_role_tokens(&policy, "owner"),
+        vec!["Owner".to_string(), "owner".to_string()]
+    );
+    assert_eq!(
+        basejump_role_tokens(&policy, "member"),
+        vec!["Member".to_string(), "member".to_string()]
+    );
+
+    // Fallback: no Owner/Member actor — owner takes the FIRST policy actor
+    // (PolicyContext.actors is sorted), member the LAST.
+    let fallback = policy_with(&[("Admin", &["manage"]), ("Agent", &[])]);
+    assert_eq!(
+        basejump_role_tokens(&fallback, "owner"),
+        vec!["Admin".to_string(), "admin".to_string()]
+    );
+    assert_eq!(
+        basejump_role_tokens(&fallback, "member"),
+        vec!["Agent".to_string(), "agent".to_string()]
+    );
+
+    // Snake-named actors dedup to the single form.
+    let snake = policy_with(&[("admin", &["manage"])]);
+    assert_eq!(
+        basejump_role_tokens(&snake, "owner"),
+        vec!["admin".to_string()]
+    );
+
+    // No actors — no mapping.
+    let empty = policy_with(&[]);
+    assert!(basejump_role_tokens(&empty, "owner").is_empty());
+}
+
+/// A view's `roles:` token matches the actor verbatim OR snake_case (the
+/// crewbase convention: `roles: [member]` vs actor `Member`).
+#[test]
+fn role_token_matches_both_token_forms() {
+    use super::hydration::role_token_matches;
+    assert!(role_token_matches("Admin", "Admin"));
+    assert!(role_token_matches("admin", "Admin"));
+    assert!(role_token_matches("benefits_admin", "BenefitsAdmin"));
+    assert!(role_token_matches("Member", "Member"));
+    assert!(!role_token_matches("admin", "Agent"));
+    assert!(!role_token_matches("hr_admin", "HrReader"));
+}
+
+/// Integrated mode emits the hydration layouts over the `(views)` group;
+/// standalone stays byte-identical (no hydration files, anywhere).
+#[test]
+fn hydration_layouts_are_integrated_only() {
+    let tmp = tempfile::tempdir().unwrap();
+    let guarded = model_with_guards(
+        vec!["admin".to_string()],
+        Vec::new(),
+        Some(policy_with(&[("Admin", &["manage"])])),
+    );
+    let unguarded = model_with_guards(Vec::new(), Vec::new(), None);
+
+    let standalone = IfmlRouteGenerator::new(tmp.path(), "svelte");
+    assert!(
+        standalone.hydration(&guarded).is_none(),
+        "standalone output must stay byte-identical — no hydration files"
+    );
+
+    let integrated =
+        IfmlRouteGenerator::new(tmp.path(), "svelte").with_route_root(super::ROUTE_GROUP);
+    assert!(
+        integrated.hydration(&unguarded).is_none(),
+        "unguarded models read no role surface — nothing to hydrate"
+    );
+
+    let files = integrated
+        .hydration(&guarded)
+        .expect("guarded integrated model hydrates");
+    let paths: Vec<String> = files
+        .iter()
+        .map(|f| f.path.to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        paths
+            .iter()
+            .any(|p| p.ends_with("src/routes/(views)/+layout.server.ts"))
+            && paths
+                .iter()
+                .any(|p| p.ends_with("src/routes/(views)/+layout.ts")),
+        "{paths:?}"
+    );
+
+    let server = &files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("+layout.server.ts"))
+        .expect("server layout")
+        .content;
+    // Session → BaseJump → policy tokens, with the convention in-file.
+    assert!(server.contains("get_accounts"), "{server}");
+    assert!(server.contains("account_role === 'owner'"), "{server}");
+    assert!(
+        server.contains("const OWNER_ROLE_TOKENS: string[] = ['Admin', 'admin'];"),
+        "{server}"
+    );
+    assert!(
+        server.contains("const MEMBER_ROLE_TOKENS: string[] = ['Admin', 'admin'];"),
+        "fallback maps member to the LAST policy actor (Admin is the only one): {server}"
+    );
+    // NO redirect: persona contexts carry no session and must reach the
+    // guarded pages; an unauthenticated visitor keeps `roles: null`.
+    assert!(!server.contains("redirect("), "{server}");
+    assert!(server.contains("roles: null"), "{server}");
+
+    let universal = &files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("/+layout.ts"))
+        .expect("universal layout")
+        .content;
+    assert!(
+        universal.contains("(globalThis as any).__USER_ROLES__ = data.roles;"),
+        "{universal}"
+    );
+    // Persona safety: null roles must never clobber init-script seeding.
+    assert!(
+        universal.contains("if (typeof window !== 'undefined' && data.roles) {"),
+        "{universal}"
+    );
+}
+
+#[test]
+fn integrated_guard_decides_server_side_via_parent_roles() {
+    // Issue #468 W-a: in the integrated (views) route group the guard must
+    // fire during SSR (the (views)/+layout.server.ts load resolves the
+    // session's role tokens) — a denied persona is redirected before any
+    // data fetch, and never sees the 404/401 boundary from a doomed fetch.
+    let tera = create_tera(Path::new(".")).expect("tera");
+    let vc = guarded_vc(
+        "AdminConsole",
+        vec!["admin".to_string()],
+        vec!["manage_refunds".to_string()],
+    );
+    let ctx = build_load_context("v1", &vc, &[], "/", true);
+    let rendered = render_template(&tera, "ifml/svelte/page_load.tera", &ctx).expect("render");
+    assert!(
+        rendered.contains("async ({ params, url, fetch, parent }) => {"),
+        "integrated loads take parent(): {rendered}"
+    );
+    assert!(
+        rendered.contains(
+            "const parentData = (await parent()) as { roles?: string[] | null } | undefined;"
+        ),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("const roles: string[] = parentData?.roles ?? currentRoles();"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("if (viewRequires.length && !viewRequires.some((c) => can(c))) {"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("if (viewRoles.length && !roles.some((r) => viewRoles.includes(r))) {"),
+        "{rendered}"
+    );
+    assert!(
+        !rendered.contains("browser"),
+        "the SSR guard must not be browser-gated: {rendered}"
+    );
+    assert!(
+        !rendered.contains("import { browser } from '$app/environment';"),
+        "{rendered}"
     );
 }
