@@ -211,8 +211,11 @@ async fn allof_two_level_chain_ancestor_order() {
         );
     }
 
+    // Plan-less runs (#447) land the domain-types crate at
+    // crates/domain-types/; profiled layouts keep the historical paths.
     let dto = files
-        .get("src/gap/leaf/dto_response.rs")
+        .get("crates/domain-types/src/gap/leaf/dto_response.rs")
+        .or_else(|| files.get("src/gap/leaf/dto_response.rs"))
         .or_else(|| files.get("src/domain/gap/leaf/dto_response.rs"))
         .map(String::as_str)
         .expect("leaf domain_types dto_response emitted");

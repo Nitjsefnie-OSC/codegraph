@@ -229,14 +229,11 @@ async fn evt_input_generates_the_typed_events_plane() {
     // Scaffold wiring (`has_events` → `pub mod events;` in lib.rs and the
     // gated `anyhow` in Cargo.toml) is pinned at TEMPLATE level by the
     // in-crate golden (`scaffold_templates_render_events_module_when_has_
-    // events`); at pipeline level the plan-less run leaves `domain_types_
-    // base` unset, so the domain-types scaffold overwrites both output-root
-    // paths with its own lib.rs/Cargo.toml — pre-existing no-plan layout
-    // behavior for the whole app-scaffold surface, not an events-plane
-    // property. The pipeline-level module declaration is the post-generation
-    // mod index instead.
-    let mod_index = read_out(&files, "src/mod.rs");
-    assert!(mod_index.contains("pub mod events;"), "{mod_index}");
+    // events`). At pipeline level the plan-less app lib carries the
+    // declaration (issue #447 removed the domain-types clobber that used
+    // to overwrite the output-root lib.rs/Cargo.toml).
+    let lib = read_out(&files, "src/lib.rs");
+    assert!(lib.contains("pub mod events;"), "{lib}");
 
     // pgmq setup migration: the `events_orders` queue with the
     // app_user/api_key grants. The channel `orders` and the domain
@@ -312,15 +309,15 @@ async fn evt_generation_is_deterministic() {
 
 // ── flag-off contract ───────────────────────────────────────────────────
 
-/// The same fixture WITHOUT `.evt` input: no events plane anywhere, and
-/// the two trees agree byte-for-byte on every common file EXCEPT the two
-/// explicitly gated webhook files (`src/webhook_dispatch.rs` +
-/// `src/webhook_api.rs` via their typed branches; the scaffold's
-/// lib.rs/Cargo.toml gating is template-pinned — the plan-less run's
-/// domain-types scaffold overwrites both output-root paths identically in
-/// either run). Notably `migrations/0003_pgmq_setup.sql` is byte-identical:
-/// the channel/domain queue-name collision means the domain band owns
-/// `events_orders` in both runs.
+/// The same fixture WITHOUT `.evt` input: no events plane anywhere — the
+/// output-root `src/lib.rs` is the app lib (issue #447 fixed the plan-less
+/// domain-types clobber) and declares `pub mod events;` only in the .evt
+/// run — and the two trees agree byte-for-byte on every common file EXCEPT
+/// the explicitly gated ones (the webhook files via their typed branches,
+/// the module index, main.rs, and the gated lib declaration). Notably
+/// `migrations/0003_pgmq_setup.sql` is byte-identical: the channel/domain
+/// queue-name collision means the domain band owns `events_orders` in both
+/// runs.
 #[tokio::test]
 async fn no_evt_input_generates_no_events_plane() {
     let (root_evt, config_evt) = fixture_root();
@@ -335,8 +332,7 @@ async fn no_evt_input_generates_no_events_plane() {
     let files_off = collect_files(&out_off);
 
     // Absence set: the flag-off tree has no events plane at all — neither
-    // the generated module nor the scaffold's lib declaration (identical
-    // domain-types lib.rs in either run; see the typed-plane test).
+    // the generated module nor the app lib's declaration.
     assert!(
         !files_off.keys().any(|k| k.starts_with("src/events/")),
         "no src/events/ without .evt input: {:?}",
@@ -346,10 +342,14 @@ async fn no_evt_input_generates_no_events_plane() {
             .collect::<Vec<_>>()
     );
     let lib_off = read_out(&files_off, "src/lib.rs");
+    assert!(
+        !lib_off.contains("pub mod events;"),
+        "flag-off lib.rs must not declare the events module: {lib_off}"
+    );
     let lib_evt = read_out(&files_evt, "src/lib.rs");
-    assert_eq!(
-        lib_off, lib_evt,
-        "the overwritten output-root lib.rs is identical in both runs"
+    assert!(
+        lib_evt.contains("pub mod events;"),
+        "the .evt run's lib.rs must declare the events module: {lib_evt}"
     );
 
     // The domain trigger queue survives flag-off (the per-domain band is
@@ -380,17 +380,21 @@ async fn no_evt_input_generates_no_events_plane() {
     // The gated files exist in BOTH trees and differ exactly by their
     // events-plane content (the evt side's markers are pinned by the
     // typed-events-plane test above; here only the delta shape).
-    const GATED: [&str; 4] = [
+    const GATED: [&str; 6] = [
         "src/webhook_dispatch.rs",
         "src/webhook_api.rs",
         // The post-generation module index: gains `pub mod events;` with
-        // the events plane (the pipeline-level declaration in this
-        // plan-less mode — see the typed-plane test's lib.rs note).
+        // the events plane.
         "src/mod.rs",
         // The binary entry point declares `mod events;` alongside its
         // webhook modules when the events plane is present — the gated
         // `webhook_dispatch.rs` references `crate::events::…`.
         "src/main.rs",
+        // The scaffold's gated surface (issue #454): `pub mod events;` in
+        // the app lib and the gated `anyhow` dependency — pinned in shape
+        // below.
+        "src/lib.rs",
+        "Cargo.toml",
     ];
     for rel in GATED {
         assert!(
@@ -408,6 +412,14 @@ async fn no_evt_input_generates_no_events_plane() {
     assert!(
         !mod_index_off.contains("pub mod events;"),
         "{mod_index_off}"
+    );
+    // The scaffold delta is exactly the events gating: the lib declaration
+    // (pinned above) and the gated `anyhow` dependency.
+    let cargo_evt = read_out(&files_evt, "Cargo.toml");
+    let cargo_off = read_out(&files_off, "Cargo.toml");
+    assert!(
+        cargo_evt.contains("anyhow = \"1\"") && !cargo_off.contains("anyhow"),
+        "only the .evt run declares the gated anyhow dep\n--- evt ---\n{cargo_evt}\n--- off ---\n{cargo_off}"
     );
 
     // The evt-only files are EXACTLY the events plane.
