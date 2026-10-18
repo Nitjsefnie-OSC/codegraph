@@ -362,8 +362,8 @@ pub async fn run_with_graph_cache(
     // Load and resolve the profile.
     let profiles_path = profiles_config_path.unwrap_or_else(|| PathBuf::from("profiles.toml"));
     let registry = crate::profile::CapabilityRegistry::new();
-    let mut project_config: Option<ProjectConfig> = None;
-    let mut domain_types_base_path: Option<PathBuf> = None;
+    let mut project_config: Option<ProjectConfig>;
+    let domain_types_base_path: Option<PathBuf>;
     let build_plan = if profiles_path.exists() || profile_name != "default" {
         let mut resolved =
             crate::profile::load_and_resolve_profile(&profiles_path, profile_name, variant)?;
@@ -436,7 +436,7 @@ pub async fn run_with_graph_cache(
                 deployment_topology: plan.deployment_topology(),
             },
             cargo: CargoConfig {
-                codegraph_rev: codegraph_rev.unwrap_or_else(current_git_rev),
+                codegraph_rev: resolve_codegraph_rev(codegraph_rev.as_deref()),
                 dependency_strategy: plan.dependency_strategy,
                 codegraph_path_root: codegraph_checkout_root(),
                 ..CargoConfig::default()
@@ -484,6 +484,39 @@ pub async fn run_with_graph_cache(
             "Warning: profiles.toml not found at {} — running all generators (no profile filtering)",
             profiles_path.display()
         );
+        // Plan-less runs still render a coherent, compilable workspace
+        // (issue #447):
+        //
+        // - The separate domain-types crate is load-bearing even without a
+        //   profile: the app's command/query/dto/handler code re-exports
+        //   from it (`domain_types::SourceContext`, the DTO re-export
+        //   modules) and the scaffold manifest path-deps it. With no
+        //   profile meta to name `domain_types_base`, the companion-crate
+        //   generators fell back to the OUTPUT ROOT and clobbered the app
+        //   manifest/lib — so fall back to the conventional crate location
+        //   instead.
+        // - The `codegraph-*` dependency lines sit behind
+        //   `{% if project.codegraph_rev %}` gates; an empty rev drops
+        //   them entirely while the generated code references those
+        //   crates. The pin chain is CLI value → git HEAD → the binary's
+        //   embedded checkout rev.
+        //
+        // Only these fields deviate from the pipeline's default config —
+        // every other template key keeps its default value, and the build
+        // plan stays `None` so no plan semantics leak into generator
+        // gating.
+        domain_types_base_path = Some(output.join("crates/domain-types"));
+        project_config = Some(ProjectConfig {
+            paths: PathsConfig {
+                domain_types_base: "crates/domain-types".into(),
+                ..PathsConfig::default()
+            },
+            cargo: CargoConfig {
+                codegraph_rev: resolve_codegraph_rev(codegraph_rev.as_deref()),
+                ..CargoConfig::default()
+            },
+            ..ProjectConfig::default()
+        });
         None
     };
 
@@ -832,11 +865,14 @@ pub async fn run_with_graph_cache(
     // Pass 4-ish: resolve ux-rules (issue #293) once — CLI file merged over
     // the pack, or pack-only when the profile enables the feature. Threaded
     // into GeneratorOpts for generators and into ProjectConfig.ux so every
-    // template can read `project.ux.*`. Plan-less runs keep
-    // `project_config = None` (its synthesized default would change output);
+    // template can read `project.ux.*`. Profiled runs only: plan-less runs
+    // keep the template context ux-blind (the historical contract) even
+    // though issue #447 threads a minimal config for the dep pins —
     // generators still receive the rules via GeneratorOpts.
     let ux_resolved = effective_ux_rules(ux_rules, build_plan.as_ref())?;
-    if let Some(pc) = project_config.as_mut() {
+    if build_plan.is_some()
+        && let Some(pc) = project_config.as_mut()
+    {
         pc.ux.ux = ux_resolved.clone();
     }
 
@@ -1636,7 +1672,10 @@ fn load_ui_domains(config_path: &Path) -> Result<codegraph_config::UiDomainConfi
     }
 }
 
-/// Return the current Git revision hash, or an empty string if unavailable.
+/// Return the current Git revision hash. Falls back to the binary's
+/// embedded checkout rev when the invocation cwd carries no git metadata —
+/// a generated `codegraph-*` dep pin must never render empty (issue #447:
+/// an empty rev drops the dependency lines the generated code needs).
 fn current_git_rev() -> String {
     std::process::Command::new("git")
         .args(["rev-parse", "HEAD"])
@@ -1644,7 +1683,18 @@ fn current_git_rev() -> String {
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().to_string())
-        .unwrap_or_default()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| crate::rev::codegraph_rev().to_string())
+}
+
+/// Resolve the `codegraph-*` dependency pin for generated manifests:
+/// explicit CLI value wins, else [`current_git_rev`] (git HEAD, else the
+/// binary's embedded checkout rev).
+fn resolve_codegraph_rev(explicit: Option<&str>) -> String {
+    match explicit {
+        Some(rev) if !rev.is_empty() => rev.to_string(),
+        _ => current_git_rev(),
+    }
 }
 
 /// Absolute path of the codegraph checkout that produced this binary:
@@ -1664,6 +1714,35 @@ fn codegraph_checkout_root() -> String {
 mod tests {
     use super::*;
     use codegraph_config::SemanticRole;
+
+    #[test]
+    fn resolve_codegraph_rev_explicit_value_wins() {
+        assert_eq!(
+            resolve_codegraph_rev(Some("determinism-test-pin")),
+            "determinism-test-pin"
+        );
+    }
+
+    #[test]
+    fn resolve_codegraph_rev_empty_explicit_falls_through() {
+        // An empty explicit value must fall through to the git/embedded
+        // chain, never render as an empty pin (issue #447).
+        assert_eq!(resolve_codegraph_rev(Some("")), current_git_rev());
+        assert_eq!(resolve_codegraph_rev(None), current_git_rev());
+    }
+
+    #[test]
+    fn current_git_rev_is_never_empty() {
+        // Inside this checkout git supplies HEAD; outside any checkout the
+        // binary's embedded rev does. Either way the pin chain bottoms out
+        // non-empty (issue #447).
+        let rev = current_git_rev();
+        assert!(!rev.is_empty(), "rev chain must never render empty");
+        assert!(
+            rev.chars().all(|c| c.is_ascii_hexdigit()),
+            "rev must be a bare SHA: {rev}"
+        );
+    }
 
     #[test]
     fn schemas_deprecation_notice_has_exact_text() {
