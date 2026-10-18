@@ -13,7 +13,7 @@ use codegraph_config::config::{UiDomainConfig, UiOverrideConfig};
 
 use crate::api::api_model::{resolve_entity_operations, resolve_path_segment};
 
-use super::common::{collect_child_sections, collect_ui_fields};
+use super::common::{collect_child_sections, collect_ui_fields, resolve_display_field};
 use super::wizard_detect::{
     ChildInfo, WizardCandidate, detect_wizard_candidate, humanize, snake_case,
 };
@@ -55,6 +55,8 @@ pub struct DescriptorField {
     // Entity reference
     pub ref_entity: Option<String>,
     pub ref_domain: Option<String>,
+    /// The referenced entity's resolved display field (`'id'` when none).
+    pub ref_display_field: String,
 
     // Codelist
     pub codelist_source: String,
@@ -82,6 +84,10 @@ pub struct DescriptorChild {
     pub entity_name: String,
     pub relationship: String,
     pub inline: bool,
+    /// The child entity's resolved display field (`None` falls back to
+    /// `'id'` in the template — `displayField` stays a string for the
+    /// `@crewbase/entities` consumer contract).
+    pub display_field: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -233,6 +239,23 @@ impl EntityGenerator for UiDescriptorGenerator {
             ref_entities.insert(f.name.clone(), resolved);
         }
 
+        // Resolve the display field of each distinct entity-ref target once:
+        // `displayField` tells the runtime how to label a referenced record,
+        // so it must come from the TARGET's fields, not a hardcoded
+        // 'display_name'. Unresolvable targets fall back to 'id'.
+        let mut ref_display_fields: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        let mut ref_target_titles: Vec<&String> = ref_entities.values().flatten().collect();
+        ref_target_titles.sort();
+        ref_target_titles.dedup();
+        for title in ref_target_titles {
+            let target_fields = collect_ui_fields(db, title, &[], None, config)
+                .await
+                .unwrap_or_default();
+            let resolved = resolve_display_field(&target_fields).unwrap_or_else(|| "id".into());
+            ref_display_fields.insert(title.clone(), resolved);
+        }
+
         // Build descriptor fields with validation + overrides
         let fields: Vec<DescriptorField> = ui_fields
             .iter()
@@ -333,6 +356,16 @@ impl EntityGenerator for UiDescriptorGenerator {
                     } else {
                         None
                     },
+                    ref_display_field: if f.is_entity_ref {
+                        ref_entities
+                            .get(&f.name)
+                            .cloned()
+                            .flatten()
+                            .and_then(|t| ref_display_fields.get(&t).cloned())
+                            .unwrap_or_else(|| "id".into())
+                    } else {
+                        "id".into()
+                    },
                     codelist_source: if f.codelist_values.is_empty() {
                         "codelist".into()
                     } else {
@@ -372,6 +405,7 @@ impl EntityGenerator for UiDescriptorGenerator {
                 entity_name: cs.entity_name.clone(),
                 relationship: "one-to-many".into(),
                 inline: false,
+                display_field: cs.display_field.clone(),
             })
             .collect();
 

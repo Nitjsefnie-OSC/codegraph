@@ -6,6 +6,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi, expectToast } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateEventBaseRequest } from '#lib/api/types.ts';
+
 import { EventBasePage } from './event-base.page';
 
 
@@ -17,11 +20,11 @@ const BASE_PATH = '/common/event-base';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreateEventBaseRequest | 'code', unknown>> {
   return {
     'capacity': 42,
     'title': 'Test Title',
-    'birth_date': '2025-01-15',
+    'birth_date': '2026-01-15',
     'family_name': 'Test Family Name',
     'given_name': 'Test Given Name',
 
@@ -29,11 +32,11 @@ function testData(): Record<string, unknown> {
   };
 }
 
-function updatedData(): Record<string, unknown> {
+function updatedData(): Partial<Record<keyof CreateEventBaseRequest | 'code', unknown>> {
   return {
     'capacity': 99,
     'title': 'Updated Title',
-    'birth_date': '2025-06-20',
+    'birth_date': '2026-06-20',
     'family_name': 'Updated Family Name',
     'given_name': 'Updated Given Name',
 

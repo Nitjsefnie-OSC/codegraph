@@ -255,6 +255,10 @@ pub async fn run_generators_with_opts(opts: GeneratorOpts<'_>) -> Result<report:
     // Emit integration-test glue + `.codegraph-manifest.json` at each output root.
     emit_run_manifests(&ctx, &manifest_roots, &mut report)?;
 
+    // Post-generation structural gates (issue #468): the emitted tree must
+    // not carry the vocabulary the pipeline retired. Hard error, file:line.
+    crate::quality_gates::run_structural_gates(ctx.output_dir, ctx.project)?;
+
     Ok(report)
 }
 

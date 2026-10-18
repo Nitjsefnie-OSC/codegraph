@@ -555,6 +555,11 @@ impl GraphIngestor for MockEngine {
         Ok(())
     }
 
+    async fn ingest_deploy_model(&self, model: &DeployModelGraph) -> Result<(), GraphError> {
+        self.deploy_models.lock().unwrap().push(model.clone());
+        Ok(())
+    }
+
     async fn finalize(&self) -> Result<IngestStats, GraphError> {
         let schemas = self.schemas.lock().unwrap();
         let properties = self.properties.lock().unwrap();

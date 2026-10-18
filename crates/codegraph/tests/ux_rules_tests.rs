@@ -169,6 +169,7 @@ impl FixtureRun {
             rosetta_files: &[],
             ddd_files: &[],
             evt_files: &[],
+            deploy_files: &[],
             ifml_framework: &[],
             ifml_components: None,
             ifml_design_system: None,
@@ -254,7 +255,7 @@ fn ux_rules_default_profile_renders_list_page_pins() {
     // 6. Delete behind the AlertDialog confirm.
     assert!(page.contains("AlertDialog"), "{page}");
     assert!(
-        page.contains(r#"data-testid="task-delete-confirm""#),
+        page.contains(r#"data-testid="task-delete-dialog""#),
         "{page}"
     );
     assert!(page.contains("requestDelete"), "{page}");
@@ -399,7 +400,7 @@ fn ux_rules_project_file_overrides_pack_display() {
         "{page}"
     );
     assert!(
-        page.contains(r#"data-testid="task-delete-confirm""#),
+        page.contains(r#"data-testid="task-delete-dialog""#),
         "{page}"
     );
 }
@@ -512,7 +513,7 @@ fn ux_rules_timeline_rule_renders_timeline_layout() {
         "{page}"
     );
     assert!(
-        page.contains(r#"data-testid="task-delete-confirm""#),
+        page.contains(r#"data-testid="task-delete-dialog""#),
         "{page}"
     );
 
@@ -645,12 +646,14 @@ fn add_child_config(project: &Path) {
 }
 
 /// Child sections on the detail page tier their actions behind the
-/// parent's ux plan (issue #299): Edit/Delete collapse into a per-item
-/// dropdown (`{child}-actions` / `{child}-actions-menu`), Delete sits
-/// behind an AlertDialog confirm (`{child}-delete-confirm`), and the
-/// Manage → link stays the inline primary affordance. The detail header
-/// keeps its primary Edit/Delete buttons, and the scaffold ships the
-/// primitive install surface (`ui/PRIMITIVES.md`).
+/// parent's ux plan (issue #299; prop-driven since the #468 W4
+/// extraction): the page's `<ChildSection …>` tag carries the action
+/// partition props (`menuActions`, `confirmDelete`) and the testid
+/// vocabulary, while the shared `ChildSection.svelte` component renders
+/// the per-item dropdown (`{child}-actions` / `{child}-actions-menu`),
+/// the AlertDialog confirm, and the inline Manage → affordance. The
+/// detail header keeps its primary Edit/Delete buttons, and the scaffold
+/// ships the primitive install surface (`ui/PRIMITIVES.md`).
 #[test]
 fn ux_rules_child_sections_tier_actions_behind_menu() {
     let dir = TempDir::new().unwrap();
@@ -667,55 +670,79 @@ fn ux_rules_child_sections_tier_actions_behind_menu() {
     let detail_path =
         project.join("generated/ui/src/routes/(app)/common/task/[task_id]/+page.svelte");
     let page = fs::read_to_string(&detail_path).expect("task detail page must be generated");
+    let component =
+        fs::read_to_string(project.join("generated/ui/src/lib/components/ChildSection.svelte"))
+            .expect("the shared ChildSection component must be generated");
 
-    // 1. Per-item actions menu testids (child module name = `sub_task`).
-    assert!(page.contains(r#"data-testid="sub_task-actions""#), "{page}");
+    // 1. The tag carries the per-item menu testids (child module name =
+    //    `sub_task`); the component renders them from props.
+    assert!(page.contains(r#"actionsTid="sub_task-actions""#), "{page}");
     assert!(
-        page.contains(r#"data-testid="sub_task-actions-menu""#),
-        "{page}"
-    );
-
-    // 2. Edit/Delete live in the menu; the accordion + add affordances
-    //    stay put. (The fixture child has no grandchildren, so the Manage
-    //    → link correctly does not render here; the inline-affordance pin
-    //    lives in the page.rs child-section template tests, which render
-    //    the section with `has_children`.)
-    assert!(
-        page.contains(r#"data-testid="sub_task-action-edit""#),
+        page.contains(r#"actionsMenuTid="sub_task-actions-menu""#),
         "{page}"
     );
     assert!(
-        page.contains(r#"data-testid="sub_task-action-delete""#),
-        "{page}"
+        component.contains("data-testid={actionsTid}"),
+        "{component}"
     );
     assert!(
-        page.contains(r#"data-testid="child-section-sub_task-add-btn""#),
-        "{page}"
-    );
-    // The legacy flat buttons are gone.
-    assert!(
-        !page.contains(r#"onclick={() => deleteChild('common', 'sub-task', child.id)}"#),
-        "{page}"
+        component.contains("data-testid={actionsMenuTid}"),
+        "{component}"
     );
 
-    // 3. Delete behind the per-section AlertDialog confirm.
+    // 2. Edit/Delete live in the menu (component markup, tag-carried
+    //    testids); the accordion + add affordances stay put. The Manage →
+    //    link renders unconditionally from the component (the W4
+    //    extraction dropped the generation-time has-children gate).
     assert!(
-        page.contains(r#"data-testid="sub_task-delete-confirm""#),
+        page.contains(r#"actionEditTid="sub_task-action-edit""#),
         "{page}"
     );
     assert!(
-        page.contains(r#"data-testid="sub_task-delete-confirm-confirm""#),
+        page.contains(r#"actionDeleteTid="sub_task-action-delete""#),
         "{page}"
     );
     assert!(
-        page.contains("let sub_taskDeleteId = $state<string | null>(null);"),
-        "{page}"
+        component.contains("data-testid={actionEditTid}"),
+        "{component}"
     );
     assert!(
-        page.contains("function confirmDeleteSubTaskChild() {"),
+        component.contains("data-testid={actionDeleteTid}"),
+        "{component}"
+    );
+    assert!(
+        page.contains(r#"addBtnTid="child-section-sub_task-add-btn""#),
         "{page}"
     );
-    assert!(page.contains("DropdownMenu.Root"), "{page}");
+    // The legacy flat-delete wiring must not leak onto the page.
+    assert!(!page.contains("deleteChild("), "{page}");
+
+    // 3. Delete behind the confirm: the tag partitions the actions and
+    //    flips the confirm flag; the component wires the dialog.
+    assert!(
+        page.contains(
+            "menuActions={[{ action: 'edit', label: 'Edit' }, { action: 'delete', label: 'Delete' }]}"
+        ),
+        "{page}"
+    );
+    assert!(page.contains("confirmDelete={ true }"), "{page}");
+    assert!(component.contains("<DropdownMenu.Root>"), "{component}");
+    assert!(
+        component.contains("open={deleteId !== null}"),
+        "{component}"
+    );
+    assert!(
+        component.contains("data-testid={deleteDialogTid}"),
+        "{component}"
+    );
+    assert!(
+        component.contains("data-testid={deleteDialogConfirmTid}"),
+        "{component}"
+    );
+    assert!(
+        component.contains("onclick={confirmDeleteItem}"),
+        "{component}"
+    );
 
     // 4. The detail header keeps its primary Edit/Delete buttons.
     assert!(page.contains(r#"data-testid="task-edit-btn""#), "{page}");
@@ -759,31 +786,36 @@ fn ux_rules_flag_off_child_sections_stay_flat() {
     let detail_path =
         project.join("generated/ui/src/routes/(app)/common/task/[task_id]/+page.svelte");
     let page = fs::read_to_string(&detail_path).expect("task detail page must be generated");
+    let component =
+        fs::read_to_string(project.join("generated/ui/src/lib/components/ChildSection.svelte"))
+            .expect("the shared ChildSection component must be generated");
     for needle in [
         "DropdownMenu",
-        "sub_task-actions",
-        "sub_task-action-edit",
-        "sub_task-action-delete",
-        "sub_task-delete-confirm",
         "DeleteId",
-        "confirmDelete",
+        "editChild(",
+        "deleteChild(",
+        "startAddChild",
     ] {
         assert!(
             !page.contains(needle),
             "flag-off detail page must not contain {needle:?}:\n{page}"
         );
     }
-    // The flat legacy affordances stay byte-shaped. (No Manage → pin: the
-    // fixture child has no grandchildren, so the link correctly does not
-    // render; the page.rs template tests pin the inline affordance.)
+    // The flag-off partition is empty and unconfirmed: the component's
+    // runtime tier dispatch keeps the flat legacy Edit/Delete buttons (in
+    // the component file, not the page) and deletes directly.
+    assert!(page.contains("menuActions={[]}"), "{page}");
+    assert!(page.contains("confirmDelete={false}"), "{page}");
     assert!(
-        page.contains(r#"onclick={() => editChild('common', 'sub-task', child.id)}"#),
+        page.contains(r#"childSectionTid="child-section-sub_task""#),
         "{page}"
     );
     assert!(
-        page.contains(r#"onclick={() => deleteChild('common', 'sub-task', child.id)}"#),
-        "{page}"
+        component.contains("{#if menuActions.length > 0}"),
+        "{component}"
     );
+    assert!(component.contains("{:else}"), "{component}");
+    assert!(component.contains("performDelete(child.id)"), "{component}");
 
     // No scaffold primitive surface under the flag.
     assert!(
@@ -1572,6 +1604,7 @@ async fn ux_rules_flag_off_emits_no_ux_specs() {
         rosetta_files: &[],
         ddd_files: &[],
         evt_files: &[],
+        deploy_files: &[],
         ifml_framework: &[],
         ifml_components: None,
         ifml_design_system: None,

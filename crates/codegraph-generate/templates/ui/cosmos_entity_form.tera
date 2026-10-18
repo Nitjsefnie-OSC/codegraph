@@ -6,6 +6,7 @@
 	import Input from '@community-os/ui/Input.svelte';
 	import Select from '@community-os/ui/Select.svelte';
 	import { api } from '$lib/api';
+	import type { {{ entity_name }}Response } from '#lib/api/types.ts';
 
 	type FormData = Record<string, unknown>;
 
@@ -14,11 +15,11 @@
 		apiPath: string;
 		routePath: string;
 		id?: string;
-		initialData?: Record<string, unknown>;
+		initialData?: {{ entity_name }}Response;
 		submitting?: boolean;
 	}
 
-	let { mode, apiPath, routePath, id = '', initialData = {}, submitting = $bindable(false) }: Props = $props();
+	let { mode, apiPath, routePath, id = '', initialData = undefined, submitting = $bindable(false) }: Props = $props();
 
 	let error = $state('');
 	let loading = $state(mode === 'edit');
@@ -26,33 +27,33 @@
 	// Form state
 {% for field in create_fields %}
 {% if field.input_type == "checkbox" %}
-	let {{ field.name }} = $state(Boolean(initialData['{{ field.name }}'] ?? false));
+	let {{ field.name }} = $state(Boolean(initialData?.{{ field.name }} ?? false));
 {% elif field.input_type == "number" %}
-	let {{ field.name }} = $state<string>(initialData['{{ field.name }}'] != null ? String(initialData['{{ field.name }}']) : '');
+	let {{ field.name }} = $state<string>(initialData?.{{ field.name }} != null ? String(initialData?.{{ field.name }}) : '');
 {% elif field.is_array and field.is_codelist %}
-	let {{ field.name }} = $state(Array.isArray(initialData['{{ field.name }}']) ? ((initialData['{{ field.name }}'] as {code:string}[])[0].code ?? '') : String(initialData['{{ field.name }}'] ?? ''));
+	let {{ field.name }} = $state(Array.isArray(initialData?.{{ field.name }}) ? ((initialData?.{{ field.name }} as {code:string}[])[0].code ?? '') : String(initialData?.{{ field.name }} ?? ''));
 {% elif field.is_array %}
 	let {{ field.name }} = $state<string[]>(
-		Array.isArray(initialData['{{ field.name }}'])
-			? initialData['{{ field.name }}'] as string[]
-			: ['']
+		Array.isArray(initialData?.{{ field.name }})
+			? initialData?.{{ field.name }} as string[]
+			: []
 	);
 {% elif field.structured_sub_fields | length > 0 and field.is_array %}
 	let {{ field.name }} = $state<Record<string, unknown>[]>(
-		Array.isArray(initialData['{{ field.name }}'])
-			? (initialData['{{ field.name }}'] as Record<string, unknown>[])
+		Array.isArray(initialData?.{{ field.name }})
+			? (initialData?.{{ field.name }} as Record<string, unknown>[])
 			: []
 	);
 {% elif field.structured_sub_fields | length > 0 %}
 	let {{ field.name }} = $state<Record<string, unknown>>(
-		typeof initialData['{{ field.name }}'] === 'object' && initialData['{{ field.name }}'] !== null && !Array.isArray(initialData['{{ field.name }}'])
-			? (initialData['{{ field.name }}'] as Record<string, unknown>)
+		typeof initialData?.{{ field.name }} === 'object' && initialData?.{{ field.name }} !== null && !Array.isArray(initialData?.{{ field.name }})
+			? (initialData?.{{ field.name }} as Record<string, unknown>)
 			: {}
 	);
 {% elif field.input_type == "datetime-local" %}
-	let {{ field.name }} = $state(String(initialData['{{ field.name }}'] ?? ''));
+	let {{ field.name }} = $state(String(initialData?.{{ field.name }} ?? ''));
 {% else %}
-	let {{ field.name }} = $state(String(initialData['{{ field.name }}'] ?? ''));
+	let {{ field.name }} = $state(String(initialData?.{{ field.name }} ?? ''));
 {% endif %}
 {% endfor %}
 
@@ -60,31 +61,31 @@
 		const payload: Record<string, unknown> = {};
 {% for field in update_fields %}
 {% if field.input_type == "checkbox" %}
-		if ({{ field.name }} !== Boolean(initialData['{{ field.name }}'])) payload['{{ field.name }}'] = {{ field.name }};
+		if ({{ field.name }} !== Boolean(initialData?.{{ field.name }})) payload['{{ field.name }}'] = {{ field.name }};
 {% elif field.input_type == "number" %}
 		{
 			const current = {{ field.name }}.trim();
-			const original = initialData['{{ field.name }}'] != null ? String(initialData['{{ field.name }}']) : '';
+			const original = initialData?.{{ field.name }} != null ? String(initialData?.{{ field.name }}) : '';
 			if (current !== original) payload['{{ field.name }}'] = current !== '' ? Number(current) : undefined;
 		}
 {% elif field.structured_sub_fields | length > 0 %}
-		if (JSON.stringify({{ field.name }}) !== JSON.stringify(initialData['{{ field.name }}'] ?? {})) payload['{{ field.name }}'] = {{ field.name }};
+		if (JSON.stringify({{ field.name }}) !== JSON.stringify(initialData?.{{ field.name }} ?? {})) payload['{{ field.name }}'] = {{ field.name }};
 {% elif field.is_array and field.is_codelist %}
-		if ({{ field.name }} !== String(initialData['{{ field.name }}'] ?? '')) payload['{{ field.name }}'] = [{ code: {{ field.name }} }];
+		if ({{ field.name }} !== String(initialData?.{{ field.name }} ?? '')) payload['{{ field.name }}'] = [{ code: {{ field.name }} }];
 {% elif field.is_array %}
 		{
 			const filtered = {{ field.name }}.filter((v: string) => v.trim() !== '');
-			const original = Array.isArray(initialData['{{ field.name }}']) ? initialData['{{ field.name }}'] : [];
+			const original = Array.isArray(initialData?.{{ field.name }}) ? initialData?.{{ field.name }} : [];
 			if (JSON.stringify(filtered) !== JSON.stringify(original)) payload['{{ field.name }}'] = filtered;
 		}
 {% elif field.input_type == "datetime-local" %}
-		if ({{ field.name }} !== String(initialData['{{ field.name }}'] ?? '')) payload['{{ field.name }}'] = {{ field.name }}.includes('Z') ? {{ field.name }} : {{ field.name }} + ':00Z';
+		if ({{ field.name }} !== String(initialData?.{{ field.name }} ?? '')) payload['{{ field.name }}'] = {{ field.name }}.includes('Z') ? {{ field.name }} : {{ field.name }} + ':00Z';
 {% elif field.is_immutable %}
 		// Immutable field — only send in create mode
 {% elif field.is_required %}
 		payload['{{ field.name }}'] = {{ field.name }};
 {% else %}
-		if ({{ field.name }} !== String(initialData['{{ field.name }}'] ?? '')) payload['{{ field.name }}'] = {{ field.name }};
+		if ({{ field.name }} !== String(initialData?.{{ field.name }} ?? '')) payload['{{ field.name }}'] = {{ field.name }};
 {% endif %}
 {% endfor %}
 		return payload;

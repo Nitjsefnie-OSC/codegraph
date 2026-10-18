@@ -5,6 +5,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateGenderCodeListRequest } from '#lib/api/types.ts';
+
 import { GenderCodeListPage } from './gender-code-list.page';
 
 
@@ -18,7 +21,7 @@ const BASE_PATH = '/common/gender-code-list';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreateGenderCodeListRequest | 'code', unknown>> {
   return {
     'code': `TestCode-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     'display_name': 'Test Display Name',

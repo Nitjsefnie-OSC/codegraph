@@ -343,7 +343,7 @@ export const CandidateDescriptor: EntityDescriptor = {
 
 
 
-      ref: { entity: 'ApplicationType', domain: 'recruiting', displayField: 'display_name' },
+      ref: { entity: 'ApplicationType', domain: 'recruiting', displayField: 'application_id' },
 
 
 
@@ -427,6 +427,7 @@ export const CandidateDescriptor: EntityDescriptor = {
       entity: 'DistributionGuidelines',
       relationship: 'one-to-many',
       inline: false,
+      displayField: 'start_date',
     },
 
     {
@@ -435,6 +436,7 @@ export const CandidateDescriptor: EntityDescriptor = {
       entity: 'Qualification',
       relationship: 'one-to-many',
       inline: false,
+      displayField: 'qualification_name',
     },
 
   ],

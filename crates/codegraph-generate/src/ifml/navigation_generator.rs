@@ -51,6 +51,11 @@ impl GlobalGenerator for IfmlNavigationGenerator {
             .map_err(crate::error::Error::Graph)?;
 
         if model.view_containers.is_empty() {
+            // Issue #468 finding 1: enabled-but-empty used to be silent.
+            eprintln!(
+                "warning: ifml_navigation: no IFML model in the graph \
+                 (pass --ifml-files); no navigation map emitted"
+            );
             return Ok(vec![]);
         }
 

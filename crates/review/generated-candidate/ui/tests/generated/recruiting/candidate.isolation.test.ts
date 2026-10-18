@@ -6,6 +6,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateCandidateRequest } from '#lib/api/types.ts';
+
 import { CandidatePage } from './candidate.page';
 
 
@@ -19,14 +22,14 @@ const BASE_PATH = '/recruiting/candidate';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreateCandidateRequest | 'code', unknown>> {
   return {
-    'birth_date': '2025-03-10',
+    'birth_date': '2026-01-15',
     'family_name': 'ACME Isolation Family Name',
     'given_name': 'ACME Isolation Given Name',
     // 'application_process_history': ValueObject — omit, serde default
-    'candidate_id': 'ACME Isolation Candidate Id',
-    'compensation_expectation': 77,
+    // 'candidate_id': entity ref — emitted by _dep_setup.tera
+    'compensation_expectation': 42.5,
     'compensation_expectation_currency': 'USD',
     // 'distribution_guidelines': ValueObject — omit, serde default
     'external_identifier': { value: 'ACME Isolation External Identifier' },
@@ -40,12 +43,15 @@ function testData(): Record<string, unknown> {
     'uri': 'ACME Isolation Uri',
 
 
+    ...(depIds['candidate_id'] ? { 'candidate_id': depIds['candidate_id'] } : {}),
+
   };
 }
 
 test.describe('Candidate Cross-Org Isolation', () => {
   let acmeEntityId: string;
-  const data = testData();
+  // Widened read view: list-column reads may touch response-only fields.
+  const data: Record<string, unknown> = testData();
 
   test.beforeAll(async ({ orgContext }) => {
 
@@ -61,6 +67,12 @@ test.describe('Candidate Cross-Org Isolation', () => {
     acmeEntityId = entity.id as string;
 });
 
+
+  test.afterAll(async ({ orgContext }) => {
+
+const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
+
+  });
 
 
 

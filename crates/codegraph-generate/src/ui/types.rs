@@ -24,6 +24,11 @@ pub struct UiTypesContext {
 pub struct UiNestedType {
     pub name: String,
     pub fields: Vec<UiTypeField>,
+    /// The VO's display field for `#lib/format.ts`'s typed renderer
+    /// (issue #468 W2): first readable name-ish string scalar, else None
+    /// (the renderer falls back to the dynamic `formatFallback`).
+    #[serde(default)]
+    pub display_field: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -189,9 +194,11 @@ impl GlobalGenerator for UiTypeGenerator {
                     )
                     .await
                     {
+                        let display_field = resolve_vo_display_field(&nt_fields);
                         nested_types.push(UiNestedType {
                             name: nested_ts_name,
                             fields: nt_fields,
+                            display_field,
                         });
                     }
                 }
@@ -204,17 +211,64 @@ impl GlobalGenerator for UiTypeGenerator {
         };
         let content = render_template_with_project(tera, "ui/scaffold/types.tera", &ctx, project)?;
 
-        Ok(vec![GeneratedFile {
-            path: self
-                .output_dir
-                .join("ui")
-                .join("src")
-                .join("lib")
-                .join("api")
-                .join("types.ts"),
-            content,
-        }])
+        let format_content =
+            render_template_with_project(tera, "ui/format.ts.tera", &ctx, project)?;
+
+        Ok(vec![
+            GeneratedFile {
+                path: self
+                    .output_dir
+                    .join("ui")
+                    .join("src")
+                    .join("lib")
+                    .join("api")
+                    .join("types.ts"),
+                content,
+            },
+            GeneratedFile {
+                path: self
+                    .output_dir
+                    .join("ui")
+                    .join("src")
+                    .join("lib")
+                    .join("format.ts"),
+                content: format_content,
+            },
+        ])
     }
+}
+
+/// The `#lib/format.ts` display-field pick for one value object (issue #468
+/// W2): first readable name-ish string scalar (skipping audit stamps and
+/// timestamps), else None — the emitted renderer falls back to the dynamic
+/// `formatFallback` so it stays total.
+fn resolve_vo_display_field(fields: &[UiTypeField]) -> Option<String> {
+    const AUDIT: [&str; 4] = ["id", "created_at", "updated_at", "deleted_at"];
+    const PREFERRED: [&str; 6] = [
+        "display_name",
+        "full_name",
+        "name",
+        "title",
+        "label",
+        "code",
+    ];
+    for pref in PREFERRED {
+        if let Some(f) = fields.iter().find(|f| f.name == pref)
+            && !f.is_array
+            && f.ts_type == "string"
+        {
+            return Some(f.name.clone());
+        }
+    }
+    fields
+        .iter()
+        .find(|f| {
+            !AUDIT.contains(&f.name.as_str())
+                && !f.is_array
+                && f.ts_type == "string"
+                && !f.name.ends_with("_at")
+        })
+        .map(|f| f.name.clone())
 }
 
 /// Collect fields for a nested ValueObject type by querying its schema from the graph.

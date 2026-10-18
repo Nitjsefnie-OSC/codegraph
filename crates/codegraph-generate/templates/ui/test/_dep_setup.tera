@@ -6,6 +6,8 @@
 #}
 {%- if dep_section == "before_all" -%}
 {% if dependency_errors | length > 0 %}
+    {# keep the message quote-free (see deps.rs) — model titles interpolate
+       into this single-quoted JS string. #}
     throw new Error('{{ dependency_errors | join(sep="; ") }}');
 {% endif %}
 {% for step in dependency_steps %}
@@ -19,8 +21,20 @@
       console.warn(`optional dependency {{ step.dep_id }} unavailable: ${e}`);
     }
 {% else %}
+{%- if step.cycle_breaks | length > 0 %}
+{%- for brk in step.cycle_breaks %}
+    // fixture: breaking required-FK cycle {{ brk.cycle_path }} by omitting '{{ brk.fk }}' on {{ brk.on_entity }}
+{%- endfor %}
+    try {
+      const dep_{{ loop.index }} = await createEntityAsAcme(orgContext, '{{ step.api_path }}', { {{ step.fields_json }}{% for fk in step.fk_map %}, '{{ fk[0] }}': depIds['{{ fk[1] }}']{% endfor %} });
+      depIds['{{ step.dep_id }}'] = {% if step.is_array %}[dep_{{ loop.index }}['id'] as string]{% else %}dep_{{ loop.index }}['id'] as string{% endif %};
+    } catch (e) {
+      throw new Error(`fixture: cycle-break create for '{{ step.dep_id }}' failed — the FK omitted to break the cycle ({{ step.cycle_break_paths }}) is still required by the API; make one ref optional in the model. Original error: ${e}`);
+    }
+{% else %}
     const dep_{{ loop.index }} = await createEntityAsAcme(orgContext, '{{ step.api_path }}', { {{ step.fields_json }}{% for fk in step.fk_map %}, '{{ fk[0] }}': depIds['{{ fk[1] }}']{% endfor %} });
     depIds['{{ step.dep_id }}'] = {% if step.is_array %}[dep_{{ loop.index }}['id'] as string]{% else %}dep_{{ loop.index }}['id'] as string{% endif %};
+{% endif -%}
 {% endif -%}
 {% endfor %}
 {%- elif dep_section == "after_all" -%}

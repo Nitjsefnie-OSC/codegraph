@@ -5,7 +5,7 @@ use codegraph_core::traits::GraphQuerier;
 use codegraph_core::types::{PropertyNode, SchemaNode};
 
 use super::common::collect_ui_fields;
-use super::context::{DependencyStep, EntityRefDep};
+use super::context::{CycleBreakCtx, DependencyStep, EntityRefDep};
 use super::fixtures::{build_test_data_json, test_value_for_field};
 use super::page::UiField;
 use super::refs::{
@@ -30,7 +30,12 @@ struct DepNode {
 /// Returns `(entity_ref_deps, dependency_steps, errors)`:
 /// - `entity_ref_deps` maps the main entity's required refs to `depIds` keys.
 /// - `dependency_steps` is ordered leaf-first so every FK is created first.
-/// - `errors` holds actionable messages for unsatisfiable/cyclic required deps.
+/// - `errors` holds actionable messages for unsatisfiable required deps.
+///
+/// Required-FK cycles are NOT errors: they are broken at the cycle's
+/// last-discovered leg (see `post_order_visit`), which is omitted from the
+/// break-point step's create body. Self-references are always omitted —
+/// a row cannot depend on itself.
 pub(super) async fn build_required_dependencies(
     db: &dyn GraphQuerier,
     config: &DomainConfig,
@@ -76,7 +81,15 @@ pub(super) async fn build_required_dependencies(
                     api_path: api_path_for_schema(&target, config),
                     is_array: field.is_array,
                 });
-                queue.push_back((target, dep_id, field.is_array));
+                // Self-reference (e.g. Job.job_id → Job): do not recurse — the
+                // fixture root create omits the leg. The conditional `testData`
+                // spread stays, so the FK is still set whenever the target is
+                // created transitively as someone else's dependency.
+                let target_is_main = target.title == main_title
+                    && target.domain.as_deref().unwrap_or(main_domain) == main_domain;
+                if !target_is_main {
+                    queue.push_back((target, dep_id, field.is_array));
+                }
             }
             None => errors.push(format!(
                 "required entity reference '{}' on {} has no resolvable target schema",
@@ -109,6 +122,8 @@ pub(super) async fn build_required_dependencies(
         // Required plain-uuid FK columns on the dependency (e.g. `party.case_id`
         // when creating a `Claim` whose closure pulls in `Party`) must also be
         // resolved by convention so the transitive closure stays complete.
+        // Every resolved target stays marked here regardless of creatability:
+        // targets without a create route become tolerant `optional` dep steps.
         let mut dep_fields = dep_fields;
         apply_convention_refs(db, config, &target_domain, &props, &mut dep_fields).await;
 
@@ -128,6 +143,11 @@ pub(super) async fn build_required_dependencies(
             match resolve_ref_schema(db, prop, &target.title, Some(&target_domain)).await {
                 Some(child_target) => {
                     let child_key = child_target.schema_id.clone();
+                    // Self-reference (X.x_id → X): omit the leg — the row
+                    // cannot depend on itself; the create proceeds without it.
+                    if child_key == key {
+                        continue;
+                    }
                     let child_dep_id = if let Some(existing) = assigned.get(&child_key) {
                         existing.clone()
                     } else {
@@ -182,10 +202,16 @@ pub(super) async fn build_required_dependencies(
         node_order.push(key);
     }
 
-    // Post-order DFS over the discovered graph (leaf-first) + cycle detection.
+    // Post-order DFS over the discovered graph (leaf-first) + cycle breaking.
+    // A back-edge closes a required-FK cycle; the DFS records it as the
+    // cycle's LAST leg and omits it from the parent's create body instead of
+    // aborting the whole `beforeAll` setup.
     let mut steps: Vec<DependencyStep> = Vec::new();
     let mut visited: HashSet<String> = HashSet::new();
     let mut visiting: HashSet<String> = HashSet::new();
+    let mut stack: Vec<String> = Vec::new();
+    // `(parent_key, child_key, break)` — the DFS-ordered broken legs.
+    let mut breaks: Vec<(String, String, CycleBreakCtx)> = Vec::new();
     let mut order: Vec<String> = Vec::new();
     for key in &node_order {
         post_order_visit(
@@ -193,17 +219,33 @@ pub(super) async fn build_required_dependencies(
             &nodes,
             &mut visited,
             &mut visiting,
+            &mut stack,
             &mut order,
-            &mut errors,
+            &mut breaks,
         );
     }
+    let broken_legs: HashSet<(&String, &String, &String)> =
+        breaks.iter().map(|(p, c, b)| (p, &b.fk, c)).collect();
     for key in &order {
         let Some(node) = nodes.get(key) else {
             continue;
         };
+        let cycle_breaks: Vec<CycleBreakCtx> = breaks
+            .iter()
+            .filter(|(parent, _, _)| parent == key)
+            .map(|(_, _, brk)| brk.clone())
+            .collect();
+        let cycle_break_paths = cycle_breaks
+            .iter()
+            .map(|brk| brk.cycle_path.clone())
+            .collect::<Vec<_>>()
+            .join("; ");
         let fk_map = node
             .children
             .iter()
+            .filter(|(fk, child_key)| {
+                !broken_legs.contains(&(key, fk, child_key)) && nodes.contains_key(child_key)
+            })
             .filter_map(|(fk, child_key)| {
                 nodes
                     .get(child_key)
@@ -217,6 +259,8 @@ pub(super) async fn build_required_dependencies(
             fk_map,
             is_array: node.is_array,
             optional: node.optional,
+            cycle_breaks,
+            cycle_break_paths,
         });
     }
 
@@ -228,32 +272,52 @@ fn post_order_visit(
     nodes: &std::collections::HashMap<String, DepNode>,
     visited: &mut HashSet<String>,
     visiting: &mut HashSet<String>,
+    stack: &mut Vec<String>,
     order: &mut Vec<String>,
-    errors: &mut Vec<String>,
+    breaks: &mut Vec<(String, String, CycleBreakCtx)>,
 ) {
-    if visited.contains(key) {
+    if visited.contains(key) || visiting.contains(key) {
         return;
     }
-    if !visiting.insert(key.to_string()) {
-        // Already on the current DFS stack — a required-dependency cycle.
-        let title = nodes
-            .get(key)
-            .map(|n| n.title.clone())
-            .unwrap_or_else(|| key.to_string());
-        let msg = format!(
-            "required dependency cycle detected involving '{}' — break the required FK cycle or make one ref optional",
-            title
-        );
-        if !errors.iter().any(|e| e == &msg) {
-            errors.push(msg);
-        }
-        return;
-    }
+    visiting.insert(key.to_string());
+    stack.push(key.to_string());
     if let Some(node) = nodes.get(key) {
-        for (_, child_key) in &node.children {
-            post_order_visit(child_key, nodes, visited, visiting, order, errors);
+        for (fk, child_key) in &node.children {
+            if visiting.contains(child_key) {
+                // Back-edge — this leg closes a required-FK cycle. Break the
+                // cycle here (the cycle's last leg) instead of aborting: the
+                // parent's create omits the FK. If the API layer genuinely
+                // requires it, the emitted spec surfaces a clear error.
+                let child_title = nodes
+                    .get(child_key)
+                    .map(|n| n.title.clone())
+                    .unwrap_or_else(|| child_key.clone());
+                let path_start = stack.iter().position(|k| k == child_key).unwrap_or(0);
+                let mut cycle_path: Vec<String> = stack[path_start..]
+                    .iter()
+                    .map(|k| {
+                        nodes
+                            .get(k)
+                            .map(|n| n.title.clone())
+                            .unwrap_or_else(|| k.clone())
+                    })
+                    .collect();
+                cycle_path.push(child_title);
+                breaks.push((
+                    key.to_string(),
+                    child_key.clone(),
+                    CycleBreakCtx {
+                        fk: fk.clone(),
+                        on_entity: node.title.clone(),
+                        cycle_path: cycle_path.join(" -> "),
+                    },
+                ));
+                continue;
+            }
+            post_order_visit(child_key, nodes, visited, visiting, stack, order, breaks);
         }
     }
+    stack.pop();
     visiting.remove(key);
     visited.insert(key.to_string());
     order.push(key.to_string());
