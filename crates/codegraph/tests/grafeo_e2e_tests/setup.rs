@@ -22,19 +22,25 @@ pub(crate) fn entity_names_from_config(
 
 /// Set up Grafeo engine with ingested fixture schemas.
 pub(crate) async fn setup_grafeo() -> (GrafeoEngine, codegraph_config::config::DomainConfig) {
+    setup_grafeo_from(Path::new("tests/fixtures")).await
+}
+
+/// [`setup_grafeo`] against an arbitrary fixture directory (domains.toml,
+/// classifier.toml, schemas/ directly underneath).
+pub(crate) async fn setup_grafeo_from(
+    fixture_dir: &Path,
+) -> (GrafeoEngine, codegraph_config::config::DomainConfig) {
     let config =
-        codegraph_config::config::parse_domain_config(Path::new("tests/fixtures/domains.toml"))
+        codegraph_config::config::parse_domain_config(&fixture_dir.join("domains.toml")).unwrap();
+    let classifier =
+        codegraph_classifier::config::parse_classifier_config(&fixture_dir.join("classifier.toml"))
             .unwrap();
-    let classifier = codegraph_classifier::config::parse_classifier_config(Path::new(
-        "tests/fixtures/classifier.toml",
-    ))
-    .unwrap();
     let entity_names = entity_names_from_config(&config);
     let engine = GrafeoEngine::in_memory().unwrap();
 
     codegraph::ingest::async_ingest::ingest_schemas(
         &engine,
-        Path::new("tests/fixtures/schemas"),
+        &fixture_dir.join("schemas"),
         &classifier,
         &entity_names,
         &codegraph_config::UiOverrideConfig::default(),
@@ -47,7 +53,12 @@ pub(crate) async fn setup_grafeo() -> (GrafeoEngine, codegraph_config::config::D
 }
 
 pub(crate) async fn generate_full_app(output_dir: &std::path::Path) {
-    let (engine, config) = setup_grafeo().await;
+    generate_full_app_from(output_dir, Path::new("tests/fixtures")).await
+}
+
+/// [`generate_full_app`] against an arbitrary fixture directory.
+pub(crate) async fn generate_full_app_from(output_dir: &std::path::Path, fixture_dir: &Path) {
+    let (engine, config) = setup_grafeo_from(fixture_dir).await;
     let tera =
         create_tera(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates")).unwrap();
 

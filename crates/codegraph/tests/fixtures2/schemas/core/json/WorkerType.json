@@ -1,0 +1,16 @@
+{
+  "$id": "WorkerType.json",
+  "title": "WorkerType",
+  "description": "A worker assigned to deployments",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Worker name"
+    },
+    "deployment": {
+      "type": "string",
+      "description": "Unformatted text field named like the referencing entity (TEXT/String column)"
+    }
+  }
+}

@@ -11,6 +11,7 @@ mod compile_gate;
 mod cross_layer;
 mod dto_content;
 mod full_generation;
+mod include_shapes;
 mod ingest;
 mod scaffold;
 mod setup;

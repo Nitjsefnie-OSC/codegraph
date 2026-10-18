@@ -235,6 +235,7 @@ impl RepositoryImplEmitter {
         include_segment_is_codelist: &[Vec<Vec<bool>>],
         include_segment_dto_rust_types: &[Vec<Vec<Option<String>>>],
         include_segment_is_nullable: &[Vec<Vec<bool>>],
+        include_segment_col_rust_types: &[Vec<Vec<String>>],
     ) {
         for (idx, path) in include_paths.iter().enumerate() {
             let target_tree = include_target_trees.get(idx).and_then(|t| t.as_ref());
@@ -262,6 +263,10 @@ impl RepositoryImplEmitter {
                 .get(idx)
                 .map(|v| v.as_slice())
                 .unwrap_or(&[]);
+            let per_seg_col_types = include_segment_col_rust_types
+                .get(idx)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
             if path.segments.len() == 1 {
                 let dto_fields = per_seg_dto.first().map(|v| v.as_slice()).unwrap_or(&[]);
                 let col_fields = per_seg_col.first().map(|v| v.as_slice()).unwrap_or(&[]);
@@ -281,6 +286,10 @@ impl RepositoryImplEmitter {
                     .first()
                     .map(|v| v.as_slice())
                     .unwrap_or(&[]);
+                let col_rust_types = per_seg_col_types
+                    .first()
+                    .map(|v| v.as_slice())
+                    .unwrap_or(&[]);
                 self.emit_single_fetch_method(
                     tree,
                     code,
@@ -292,6 +301,7 @@ impl RepositoryImplEmitter {
                     is_codelist,
                     dto_rust_types,
                     is_nullable,
+                    col_rust_types,
                 );
                 self.emit_batch_fetch_method(
                     tree,
@@ -304,6 +314,7 @@ impl RepositoryImplEmitter {
                     is_codelist,
                     dto_rust_types,
                     is_nullable,
+                    col_rust_types,
                 );
             } else {
                 let intermediate_dto = per_seg_dto.first().map(|v| v.as_slice()).unwrap_or(&[]);
@@ -339,6 +350,14 @@ impl RepositoryImplEmitter {
                     .get(1)
                     .map(|v| v.as_slice())
                     .unwrap_or(&[]);
+                let intermediate_col_types = per_seg_col_types
+                    .first()
+                    .map(|v| v.as_slice())
+                    .unwrap_or(&[]);
+                let leaf_col_types = per_seg_col_types
+                    .get(1)
+                    .map(|v| v.as_slice())
+                    .unwrap_or(&[]);
                 self.emit_dot_fetch_method(
                     tree,
                     code,
@@ -349,12 +368,14 @@ impl RepositoryImplEmitter {
                     intermediate_codelist,
                     intermediate_dto_types,
                     intermediate_nullable,
+                    intermediate_col_types,
                     leaf_dto,
                     leaf_col,
                     leaf_structured,
                     leaf_codelist,
                     leaf_dto_types,
                     leaf_nullable,
+                    leaf_col_types,
                 );
                 self.emit_dot_batch_fetch_method(tree, code, path);
             }
@@ -365,6 +386,9 @@ impl RepositoryImplEmitter {
     /// Like emit_field_assignments but applies the same type conversions as
     /// emit_entity_to_dto_field — serde_json::from_value() for structured
     /// wrappers, .parse() for codelists, direct assignment otherwise.
+    /// When the entity column's rust type differs from the DTO field type
+    /// (e.g. a Uuid FK column hydrating a TEXT-mapped String DTO field,
+    /// issue #459), the row value is adapted to the DTO type.
     fn emit_field_assignments_typed(
         code: &mut CodeWriter,
         row_var: &str,
@@ -374,6 +398,7 @@ impl RepositoryImplEmitter {
         is_codelist: &[bool],
         dto_rust_types: &[Option<String>],
         is_nullable: &[bool],
+        col_rust_types: &[String],
     ) {
         for i in 0..dto_fields.len() {
             let dto_name = &dto_fields[i];
@@ -410,7 +435,31 @@ impl RepositoryImplEmitter {
                     );
                 }
             } else {
-                wln!(code, "                {dto_name}: {row_var}.{col_name},");
+                // Plain column: adapt when the entity column type differs
+                // from the DTO field type (issue #459 — e.g. a Uuid FK
+                // column hydrating a TEXT-mapped String DTO field).
+                let col_ty = col_rust_types.get(i).map(String::as_str);
+                let dto_ty = dto_rust_types.get(i).and_then(Option::as_deref).or(col_ty);
+                let nullable = i < is_nullable.len() && is_nullable[i];
+                match (col_ty, dto_ty) {
+                    (Some("Uuid"), Some("String")) if nullable => wln!(
+                        code,
+                        "                {dto_name}: {row_var}.{col_name}.map(|v| v.to_string()),",
+                    ),
+                    (Some("Uuid"), Some("String")) => wln!(
+                        code,
+                        "                {dto_name}: {row_var}.{col_name}.to_string(),",
+                    ),
+                    (Some("String"), Some(other)) if other != "String" && nullable => wln!(
+                        code,
+                        "                {dto_name}: {row_var}.{col_name}.and_then(|v| v.parse().ok()),",
+                    ),
+                    (Some("String"), Some(other)) if other != "String" => wln!(
+                        code,
+                        "                {dto_name}: {row_var}.{col_name}.parse().unwrap_or_default(),",
+                    ),
+                    _ => wln!(code, "                {dto_name}: {row_var}.{col_name},"),
+                }
             }
         }
     }
@@ -429,6 +478,7 @@ impl RepositoryImplEmitter {
         is_codelist: &[bool],
         dto_rust_types: &[Option<String>],
         is_nullable: &[bool],
+        col_rust_types: &[String],
     ) {
         let seg = &path.segments[0];
         let src_module = &tree.entity_module;
@@ -492,6 +542,7 @@ impl RepositoryImplEmitter {
                 is_codelist,
                 dto_rust_types,
                 is_nullable,
+                col_rust_types,
             );
             if !hydration_children.is_empty() {
                 emit_child_field_population(code, hydration_children, "            ");
@@ -532,6 +583,7 @@ impl RepositoryImplEmitter {
                 is_codelist,
                 dto_rust_types,
                 is_nullable,
+                col_rust_types,
             );
             wln!(code, "                created_at: row.created_at,");
             if !target_tree.is_some_and(|t| t.append_only) {
@@ -604,6 +656,7 @@ impl RepositoryImplEmitter {
                 is_codelist,
                 dto_rust_types,
                 is_nullable,
+                col_rust_types,
             );
             wln!(code, "            created_at: target.created_at,");
             wln!(code, "            updated_at: target.updated_at,");
@@ -631,6 +684,7 @@ impl RepositoryImplEmitter {
         is_codelist: &[bool],
         dto_rust_types: &[Option<String>],
         is_nullable: &[bool],
+        col_rust_types: &[String],
     ) {
         let seg = &path.segments[0];
         let src_module = &tree.entity_module;
@@ -700,6 +754,7 @@ impl RepositoryImplEmitter {
                 is_codelist,
                 dto_rust_types,
                 is_nullable,
+                col_rust_types,
             );
             if !hydration_children.is_empty() {
                 emit_child_field_population(code, hydration_children, "                ");
@@ -765,6 +820,7 @@ impl RepositoryImplEmitter {
                 is_codelist,
                 dto_rust_types,
                 is_nullable,
+                col_rust_types,
             );
             wln!(code, "                created_at: row.created_at,");
             if !target_tree.is_some_and(|t| t.append_only) {
@@ -846,6 +902,7 @@ impl RepositoryImplEmitter {
                 is_codelist,
                 dto_rust_types,
                 is_nullable,
+                col_rust_types,
             );
             wln!(code, "                created_at: t.created_at,");
             if !target_tree.is_some_and(|t2| t2.append_only) {
@@ -898,12 +955,14 @@ impl RepositoryImplEmitter {
         intermediate_codelist: &[bool],
         intermediate_dto_types: &[Option<String>],
         intermediate_nullable: &[bool],
+        intermediate_col_types: &[String],
         leaf_dto: &[String],
         leaf_col: &[String],
         leaf_structured: &[bool],
         leaf_codelist: &[bool],
         leaf_dto_types: &[Option<String>],
         leaf_nullable: &[bool],
+        leaf_col_types: &[String],
     ) {
         let seg0 = &path.segments[0];
         let seg1 = &path.segments[1];
@@ -1000,6 +1059,7 @@ impl RepositoryImplEmitter {
             leaf_codelist,
             leaf_dto_types,
             leaf_nullable,
+            leaf_col_types,
         );
         wln!(code, "            created_at: l.created_at,");
         wln!(code, "            updated_at: l.updated_at,");
@@ -1018,6 +1078,7 @@ impl RepositoryImplEmitter {
             intermediate_codelist,
             intermediate_dto_types,
             intermediate_nullable,
+            intermediate_col_types,
         );
         wln!(code, "            created_at: intermediate.created_at,");
         wln!(code, "            updated_at: intermediate.updated_at,");

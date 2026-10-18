@@ -319,7 +319,7 @@ async fn resolve_explicit_paths(
             // Resolve FK column and array flag via graph query — uses
             // db.get_properties() which runs GQL internally.
             let (fk_column, is_array, _) =
-                resolve_fk_via_graph(db, current_source_title, &target_title, seg).await?;
+                resolve_fk_via_graph(db, current_source_title, &target_title, seg, false).await?;
 
             // Reverse FK: check config parent_ref first, then graph. A None
             // reverse (the target owns no verified FK property referencing
@@ -703,13 +703,17 @@ async fn resolve_auto_paths(
             schema_title,
             ref_title,
             &codegraph_naming::to_snake_case(ref_entity_name),
+            false,
         )
         .await?;
 
         let source_entity_name =
             super::router::strip_suffix(schema_title, &config.defaults.type_suffix);
+        // Strict: the reverse check decides which column an array fetch
+        // scans on the target — a decoy name match here used to emit
+        // `{target}::Column::{Child}` (issue #458).
         let (reverse_resolved, _, reverse_verified) =
-            resolve_fk_via_graph(db, ref_title, schema_title, source_entity_name).await?;
+            resolve_fk_via_graph(db, ref_title, schema_title, source_entity_name, true).await?;
 
         // A single forward reference whose FK column could not be located on
         // the source (convention fallback) would emit a fetch reading a
@@ -759,6 +763,22 @@ async fn resolve_auto_paths(
         } else {
             fk_column.clone()
         };
+
+        // Source-1-style gate (issue #458): the column an array fetch scans
+        // must exist as a real property of the target before the path is
+        // emitted — otherwise the generated `Column::{Reverse}` references a
+        // column the target entity does not have (E0599).
+        if is_array && !schema_has_fk_column(db, ref_title, &reverse_fk_column).await? {
+            tracing::warn!(
+                source = %schema_title,
+                target = %ref_title,
+                column = %reverse_fk_column,
+                "array entity reference skipped: back-FK column not found on the target \
+                 (junction or unmanaged relationship)"
+            );
+            continue;
+        }
+
         let fk_is_required = fk_column_is_required(db, schema_title, &fk_column).await?;
         let reverse_fk_is_required =
             fk_column_is_required(db, ref_title, &reverse_fk_column).await?;
@@ -1034,11 +1054,18 @@ async fn schema_has_fk_column(
 /// then matches properties by `ref_target` or field name.  This is the same
 /// pattern used by `build_composition_node()` in the Grafeo querier.
 ///
+/// `strict` mode (reverse-side checks only): Priorities 2–4 additionally
+/// require the matched property to carry a genuine reference edge to the
+/// target schema (`ReferencesSchema`), not merely a matching name or column
+/// name — a target-side property that merely happens to be named like the
+/// source (`deployment`, `deployment_id`) must never verify a back-FK.
+///
 async fn resolve_fk_via_graph(
     db: &dyn GraphQuerier,
     source_title: &str,
     target_title: &str,
     seg: &str,
+    strict: bool,
 ) -> Result<(String, bool, bool)> {
     // The third field is `verified`: false only for the terminal
     // convention fallback, where the returned column name is fabricated
@@ -1047,6 +1074,15 @@ async fn resolve_fk_via_graph(
     // the generated entity model may not have them (E0599).
     let seg_snake = codegraph_naming::to_snake_case(seg);
     let source_props = db.get_properties(source_title).await.unwrap_or_default();
+    // Strict (reverse-side) mode resolves a STORED back-FK column — array
+    // properties are junction/child-table relationships with no column on
+    // either side, so they never verify one (issue #458: a junction array
+    // property must not be matched by the ref-target priority either).
+    let source_props: Vec<codegraph_core::types::PropertyNode> = if strict {
+        source_props.into_iter().filter(|p| !p.is_array).collect()
+    } else {
+        source_props
+    };
 
     // Priority 1: property whose ref_target matches target_title (exact).
     // Schema titles often contain spaces while ref targets use filenames without
@@ -1081,6 +1117,9 @@ async fn resolve_fk_via_graph(
     for prop in &source_props {
         if prop.name.to_lowercase() == seg_snake || prop.rust_field_name.to_lowercase() == seg_snake
         {
+            if strict && !property_references(db, prop, source_title, target_title).await {
+                continue;
+            }
             let fd = resolve_field(prop);
             let mut col_name = fd.column_name;
             // If the property's $ref target is an entity (directly or via allOf),
@@ -1120,6 +1159,9 @@ async fn resolve_fk_via_graph(
             continue;
         }
         if prop.pg_column_name.to_lowercase() == seg_id {
+            if strict && !property_references(db, prop, source_title, target_title).await {
+                continue;
+            }
             let fd = resolve_field(prop);
             return Ok((fd.column_name, prop.is_array, true));
         }
@@ -1141,6 +1183,9 @@ async fn resolve_fk_via_graph(
                 continue;
             }
             if prop.pg_column_name.to_lowercase() == parent_seg_id {
+                if strict && !property_references(db, prop, source_title, target_title).await {
+                    continue;
+                }
                 let fd = resolve_field(prop);
                 return Ok((fd.column_name, prop.is_array, true));
             }
@@ -1157,6 +1202,21 @@ fn is_audit_column(pg_column_name: &str) -> bool {
     matches!(
         pg_column_name,
         "created_at" | "updated_at" | "deleted_at" | "deleted_by" | "updated_by"
+    )
+}
+
+/// Whether the property carries a genuine reference edge resolving to
+/// `target_title` — the Priority-1 evidence, required of the looser
+/// name/column priorities when resolving in strict (reverse-side) mode.
+async fn property_references(
+    db: &dyn GraphQuerier,
+    prop: &codegraph_core::types::PropertyNode,
+    source_title: &str,
+    target_title: &str,
+) -> bool {
+    matches!(
+        db.get_property_ref_target(&prop.name, source_title).await,
+        Ok(Some(target)) if target.title == target_title
     )
 }
 
@@ -1207,7 +1267,10 @@ async fn resolve_child_fk_column(
         child_title,
         &config.defaults.type_suffix,
     ));
-    let (fk, _, verified) = resolve_fk_via_graph(db, child_title, parent_title, &child_seg).await?;
+    // Strict (issue #458): the child-side FK must be a genuine reference to
+    // the parent — name/column matches alone are decoy-prone.
+    let (fk, _, verified) =
+        resolve_fk_via_graph(db, child_title, parent_title, &child_seg, true).await?;
     if !verified {
         return Ok(None);
     }
@@ -1290,6 +1353,54 @@ mod tests {
             ui_override_inline: None,
             type_expr: None,
         }
+    }
+
+    fn string_property(name: &str, pg_column: &str) -> PropertyNode {
+        PropertyNode {
+            name: name.to_string(),
+            prop_type: "string".to_string(),
+            description: None,
+            format: None,
+            is_required: false,
+            is_nullable: true,
+            is_id: false,
+            is_array: false,
+            min_items: None,
+            max_items: None,
+            pattern: None,
+            min_length: None,
+            max_length: None,
+            minimum: None,
+            maximum: None,
+            pg_column_name: pg_column.to_string(),
+            pg_column_type: "TEXT".to_string(),
+            rust_field_name: pg_column.to_string(),
+            rust_field_type: "String".to_string(),
+            sea_orm_type: "Text".to_string(),
+            render_strategy: "primitive_wrapper".to_string(),
+            ref_target: None,
+            classification: None,
+            classification_kind: None,
+            projection: None,
+            ui_override_detail: None,
+            ui_override_list_cell: None,
+            ui_override_form: None,
+            ui_override_inline: None,
+            type_expr: None,
+        }
+    }
+
+    fn array_ref_property(name: &str, pg_column: &str, ref_target: &str) -> PropertyNode {
+        PropertyNode {
+            is_array: true,
+            ..ref_property(name, pg_column, ref_target)
+        }
+    }
+
+    fn array_string_property(name: &str, pg_column: &str) -> PropertyNode {
+        let mut prop = string_property(name, pg_column);
+        prop.is_array = true;
+        prop
     }
 
     fn hr_config(entities: &[&str], extra: &str) -> codegraph_config::DomainConfig {
@@ -1534,6 +1645,66 @@ parent_ref = "worker_type_id"
         assert_eq!(
             fk, None,
             "phantom edge must resolve to None, not a fabricated {{parent}}_id column"
+        );
+    }
+
+    /// Issue #458: a target-side property merely NAMED like the source
+    /// ("deployment" / "deployment_id") must NOT verify a reverse FK. Here
+    /// DeploymentType array-references JobType (`assignments`, the ItemsOf
+    /// shape — no ReferencesSchema edge) and scalar-references it (`job`, the
+    /// edge that makes JobType discoverable). JobType carries two decoys and
+    /// NO genuine FK to DeploymentType: an array property named `deployment`
+    /// and a plain TEXT column `deployment_id`. The name/column match must
+    /// not count as a verified back-FK — the array include must be skipped,
+    /// never resolved with `Column::Deployment`/`DeploymentId` on core_job.
+    #[tokio::test]
+    async fn array_entity_reference_requires_genuine_reverse_reference() {
+        let mut deployment = schema_node("DeploymentType", "hr", "deployment", true);
+        deployment.rust_type_name = "Deployment".to_string();
+        let mut job = schema_node("JobType", "hr", "job", true);
+        job.rust_type_name = "Job".to_string();
+        let engine = MockEngine::builder()
+            .with_schema(deployment.clone())
+            .with_schema(job.clone())
+            .with_properties(
+                "DeploymentType",
+                vec![
+                    array_ref_property("assignments", "assignments", "JobType.json"),
+                    ref_property("job", "job_id", "JobType.json"),
+                ],
+            )
+            .with_ref_target("job", "DeploymentType", job.clone())
+            .with_properties(
+                "JobType",
+                vec![
+                    array_string_property("deployment", "deployment"),
+                    string_property("deployment_id", "deployment_id"),
+                ],
+            )
+            .build();
+
+        let config = hr_config(&["DeploymentType", "JobType"], "");
+        let paths = resolve_include_paths(&engine, &config, "hr", "DeploymentType", None)
+            .await
+            .unwrap();
+
+        let wrong_side: Vec<&str> = paths
+            .iter()
+            .flat_map(|p| p.segments.iter())
+            .filter(|s| s.schema_title == "JobType")
+            .map(|s| s.reverse_fk_column.as_str())
+            .collect();
+        assert!(
+            wrong_side.is_empty(),
+            "include targeting JobType must not resolve with a decoy reverse FK \
+             (no genuine JobType→DeploymentType reference exists); got {wrong_side:?} \
+             — the emitter would filter core_job::Column::Deployment(Id) (E0599)"
+        );
+        assert!(
+            !paths
+                .iter()
+                .any(|p| p.segments[0].schema_title == "JobType"),
+            "array cross-reference without a genuine back-FK must be skipped entirely"
         );
     }
 }
