@@ -18,14 +18,16 @@
 //!   `query_schemas`); duplicate titles make `title_namespace` last-wins over
 //!   a stable scan order (grafeo's FxHashMap-backed storage iterates
 //!   seed-fixed for identical insert sequences — ingestion is sequential and
-//!   input-file-ordered). `list_all_schema_references` order only feeds
+//!   input-file-ordered). `list_all_schema_references` (grafeo boundary
+//!   total order by (source, target), issue #452) only feeds
 //!   membership/adjacency whose selection is re-sorted by title.
 //! * **Consumers** — `all_domains_for_generation` appends entity-less
 //!   custom-routes domains in sorted-name order; `pipeline::write_entity_results`
 //!   allocates migration sequence numbers strictly in this Vec's order;
 //!   `pipeline::run_codelist_generators` sorts codelists by name before the
-//!   `CODELIST_START + idx` allocation. `parent_candidates` (grafeo scan
-//!   order) feed nested-route content only through per-title lookups.
+//!   `CODELIST_START + idx` allocation. `parent_candidates` (grafeo boundary
+//!   total order by (child, parent, field), issue #452) feed nested-route
+//!   content only through per-title lookups.
 //!
 //! Any new consumer of this module (or new graph read feeding emission) must
 //! sort at the emission boundary — never let a `HashMap`/`HashSet`/`DashMap`
