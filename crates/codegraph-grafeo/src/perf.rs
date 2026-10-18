@@ -11,6 +11,8 @@
 //! the session boundary), while the querier funnels through
 //! `querier::query::query_gql`/`query_gql_params` (bump `read_gql_calls`).
 
+use std::collections::BTreeMap;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static INGEST_NODE_INSERTS: AtomicU64 = AtomicU64::new(0);
@@ -19,6 +21,12 @@ static INGEST_GQL_CALLS: AtomicU64 = AtomicU64::new(0);
 static READ_GQL_CALLS: AtomicU64 = AtomicU64::new(0);
 static REGISTRY_EDGE_HITS: AtomicU64 = AtomicU64::new(0);
 static REGISTRY_EDGE_MISSES: AtomicU64 = AtomicU64::new(0);
+
+/// Read calls per querier method (issue #350 batch-targeting attribution):
+/// method name → call count. Bumped once per trait-method invocation at the
+/// `GraphQuerier` delegation adapter — inner inherent methods may run several
+/// GQL statements, the METHOD count is the attribution unit.
+static METHOD_READ_COUNTS: Mutex<BTreeMap<&'static str, u64>> = Mutex::new(BTreeMap::new());
 
 /// Point-in-time copy of every performance counter.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -87,4 +95,42 @@ pub(crate) fn bump_registry_edge_hit() {
 
 pub(crate) fn bump_registry_edge_miss() {
     REGISTRY_EDGE_MISSES.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Attribute one querier-method invocation (issue #350). ~11k calls over a
+/// 30s pass ≈ 400/s — a short mutex critical section is negligible.
+pub(crate) fn bump_method_read(method: &'static str) {
+    let mut counts = METHOD_READ_COUNTS.lock().unwrap_or_else(|e| e.into_inner());
+    *counts.entry(method).or_insert(0) += 1;
+}
+
+/// Snapshot the per-method read attribution: method name → call count since
+/// process start (or the last [`method_read_counts_reset`]).
+pub fn method_read_counts() -> BTreeMap<String, u64> {
+    let counts = METHOD_READ_COUNTS.lock().unwrap_or_else(|e| e.into_inner());
+    counts.iter().map(|(k, v)| ((*k).to_string(), *v)).collect()
+}
+
+/// Zero the per-method read attribution.
+pub fn method_read_counts_reset() {
+    let mut counts = METHOD_READ_COUNTS.lock().unwrap_or_else(|e| e.into_inner());
+    counts.clear();
+}
+
+#[cfg(test)]
+mod method_read_tests {
+    use super::*;
+
+    #[test]
+    fn bump_counts_then_reset_clears() {
+        method_read_counts_reset();
+        bump_method_read("test_get_properties");
+        bump_method_read("test_get_properties");
+        bump_method_read("test_get_enum_values");
+        let counts = method_read_counts();
+        assert_eq!(counts.get("test_get_properties"), Some(&2));
+        assert_eq!(counts.get("test_get_enum_values"), Some(&1));
+        method_read_counts_reset();
+        assert!(!method_read_counts().contains_key("test_get_properties"));
+    }
 }
