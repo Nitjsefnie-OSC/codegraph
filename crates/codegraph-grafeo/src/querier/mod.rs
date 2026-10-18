@@ -7,6 +7,7 @@ mod evt;
 mod governance;
 mod ifml;
 mod query;
+pub use query::{query_count, reset_query_count};
 mod schema;
 
 use std::collections::HashMap;
