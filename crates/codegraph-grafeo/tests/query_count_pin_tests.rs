@@ -18,7 +18,7 @@ use codegraph_grafeo::{query_count, reset_query_count};
 static COUNTER_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 use codegraph_core::traits::{GraphIngestor, GraphQuerier};
-use codegraph_core::types::{CodeList, PropertyNode, SchemaClassificationData, SchemaNode};
+use codegraph_core::types::{CodeList, PropertyNode, SchemaNode};
 use codegraph_core::types::{EdgeProperties, EdgeType};
 use codegraph_grafeo::GrafeoEngine;
 use codegraph_type_contracts::RefClassificationKind;
