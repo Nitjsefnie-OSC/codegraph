@@ -5,6 +5,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateCodeRequest } from '#lib/api/types.ts';
+
 import { CodePage } from './code.page';
 
 
@@ -18,7 +21,7 @@ const BASE_PATH = '/common/code';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreateCodeRequest | 'code', unknown>> {
   return {
 
 

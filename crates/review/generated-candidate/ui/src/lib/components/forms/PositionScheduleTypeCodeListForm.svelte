@@ -11,31 +11,31 @@
 	import { ArrayField } from '#lib/components/ui/array-field/index.js';
 	import { StructuredWrapperField } from '#lib/components/ui/structured-wrapper-field/index.js';
 	import * as m from '#lib/paraglide/messages.js';
-	import type { CreatePositionScheduleTypeCodeListRequest, UpdatePositionScheduleTypeCodeListRequest } from '#lib/api/types.ts';
+	import type { CreatePositionScheduleTypeCodeListRequest, UpdatePositionScheduleTypeCodeListRequest, PositionScheduleTypeCodeListResponse } from '#lib/api/types.ts';
 
 	type FormData = CreatePositionScheduleTypeCodeListRequest | UpdatePositionScheduleTypeCodeListRequest;
 
 	interface Props {
 		mode: 'create' | 'edit';
-		initialData?: Record<string, unknown>;
+		initialData?: PositionScheduleTypeCodeListResponse;
 		onSubmit: (data: FormData) => void;
 		submitting?: boolean;
 	}
 
-	let { mode, initialData = {}, onSubmit, submitting = false }: Props = $props();
+	let { mode, initialData = undefined, onSubmit, submitting = false }: Props = $props();
 
 	// Form state
 
 
-	let code = $state(String(initialData['code'] ?? ''));
+	let code = $state(String(initialData?.code ?? ''));
 
 
 
-	let display_name = $state(String(initialData['display_name'] ?? ''));
+	let display_name = $state(String(initialData?.display_name ?? ''));
 
 
 
-	let sort_order = $state<number | undefined>(initialData['sort_order'] != null ? Number(initialData['sort_order']) : undefined);
+	let sort_order = $state<number | undefined>(initialData?.sort_order != null ? Number(initialData?.sort_order) : undefined);
 
 
 
@@ -61,15 +61,15 @@
 			// Edit mode: only send changed fields
 
 
-			if (code !== String(initialData['code'] ?? '')) data['code'] = code;
+			if (code !== String(initialData?.code ?? '')) data['code'] = code;
 
 
 
-			if (display_name !== String(initialData['display_name'] ?? '')) data['display_name'] = display_name;
+			if (display_name !== String(initialData?.display_name ?? '')) data['display_name'] = display_name;
 
 
 
-			if (sort_order !== Number(initialData['sort_order'])) data['sort_order'] = sort_order;
+			if (sort_order !== Number(initialData?.sort_order)) data['sort_order'] = sort_order;
 
 
 		}

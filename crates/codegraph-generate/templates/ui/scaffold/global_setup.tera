@@ -34,14 +34,34 @@ async function createOrgUser(
 
   const userId = data.user.id;
 
-  // The on_auth_user_created trigger has already created the org.
-  // Query basejump.account_user via direct pg (not exposed via PostgREST).
+  // The on_auth_user_created trigger creates a PERSONAL account (basejump
+  // run_new_user_setup), but the generated UI gates owner actions on a
+  // non-personal org (`find(a => !a.personal_account)`) — a personal-only
+  // fixture left every owner-gated button unrendered (issue #468: 138
+  // measured failures). Create a REAL team account and join the owner.
+  const slug = orgName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 40);
   const { rows } = await pgPool.query(
-    'SELECT account_id FROM basejump.account_user WHERE user_id = $1 LIMIT 1',
-    [userId],
+    `INSERT INTO basejump.accounts (primary_owner_user_id, name, slug, personal_account)
+     VALUES ($1, $2, $3, false)
+     RETURNING id`,
+    [userId, orgName, slug],
   );
-  if (!rows.length) throw new Error(`No org found for user ${email}`);
-  return { userId, orgId: rows[0].account_id };
+  const orgId = rows[0].id as string;
+  await pgPool.query(
+    'INSERT INTO basejump.account_user (account_id, user_id, account_role) VALUES ($1, $2, $3)',
+    [orgId, userId, 'owner'],
+  );
+
+  // Remove the auto-created personal account so org resolution is unambiguous.
+  await pgPool.query('DELETE FROM basejump.accounts WHERE primary_owner_user_id = $1 AND id != $2', [
+    userId,
+    orgId,
+  ]);
+  return { userId, orgId };
 }
 
 async function addUserToOrg(

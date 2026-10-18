@@ -364,6 +364,136 @@ async fn ifml_generate_multiple_frameworks() {
     assert!(output.join("react/app/customer-detail/page.tsx").exists());
 }
 
+/// Cross-domain component-name collision end-to-end (the
+/// wellness/compensation shape): two IFML files each declaring a
+/// view-level component named "history" must generate pages carrying only
+/// their own component's table, handlers, and fields — bare-name keying
+/// used to aggregate every domain's "history" into each page.
+#[tokio::test]
+async fn ifml_generate_scopes_same_named_components_to_their_own_view() {
+    const WELLNESS_IFML: &str = r#"
+view "ActivityDashboard" {
+    component "history" {
+        type: list;
+        data: WellnessActivity;
+        fields: [note, minutes];
+
+        on create -> navigate("ActivityForm");
+        on refreshData -> refresh("history");
+    }
+}
+
+view "ActivityForm" {
+    component "recorder" {
+        type: form;
+        data: WellnessActivity;
+        fields: [note, minutes];
+
+        on save(values) -> stay;
+        on cancel -> navigate("ActivityDashboard");
+    }
+}
+"#;
+    const COMPENSATION_IFML: &str = r#"
+view "CompensationHistory" {
+    component "history" {
+        type: list;
+        data: Reward;
+        fields: [rewardCode, points];
+
+        on select(row) -> navigate("RewardEditor");
+        on create -> navigate("RewardEditor");
+    }
+}
+
+view "RewardEditor" {
+    component "editor" {
+        type: form;
+        data: Reward;
+        fields: [rewardCode, points];
+
+        on save(values) -> stay;
+        on cancel -> navigate("CompensationHistory");
+    }
+}
+"#;
+    let dir = tempfile::tempdir().unwrap();
+    write_domains_toml(dir.path());
+    let wellness = dir.path().join("wellness.ifml");
+    std::fs::write(&wellness, WELLNESS_IFML).unwrap();
+    let compensation = dir.path().join("compensation.ifml");
+    std::fs::write(&compensation, COMPENSATION_IFML).unwrap();
+    let output = dir.path().join("out");
+    let domains_toml = dir.path().join("domains.toml");
+
+    codegraph::driver::ifml_generate(make_args(
+        &domains_toml,
+        &output,
+        &[wellness, compensation],
+        &frameworks(&["svelte"]),
+    ))
+    .await
+    .unwrap();
+
+    let dashboard =
+        std::fs::read_to_string(output.join("svelte/src/routes/activitydashboard/+page.svelte"))
+            .unwrap();
+    assert_eq!(
+        dashboard.matches("function comp_history_create").count(),
+        1,
+        "exactly one create handler, declared once: {}",
+        dashboard
+    );
+    assert_eq!(
+        dashboard.matches("data-testid=\"history-table\"").count(),
+        1,
+        "exactly one history table: {dashboard}"
+    );
+    assert!(
+        !dashboard.contains("comp_history_select"),
+        "must not carry the other domain's events: {dashboard}"
+    );
+    assert!(
+        !dashboard.contains("rewardCode"),
+        "must not render the other domain's fields: {dashboard}"
+    );
+
+    let form_page =
+        std::fs::read_to_string(output.join("svelte/src/routes/activityform/+page.svelte"))
+            .unwrap();
+    assert!(
+        form_page.contains("data-testid=\"recorder-form\"")
+            && form_page.contains("comp_recorder_cancel"),
+        "the view's own second component still renders: {form_page}"
+    );
+
+    let compensation_page =
+        std::fs::read_to_string(output.join("svelte/src/routes/compensationhistory/+page.svelte"))
+            .unwrap();
+    assert_eq!(
+        compensation_page
+            .matches("function comp_history_select")
+            .count(),
+        1,
+        "exactly one select handler, declared once: {compensation_page}"
+    );
+    assert_eq!(
+        compensation_page
+            .matches("data-testid=\"history-table\"")
+            .count(),
+        1,
+        "exactly one history table: {compensation_page}"
+    );
+    assert!(
+        compensation_page.contains("rewardCode"),
+        "the compensation fields render on their own page: {compensation_page}"
+    );
+    assert!(
+        !compensation_page.contains("minutes"),
+        "must not render the other domain's fields: {compensation_page}"
+    );
+}
+
 /// `ifml-generate` must emit a buildable SvelteKit skeleton: package.json
 /// with the SvelteKit toolchain, vite config proxying `/api`, svelte config,
 /// tsconfig, and the app shell. Existing skeleton files are never

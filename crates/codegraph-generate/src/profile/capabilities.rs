@@ -223,6 +223,7 @@ fn base_capabilities() -> HashMap<String, GeneratorCapability> {
         cap("ui_types",             Global, Ui,    &[], &[]),
         cap("ui_codelist",          Global, Ui,    &[], &[]),
         cap("ui_orgchart",          Global, Ui,    &[], &[]),
+        cap("ui_testids",           Global, Ui,    &[], &[]),
         cap("hook_registry",        Global, Common, &[], &[]),
         cap("domain_types_scaffold", Global, Common, &[], &[]),
         cap("report_views",         Global, Common, &[], &[]),

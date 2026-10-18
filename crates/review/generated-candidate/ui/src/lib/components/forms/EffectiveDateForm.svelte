@@ -11,27 +11,27 @@
 	import { ArrayField } from '#lib/components/ui/array-field/index.js';
 	import { StructuredWrapperField } from '#lib/components/ui/structured-wrapper-field/index.js';
 	import * as m from '#lib/paraglide/messages.js';
-	import type { CreateEffectiveDateRequest, UpdateEffectiveDateRequest } from '#lib/api/types.ts';
+	import type { CreateEffectiveDateRequest, UpdateEffectiveDateRequest, EffectiveDateResponse } from '#lib/api/types.ts';
 
 	type FormData = CreateEffectiveDateRequest | UpdateEffectiveDateRequest;
 
 	interface Props {
 		mode: 'create' | 'edit';
-		initialData?: Record<string, unknown>;
+		initialData?: EffectiveDateResponse;
 		onSubmit: (data: FormData) => void;
 		submitting?: boolean;
 	}
 
-	let { mode, initialData = {}, onSubmit, submitting = false }: Props = $props();
+	let { mode, initialData = undefined, onSubmit, submitting = false }: Props = $props();
 
 	// Form state
 
 
-	let valid_from = $state(String(initialData['valid_from'] ?? ''));
+	let valid_from = $state(String(initialData?.valid_from ?? ''));
 
 
 
-	let valid_to = $state(String(initialData['valid_to'] ?? ''));
+	let valid_to = $state(String(initialData?.valid_to ?? ''));
 
 
 
@@ -53,11 +53,11 @@
 			// Edit mode: only send changed fields
 
 
-			if (valid_from !== String(initialData['valid_from'] ?? '')) data['valid_from'] = valid_from;
+			if (valid_from !== String(initialData?.valid_from ?? '')) data['valid_from'] = valid_from;
 
 
 
-			if (valid_to !== String(initialData['valid_to'] ?? '')) data['valid_to'] = valid_to;
+			if (valid_to !== String(initialData?.valid_to ?? '')) data['valid_to'] = valid_to;
 
 
 		}

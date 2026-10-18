@@ -11,49 +11,49 @@
 	import { ArrayField } from '#lib/components/ui/array-field/index.js';
 	import { StructuredWrapperField } from '#lib/components/ui/structured-wrapper-field/index.js';
 	import * as m from '#lib/paraglide/messages.js';
-	import type { Create{{ entity_name }}Request, Update{{ entity_name }}Request } from '#lib/api/types.ts';
+	import type { Create{{ entity_name }}Request, Update{{ entity_name }}Request, {{ entity_name }}Response } from '#lib/api/types.ts';
 
 	type FormData = Create{{ entity_name }}Request | Update{{ entity_name }}Request;
 
 	interface Props {
 		mode: 'create' | 'edit';
-		initialData?: Record<string, unknown>;
+		initialData?: {{ entity_name }}Response;
 		onSubmit: (data: FormData) => void;
 		submitting?: boolean;
 	}
 
-	let { mode, initialData = {}, onSubmit, submitting = false }: Props = $props();
+	let { mode, initialData = undefined, onSubmit, submitting = false }: Props = $props();
 
 	// Form state
 {% for field in create_fields %}
 {% if field.input_type == "checkbox" %}
-	let {{ field.name }} = $state(Boolean(initialData['{{ field.name }}'] ?? false));
+	let {{ field.name }} = $state(Boolean(initialData?.{{ field.name }} ?? false));
 {% elif field.input_type == "number" %}
-	let {{ field.name }} = $state<number | undefined>(initialData['{{ field.name }}'] != null ? Number(initialData['{{ field.name }}']) : undefined);
+	let {{ field.name }} = $state<number | undefined>(initialData?.{{ field.name }} != null ? Number(initialData?.{{ field.name }}) : undefined);
 {% elif field.input_type == "date-range" %}
-	let {{ field.name }} = $state(String(initialData['{{ field.name }}'] ?? ''));
+	let {{ field.name }} = $state(String(initialData?.{{ field.name }} ?? ''));
 {% elif field.structured_sub_fields | length > 0 and field.is_array %}
 	let {{ field.name }} = $state<Record<string, unknown>[]>(
-		Array.isArray(initialData['{{ field.name }}'])
-			? (initialData['{{ field.name }}'] as Record<string, unknown>[])
-			: [{}]
+		Array.isArray(initialData?.{{ field.name }})
+			? (initialData?.{{ field.name }} as Record<string, unknown>[])
+			: []
 	);
 {% elif field.structured_sub_fields | length > 0 %}
 	let {{ field.name }} = $state<Record<string, unknown>>(
-		typeof initialData['{{ field.name }}'] === 'object' && initialData['{{ field.name }}'] !== null && !Array.isArray(initialData['{{ field.name }}'])
-			? (initialData['{{ field.name }}'] as Record<string, unknown>)
+		typeof initialData?.{{ field.name }} === 'object' && initialData?.{{ field.name }} !== null && !Array.isArray(initialData?.{{ field.name }})
+			? (initialData?.{{ field.name }} as Record<string, unknown>)
 			: {}
 	);
 {% elif field.input_type == "array" or (field.is_array and not field.is_codelist) %}
 	let {{ field.name }} = $state<string[]>(
-		Array.isArray(initialData['{{ field.name }}'])
-			? initialData['{{ field.name }}'] as string[]
-			: ['']
+		Array.isArray(initialData?.{{ field.name }})
+			? initialData?.{{ field.name }} as string[]
+			: []
 	);
 {% elif field.is_array and field.is_codelist %}
-	let {{ field.name }} = $state(Array.isArray(initialData['{{ field.name }}']) ? ((initialData['{{ field.name }}'] as {code:string}[])[0]?.code ?? '') : String(initialData['{{ field.name }}'] ?? ''));
+	let {{ field.name }} = $state(Array.isArray(initialData?.{{ field.name }}) ? ((initialData?.{{ field.name }} as {code:string}[])[0]?.code ?? '') : String(initialData?.{{ field.name }} ?? ''));
 {% else %}
-	let {{ field.name }} = $state(String(initialData['{{ field.name }}'] ?? ''));
+	let {{ field.name }} = $state(String(initialData?.{{ field.name }} ?? ''));
 {% endif %}
 {% endfor %}
 
@@ -96,39 +96,39 @@
 			// Edit mode: only send changed fields
 {% for field in update_fields %}
 {% if field.input_type == "checkbox" %}
-			if ({{ field.name }} !== Boolean(initialData['{{ field.name }}'])) data['{{ field.name }}'] = {{ field.name }};
+			if ({{ field.name }} !== Boolean(initialData?.{{ field.name }})) data['{{ field.name }}'] = {{ field.name }};
 {% elif field.input_type == "number" %}
-			if ({{ field.name }} !== Number(initialData['{{ field.name }}'])) data['{{ field.name }}'] = {{ field.name }};
+			if ({{ field.name }} !== Number(initialData?.{{ field.name }})) data['{{ field.name }}'] = {{ field.name }};
 {% elif field.input_type == "date-range" %}
-			if ({{ field.name }} !== String(initialData['{{ field.name }}'] ?? '')) data['{{ field.name }}'] = {{ field.name }};
+			if ({{ field.name }} !== String(initialData?.{{ field.name }} ?? '')) data['{{ field.name }}'] = {{ field.name }};
 {% elif field.structured_sub_fields | length > 0 and field.is_array %}
 			{
 				const filtered_{{ field.name }} = {{ field.name }}.filter((item: Record<string, unknown>) => Object.values(item).some((v) => String(v).trim() !== ''));
-				const original_{{ field.name }} = Array.isArray(initialData['{{ field.name }}']) ? initialData['{{ field.name }}'] : [];
+				const original_{{ field.name }} = Array.isArray(initialData?.{{ field.name }}) ? initialData?.{{ field.name }} : [];
 				if (JSON.stringify(filtered_{{ field.name }}) !== JSON.stringify(original_{{ field.name }})) data['{{ field.name }}'] = filtered_{{ field.name }};
 			}
 {% elif field.structured_sub_fields | length > 0 %}
-			if (JSON.stringify({{ field.name }}) !== JSON.stringify(initialData['{{ field.name }}'] ?? {})) data['{{ field.name }}'] = {{ field.name }};
+			if (JSON.stringify({{ field.name }}) !== JSON.stringify(initialData?.{{ field.name }} ?? {})) data['{{ field.name }}'] = {{ field.name }};
 {% elif field.input_type == "array" %}
 			{
 				const filtered = {{ field.name }}.filter((v: string) => v.trim() !== '');
-				const original = Array.isArray(initialData['{{ field.name }}']) ? initialData['{{ field.name }}'] : [];
+				const original = Array.isArray(initialData?.{{ field.name }}) ? initialData?.{{ field.name }} : [];
 				if (JSON.stringify(filtered) !== JSON.stringify(original)) data['{{ field.name }}'] = filtered;
 			}
 {% elif field.is_entity_ref %}
-			if ({{ field.name }} !== String(initialData['{{ field.name }}'] ?? '')) data['{{ field.name }}'] = {{ field.name }};
+			if ({{ field.name }} !== String(initialData?.{{ field.name }} ?? '')) data['{{ field.name }}'] = {{ field.name }};
 {% elif field.is_array and field.is_codelist %}
-			if ({{ field.name }} !== String(initialData['{{ field.name }}'] ?? '')) data['{{ field.name }}'] = [{ code: {{ field.name }} }];
+			if ({{ field.name }} !== String(initialData?.{{ field.name }} ?? '')) data['{{ field.name }}'] = [{ code: {{ field.name }} }];
 {% elif field.is_array and not field.is_codelist %}
 			{
 				const filtered = {{ field.name }}.filter((v: string) => v.trim() !== '');
-				const original = Array.isArray(initialData['{{ field.name }}']) ? initialData['{{ field.name }}'] : [];
+				const original = Array.isArray(initialData?.{{ field.name }}) ? initialData?.{{ field.name }} : [];
 				if (JSON.stringify(filtered) !== JSON.stringify(original)) data['{{ field.name }}'] = filtered;
 			}
 {% elif field.input_type == "datetime-local" %}
-			if ({{ field.name }} !== String(initialData['{{ field.name }}'] ?? '')) data['{{ field.name }}'] = {{ field.name }}.includes('Z') ? {{ field.name }} : {{ field.name }} + ':00Z';
+			if ({{ field.name }} !== String(initialData?.{{ field.name }} ?? '')) data['{{ field.name }}'] = {{ field.name }}.includes('Z') ? {{ field.name }} : {{ field.name }} + ':00Z';
 {% else %}
-			if ({{ field.name }} !== String(initialData['{{ field.name }}'] ?? '')) data['{{ field.name }}'] = {{ field.name }};
+			if ({{ field.name }} !== String(initialData?.{{ field.name }} ?? '')) data['{{ field.name }}'] = {{ field.name }};
 {% endif %}
 {% endfor %}
 		}
@@ -137,7 +137,7 @@
 	}
 </script>
 
-<form onsubmit={handleSubmit} class="space-y-6" aria-label={% raw %}{{% endraw %}mode === 'create' ? m.{{ domain }}_{{ module_name }}_new() : m.common_edit() + ' ' + m.{{ domain }}_{{ module_name }}_title(){% raw %}}{% endraw %} data-testid="{{ module_name }}-form">
+<form onsubmit={handleSubmit} class="space-y-6" aria-label={% raw %}{{% endraw %}mode === 'create' ? m.{{ domain }}_{{ module_name }}_new() : m.common_edit() + ' ' + m.{{ domain }}_{{ module_name }}_title(){% raw %}}{% endraw %} data-testid="{{ tid.form }}">
 	<Field.Group>
 {% for field in create_fields %}
 {% if field.is_codelist %}
@@ -252,10 +252,10 @@
 
 	<div class="flex flex-col-reverse gap-3 pt-4 sm:flex-row sm:justify-end">
 {% raw %}
-		<Button variant="outline" type="button" onclick={() => history.back()} data-testid="{% endraw %}{{ module_name }}{% raw %}-cancel-btn">
+		<Button variant="outline" type="button" onclick={() => history.back()} data-testid="{% endraw %}{{ tid.cancel_btn }}{% raw %}">
 			{m.common_cancel()}
 		</Button>
-		<Button type="submit" disabled={submitting} data-testid="{% endraw %}{{ module_name }}{% raw %}-submit-btn">
+		<Button type="submit" disabled={submitting} data-testid="{% endraw %}{{ tid.submit_btn }}{% raw %}">
 			{#if submitting}
 				<Spinner class="mr-2 h-4 w-4" />
 				{m.common_saving()}

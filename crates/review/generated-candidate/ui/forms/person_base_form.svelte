@@ -6,6 +6,7 @@
 	import Input from '@community-os/ui/Input.svelte';
 	import Select from '@community-os/ui/Select.svelte';
 	import { api } from '$lib/api';
+	import type { PersonBaseResponse } from '#lib/api/types.ts';
 
 	type FormData = Record<string, unknown>;
 
@@ -14,11 +15,11 @@
 		apiPath: string;
 		routePath: string;
 		id?: string;
-		initialData?: Record<string, unknown>;
+		initialData?: PersonBaseResponse;
 		submitting?: boolean;
 	}
 
-	let { mode, apiPath, routePath, id = '', initialData = {}, submitting = $bindable(false) }: Props = $props();
+	let { mode, apiPath, routePath, id = '', initialData = undefined, submitting = $bindable(false) }: Props = $props();
 
 	let error = $state('');
 	let loading = $state(mode === 'edit');
@@ -26,15 +27,15 @@
 	// Form state
 
 
-	let birth_date = $state(String(initialData['birth_date'] ?? ''));
+	let birth_date = $state(String(initialData?.birth_date ?? ''));
 
 
 
-	let family_name = $state(String(initialData['family_name'] ?? ''));
+	let family_name = $state(String(initialData?.family_name ?? ''));
 
 
 
-	let given_name = $state(String(initialData['given_name'] ?? ''));
+	let given_name = $state(String(initialData?.given_name ?? ''));
 
 
 
@@ -42,7 +43,7 @@
 		const payload: Record<string, unknown> = {};
 
 
-		if (birth_date !== String(initialData['birth_date'] ?? '')) payload['birth_date'] = birth_date;
+		if (birth_date !== String(initialData?.birth_date ?? '')) payload['birth_date'] = birth_date;
 
 
 

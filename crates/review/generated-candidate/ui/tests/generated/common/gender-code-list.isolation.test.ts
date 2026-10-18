@@ -6,6 +6,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateGenderCodeListRequest } from '#lib/api/types.ts';
+
 import { GenderCodeListPage } from './gender-code-list.page';
 
 
@@ -19,7 +22,7 @@ const BASE_PATH = '/common/gender-code-list';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreateGenderCodeListRequest | 'code', unknown>> {
   return {
     'code': `TestCode-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     'display_name': 'ACME Isolation Display Name',
@@ -31,7 +34,8 @@ function testData(): Record<string, unknown> {
 
 test.describe('GenderCodeList Cross-Org Isolation', () => {
   let acmeEntityId: string;
-  const data = testData();
+  // Widened read view: list-column reads may touch response-only fields.
+  const data: Record<string, unknown> = testData();
 
   test.beforeAll(async ({ orgContext }) => {
 

@@ -11,35 +11,35 @@
 	import { ArrayField } from '#lib/components/ui/array-field/index.js';
 	import { StructuredWrapperField } from '#lib/components/ui/structured-wrapper-field/index.js';
 	import * as m from '#lib/paraglide/messages.js';
-	import type { CreateIdentifierRequest, UpdateIdentifierRequest } from '#lib/api/types.ts';
+	import type { CreateIdentifierRequest, UpdateIdentifierRequest, IdentifierResponse } from '#lib/api/types.ts';
 
 	type FormData = CreateIdentifierRequest | UpdateIdentifierRequest;
 
 	interface Props {
 		mode: 'create' | 'edit';
-		initialData?: Record<string, unknown>;
+		initialData?: IdentifierResponse;
 		onSubmit: (data: FormData) => void;
 		submitting?: boolean;
 	}
 
-	let { mode, initialData = {}, onSubmit, submitting = false }: Props = $props();
+	let { mode, initialData = undefined, onSubmit, submitting = false }: Props = $props();
 
 	// Form state
 
 
-	let scheme_agency_id = $state(String(initialData['scheme_agency_id'] ?? ''));
+	let scheme_agency_id = $state(String(initialData?.scheme_agency_id ?? ''));
 
 
 
-	let scheme_id = $state(String(initialData['scheme_id'] ?? ''));
+	let scheme_id = $state(String(initialData?.scheme_id ?? ''));
 
 
 
-	let scheme_version_id = $state(String(initialData['scheme_version_id'] ?? ''));
+	let scheme_version_id = $state(String(initialData?.scheme_version_id ?? ''));
 
 
 
-	let value = $state(String(initialData['value'] ?? ''));
+	let value = $state(String(initialData?.value ?? ''));
 
 
 
@@ -69,19 +69,19 @@
 			// Edit mode: only send changed fields
 
 
-			if (scheme_agency_id !== String(initialData['scheme_agency_id'] ?? '')) data['scheme_agency_id'] = scheme_agency_id;
+			if (scheme_agency_id !== String(initialData?.scheme_agency_id ?? '')) data['scheme_agency_id'] = scheme_agency_id;
 
 
 
-			if (scheme_id !== String(initialData['scheme_id'] ?? '')) data['scheme_id'] = scheme_id;
+			if (scheme_id !== String(initialData?.scheme_id ?? '')) data['scheme_id'] = scheme_id;
 
 
 
-			if (scheme_version_id !== String(initialData['scheme_version_id'] ?? '')) data['scheme_version_id'] = scheme_version_id;
+			if (scheme_version_id !== String(initialData?.scheme_version_id ?? '')) data['scheme_version_id'] = scheme_version_id;
 
 
 
-			if (value !== String(initialData['value'] ?? '')) data['value'] = value;
+			if (value !== String(initialData?.value ?? '')) data['value'] = value;
 
 
 		}

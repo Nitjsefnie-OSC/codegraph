@@ -142,15 +142,22 @@ async fn ifml_conditionals_persist_expr_json() {
         .get_ifml_view_components("Promo")
         .await
         .expect("components");
-    let grid = components.iter().find(|c| c.name == "grid").expect("grid");
+    // View-level components persist under the owning view's namespace.
+    let grid = components
+        .iter()
+        .find(|c| c.name == "Promo/grid")
+        .expect("grid");
     let grid_json = grid
         .expr_json
         .as_ref()
         .expect("a conditioned component must persist expr_json");
-    let payload: Value = serde_json::from_str(grid_json).expect("valid JSON");
+    let payload: Value = serde_json::from_str(grid_json).expect("expr_json must be valid JSON");
     assert_eq!(payload["type"], "binOp", "{payload}");
 
-    let events = engine.get_ifml_events("comp:grid").await.expect("events");
+    let events = engine
+        .get_ifml_events("comp:Promo/grid")
+        .await
+        .expect("events");
     let select = events
         .iter()
         .find(|e| e.event_type == "select")

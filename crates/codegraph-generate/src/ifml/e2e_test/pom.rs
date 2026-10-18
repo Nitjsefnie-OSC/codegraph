@@ -25,6 +25,13 @@
 //! gated: kernel and page classes are emitted whenever any IFML spec is
 //! emitted — never ux-flag gated.
 //!
+//! The auth-flag surface (issue #463, extended by issue #468 W5):
+//! `expectDeniedPresentation` (the guarded surface stays hidden), the
+//! wizard `step(name)` record (one entry per nested container of an xor
+//! view), and the `journeyTo{Target}` hop methods the navigation journeys
+//! drive — all rendered only when the flag is on; flag off keeps the plan
+//! byte-identical.
+//!
 //! Method naming: `open(params)` navigates (NOT `goto` — that would clash
 //! with `BasePage`'s raw-path goto under the TS type checker).
 
@@ -72,6 +79,39 @@ pub(crate) struct ViewPom {
     pub forms: Vec<PomForm>,
     pub details: Vec<PomDetails>,
     pub flows: Vec<PomFlow>,
+    /// Wizard step surface (issue #468 W5, auth-gated): one entry per
+    /// nested container of an xor view whose primary component root
+    /// resolves — the `step('Name')` record on the page class.
+    pub steps: Vec<PomStep>,
+    /// Journey hop methods (issue #468 W5, auth-gated): the control clicks
+    /// the `{view}.journey.spec.ts` walks drive.
+    pub journey_steps: Vec<PomJourneyStep>,
+}
+
+/// One wizard step: a nested container of an xor view and the component
+/// testid standing in for its surface.
+#[derive(Debug)]
+pub(crate) struct PomStep {
+    pub name: String,
+    pub testid: String,
+}
+
+/// One journey hop method: the control click (+ submit fills) and the
+/// landing URL wait.
+#[derive(Debug, Clone)]
+pub(crate) struct PomJourneyStep {
+    pub method: String,
+    /// The component owning the control (names the `{name}Row()` /
+    /// `{name}Submit()` accessors the method composes).
+    pub component: String,
+    /// Row hop: click `{component}Row()`.
+    pub row: bool,
+    /// Submit hop: run the fills, then click `{component}Submit()`.
+    pub submit: bool,
+    /// POM fill method + literal pairs (submit hops).
+    pub fills: Vec<(String, String)>,
+    /// `RegExp` source of the landing URL.
+    pub pattern: String,
 }
 
 /// One collection component: row accessor + optional workflow/ux surface.
@@ -176,7 +216,8 @@ pub(crate) struct PomFlow {
 /// all. The workflow and ux-object surfaces are MODEL-derived (markup
 /// parity: badges/buttons/chips render whenever the config/plan renders
 /// them). `auth_enabled` (issue #463) additionally gives every guarded
-/// view a denial target and derives the form cancel surface.
+/// view a denial target, derives the form cancel surface, and — with the
+/// issue #468 W5 journeys — the wizard step record and the hop methods.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_view_pom(
     config: &DomainConfig,
@@ -186,12 +227,14 @@ pub(crate) fn build_view_pom(
     rules: Option<&UxRules>,
     plans: &HashMap<String, UxPlan>,
     auth_enabled: bool,
+    journey_steps: &[PomJourneyStep],
 ) -> ViewPom {
     let mut pom = ViewPom {
         view_name: vc.name.clone(),
         class_name: format!("{}Page", to_pascal_case(&vc.name)),
         route: view_route(&vc.name),
         auth_enabled,
+        journey_steps: journey_steps.to_vec(),
         ..Default::default()
     };
     let selectors_for =
@@ -234,6 +277,15 @@ pub(crate) fn build_view_pom(
         // No testable root at all: persona assertions fall back to the
         // view heading.
         pom.heading = Some(vc.label.clone().unwrap_or_else(|| vc.name.clone()));
+    }
+    if pom.primary_root.is_none() && auth_enabled {
+        // Issue #468 W5: journey arrivals (and gating hidden-surface
+        // assertions) drive the primary surface of views no payload covers
+        // — param'd/unguarded views resolve their primary root straight
+        // from the model. Flag off keeps the plan byte-identical.
+        if let Some((_, root)) = primary_component(vc, mappings) {
+            pom.primary_root = Some(root);
+        }
     }
 
     // Collections (model-derived surface + plan-gated ux object).
@@ -366,6 +418,21 @@ pub(crate) fn build_view_pom(
             close_testid,
             back_pattern,
         });
+    }
+
+    // Wizard steps (issue #468 W5, auth-gated): one step surface per nested
+    // container of an xor view — the container's primary component root
+    // stands in for its surface.
+    if auth_enabled && vc.is_xor {
+        for container in &vc.containers {
+            let Some((_, root)) = primary_component(container, mappings) else {
+                continue;
+            };
+            pom.steps.push(PomStep {
+                name: container.name.clone(),
+                testid: root,
+            });
+        }
     }
     pom
 }
@@ -650,7 +717,7 @@ received = ["review"]
         let config = workflow_config();
         let vc = list_view();
 
-        let bare = build_view_pom(&config, None, &vc, None, None, &HashMap::new(), false);
+        let bare = build_view_pom(&config, None, &vc, None, None, &HashMap::new(), false, &[]);
         let rendered = render_pom_page(&bare);
         assert!(
             rendered.contains("export class CustomerListPage extends BasePage {"),
@@ -755,6 +822,7 @@ received = ["review"]
             None,
             &HashMap::new(),
             false,
+            &[],
         );
         let rendered = render_pom_page(&full);
         assert!(
@@ -810,6 +878,7 @@ entities = []
             None,
             &HashMap::new(),
             false,
+            &[],
         );
         let rendered = render_pom_page(&pom);
         assert!(rendered.contains("heading(): Locator"), "{rendered}");
@@ -828,7 +897,7 @@ entities = []
         let config = workflow_config();
         let mut vc = list_view();
         vc.components.retain(|c| c.component_type == "details");
-        let pom = build_view_pom(&config, None, &vc, None, None, &HashMap::new(), false);
+        let pom = build_view_pom(&config, None, &vc, None, None, &HashMap::new(), false, &[]);
         let rendered = render_pom_page(&pom);
         assert!(
             rendered
@@ -836,5 +905,229 @@ entities = []
             "details workflow must pull in expect:\n{rendered}"
         );
         assert!(rendered.contains("async expectInfoState"), "{rendered}");
+    }
+
+    /// The W5 surface (issue #468) is auth-flag-gated: `step()` on xor
+    /// views (one record entry per nested container), the journey hop
+    /// methods (row click / fill+submit), and `expectDeniedPresentation`
+    /// for guarded views. Flag off, none of it renders.
+    #[test]
+    fn w5_surface_is_auth_gated() {
+        use super::super::super::context::IfmlEvent;
+        use super::PomJourneyStep;
+        use std::collections::HashMap as Map;
+
+        let config: DomainConfig = toml::from_str(
+            r#"
+[defaults]
+api_version = "v1"
+
+[domains.sales]
+label = "Sales"
+schema_dir = "sales"
+postgres_schema = "sales"
+entities = []
+"#,
+        )
+        .unwrap();
+
+        let select_to_detail = IfmlEvent {
+            name: "comp_grid_select".to_string(),
+            event_type: "select".to_string(),
+            params: Vec::new(),
+            requires: Vec::new(),
+            action: IfmlAction::Navigate {
+                target: "CustomerDetail".to_string(),
+                binding: Map::new(),
+            },
+        };
+        let save_to_wizard = IfmlEvent {
+            name: "comp_editor_save".to_string(),
+            event_type: "save".to_string(),
+            params: Vec::new(),
+            requires: Vec::new(),
+            action: IfmlAction::Navigate {
+                target: "RequestWizard".to_string(),
+                binding: Map::new(),
+            },
+        };
+
+        // An xor wizard view: two nested containers with component roots.
+        let mut wizard = list_view();
+        wizard.name = "RequestWizard".to_string();
+        wizard.is_xor = true;
+        wizard.components.clear();
+        wizard.params.clear();
+        let mut plan = list_view();
+        plan.name = "Plan".to_string();
+        plan.components.retain(|c| c.name == "editor");
+        let mut compare = list_view();
+        compare.name = "Compare".to_string();
+        compare.components.retain(|c| c.component_type == "details");
+        wizard.containers = vec![plan, compare];
+
+        // A guarded view (roles) whose persona payload carries the denial.
+        let mut guarded = list_view();
+        guarded.name = "AdminOnly".to_string();
+        guarded.roles = vec!["Admin".to_string()];
+        guarded.components.retain(|c| c.name == "grid");
+        guarded.events = vec![select_to_detail.clone()];
+        let mut guarded_spec = ViewTestSpec {
+            view_name: "AdminOnly".to_string(),
+            label: "Admin Only".to_string(),
+            route: "/adminonly".to_string(),
+            render: None,
+            click_throughs: Vec::new(),
+            validations: Vec::new(),
+            round_trips: Vec::new(),
+            personas: vec![PersonaTest {
+                actor: "Agent".to_string(),
+                permitted: false,
+                route: "/adminonly".to_string(),
+                label: "Admin Only".to_string(),
+                assert_heading: true,
+                primary_testid: None,
+                denial_target: "/customerlist".to_string(),
+                capabilities: None,
+                control_testid: None,
+                control_component: None,
+            }],
+        };
+        guarded_spec.personas.push(PersonaTest {
+            actor: "Admin".to_string(),
+            permitted: true,
+            route: "/adminonly".to_string(),
+            label: "Admin Only".to_string(),
+            assert_heading: true,
+            primary_testid: None,
+            denial_target: "/customerlist".to_string(),
+            capabilities: None,
+            control_testid: None,
+            control_component: None,
+        });
+
+        let journey_steps = vec![PomJourneyStep {
+            method: "journeyToRequestWizard".to_string(),
+            component: "editor".to_string(),
+            row: false,
+            submit: true,
+            fills: vec![("fillEditorTitle".to_string(), "'Test title'".to_string())],
+            pattern: "/requestwizard$".to_string(),
+        }];
+
+        // Flag ON: step() record, hop methods, hidden-surface assertion.
+        let on = build_view_pom(
+            &config,
+            None,
+            &wizard,
+            None,
+            None,
+            &HashMap::new(),
+            true,
+            &journey_steps,
+        );
+        let rendered = render_pom_page(&on);
+        assert!(
+            rendered.contains("step(name: string): Locator"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("'Plan': 'editor-form'"), "{rendered}");
+        assert!(rendered.contains("'Compare': 'info-details'"), "{rendered}");
+        assert!(
+            rendered.contains("async journeyToRequestWizard()"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("await this.fillEditorTitle('Test title');")
+                && rendered.contains("await this.editorSubmit().click();"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("waitForURL(new RegExp('/requestwizard$'))"),
+            "{rendered}"
+        );
+
+        let guarded_on = build_view_pom(
+            &config,
+            None,
+            &guarded,
+            Some(&guarded_spec),
+            None,
+            &HashMap::new(),
+            true,
+            &[],
+        );
+        let guarded_rendered = render_pom_page(&guarded_on);
+        assert!(
+            guarded_rendered.contains("async expectDeniedPresentation(reason: string)"),
+            "{guarded_rendered}"
+        );
+        assert!(
+            guarded_rendered.contains("await expect(this.heading(), reason).not.toBeVisible();"),
+            "{guarded_rendered}"
+        );
+
+        // Flag OFF: none of the W5 surface, and the rest is byte-identical.
+        let off = build_view_pom(
+            &config,
+            None,
+            &wizard,
+            None,
+            None,
+            &HashMap::new(),
+            false,
+            &[],
+        );
+        let off_rendered = render_pom_page(&off);
+        assert!(
+            !off_rendered.contains("step(name: string)"),
+            "{off_rendered}"
+        );
+        assert!(!off_rendered.contains("journeyTo"), "{off_rendered}");
+        assert!(
+            !off_rendered.contains("expectDeniedPresentation"),
+            "{off_rendered}"
+        );
+        let guarded_off = build_view_pom(
+            &config,
+            None,
+            &guarded,
+            Some(&guarded_spec),
+            None,
+            &HashMap::new(),
+            false,
+            &[],
+        );
+        let guarded_off_rendered = render_pom_page(&guarded_off);
+        assert!(
+            !guarded_off_rendered.contains("expectDeniedPresentation"),
+            "{guarded_off_rendered}"
+        );
+        assert!(guarded_off_rendered.contains("async expectDenied()"));
+
+        // The save event's hop uses the form submit, never a raw testid.
+        let mut form_view = list_view();
+        form_view.name = "RequestForm".to_string();
+        form_view.components.retain(|c| c.name == "editor");
+        form_view.events = vec![save_to_wizard];
+        let form_pom = build_view_pom(
+            &config,
+            None,
+            &form_view,
+            None,
+            None,
+            &HashMap::new(),
+            true,
+            &journey_steps,
+        );
+        let form_rendered = render_pom_page(&form_pom);
+        assert!(
+            form_rendered.contains("await this.editorSubmit().click();"),
+            "{form_rendered}"
+        );
+        assert!(
+            form_rendered.contains("waitForURL(new RegExp('/requestwizard$'))"),
+            "{form_rendered}"
+        );
     }
 }

@@ -5,6 +5,9 @@
 
 import { test, expect } from '../../e2e/fixtures/personas';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateProcessHistoryRequest } from '#lib/api/types.ts';
+
 import {
   createEntityAsAcme,
   createEntityViaApi,
@@ -26,13 +29,11 @@ const BASE_PATH = '/common/process-history';
 const depIds: Record<string, string | string[]> = {};
 
 
-
-function testData(): Record<string, unknown> {
-
+function testData(): Partial<Record<keyof CreateProcessHistoryRequest | 'code', unknown>> {
   return {
 
 
-    'action_date': '2025-01-15T10:30:00Z',
+    'action_date': '2026-01-15T08:00:00Z',
 
 
 
@@ -48,13 +49,11 @@ function testData(): Record<string, unknown> {
   };
 }
 
-
-function updatedData(): Record<string, unknown> {
-
+function updatedData(): Partial<Record<keyof CreateProcessHistoryRequest | 'code', unknown>> {
   return {
 
 
-    'action_date': '2025-06-20T14:00:00Z',
+    'action_date': '2026-06-20T14:00:00Z',
 
 
 
@@ -88,7 +87,10 @@ test.describe('ProcessHistory CRUD', () => {
     await ui.gotoCreate();
     // Wait for SvelteKit to hydrate so the form's onsubmit handler is attached
     await ui.waitForForm();
-    const data = testData();
+    // Widened read view: the keyed testData() checks the payload's keys;
+    // form-fill reads may touch convention-resolved FK columns the
+    // generated Create request type does not declare.
+    const data: Record<string, unknown> = testData();
 
 
 
@@ -204,7 +206,7 @@ test.describe('ProcessHistory CRUD', () => {
 
     await ui.gotoEdit(myId);
     await ui.waitForForm();
-    const data = updatedData();
+    const data: Record<string, unknown> = updatedData();
 
 
 

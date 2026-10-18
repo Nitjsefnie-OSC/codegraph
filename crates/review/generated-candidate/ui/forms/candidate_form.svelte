@@ -6,6 +6,7 @@
 	import Input from '@community-os/ui/Input.svelte';
 	import Select from '@community-os/ui/Select.svelte';
 	import { api } from '$lib/api';
+	import type { CandidateResponse } from '#lib/api/types.ts';
 
 	type FormData = Record<string, unknown>;
 
@@ -14,11 +15,11 @@
 		apiPath: string;
 		routePath: string;
 		id?: string;
-		initialData?: Record<string, unknown>;
+		initialData?: CandidateResponse;
 		submitting?: boolean;
 	}
 
-	let { mode, apiPath, routePath, id = '', initialData = {}, submitting = $bindable(false) }: Props = $props();
+	let { mode, apiPath, routePath, id = '', initialData = undefined, submitting = $bindable(false) }: Props = $props();
 
 	let error = $state('');
 	let loading = $state(mode === 'edit');
@@ -26,95 +27,95 @@
 	// Form state
 
 
-	let birth_date = $state(String(initialData['birth_date'] ?? ''));
+	let birth_date = $state(String(initialData?.birth_date ?? ''));
 
 
 
-	let family_name = $state(String(initialData['family_name'] ?? ''));
+	let family_name = $state(String(initialData?.family_name ?? ''));
 
 
 
-	let given_name = $state(String(initialData['given_name'] ?? ''));
+	let given_name = $state(String(initialData?.given_name ?? ''));
 
 
 
 	let application_process_history = $state<Record<string, unknown>>(
-		typeof initialData['application_process_history'] === 'object' && initialData['application_process_history'] !== null && !Array.isArray(initialData['application_process_history'])
-			? (initialData['application_process_history'] as Record<string, unknown>)
+		typeof initialData?.application_process_history === 'object' && initialData?.application_process_history !== null && !Array.isArray(initialData?.application_process_history)
+			? (initialData?.application_process_history as Record<string, unknown>)
 			: {}
 	);
 
 
 
-	let candidate_id = $state(String(initialData['candidate_id'] ?? ''));
+	let candidate_id = $state(String(initialData?.candidate_id ?? ''));
 
 
 
-	let compensation_expectation = $state<string>(initialData['compensation_expectation'] != null ? String(initialData['compensation_expectation']) : '');
+	let compensation_expectation = $state<string>(initialData?.compensation_expectation != null ? String(initialData?.compensation_expectation) : '');
 
 
 
-	let compensation_expectation_currency = $state(String(initialData['compensation_expectation_currency'] ?? ''));
+	let compensation_expectation_currency = $state(String(initialData?.compensation_expectation_currency ?? ''));
 
 
 
 	let distribution_guidelines = $state<Record<string, unknown>>(
-		typeof initialData['distribution_guidelines'] === 'object' && initialData['distribution_guidelines'] !== null && !Array.isArray(initialData['distribution_guidelines'])
-			? (initialData['distribution_guidelines'] as Record<string, unknown>)
+		typeof initialData?.distribution_guidelines === 'object' && initialData?.distribution_guidelines !== null && !Array.isArray(initialData?.distribution_guidelines)
+			? (initialData?.distribution_guidelines as Record<string, unknown>)
 			: {}
 	);
 
 
 
 	let external_identifier = $state<Record<string, unknown>>(
-		typeof initialData['external_identifier'] === 'object' && initialData['external_identifier'] !== null && !Array.isArray(initialData['external_identifier'])
-			? (initialData['external_identifier'] as Record<string, unknown>)
+		typeof initialData?.external_identifier === 'object' && initialData?.external_identifier !== null && !Array.isArray(initialData?.external_identifier)
+			? (initialData?.external_identifier as Record<string, unknown>)
 			: {}
 	);
 
 
 
-	let gender = $state(String(initialData['gender'] ?? ''));
+	let gender = $state(String(initialData?.gender ?? ''));
 
 
 
 	let person_name = $state<Record<string, unknown>>(
-		typeof initialData['person_name'] === 'object' && initialData['person_name'] !== null && !Array.isArray(initialData['person_name'])
-			? (initialData['person_name'] as Record<string, unknown>)
+		typeof initialData?.person_name === 'object' && initialData?.person_name !== null && !Array.isArray(initialData?.person_name)
+			? (initialData?.person_name as Record<string, unknown>)
 			: {}
 	);
 
 
 
-	let position_schedule_type_codes = $state(Array.isArray(initialData['position_schedule_type_codes']) ? ((initialData['position_schedule_type_codes'] as {code:string}[])[0].code ?? '') : String(initialData['position_schedule_type_codes'] ?? ''));
+	let position_schedule_type_codes = $state(Array.isArray(initialData?.position_schedule_type_codes) ? ((initialData?.position_schedule_type_codes as {code:string}[])[0].code ?? '') : String(initialData?.position_schedule_type_codes ?? ''));
 
 
 
 	let position_titles = $state<string[]>(
-		Array.isArray(initialData['position_titles'])
-			? initialData['position_titles'] as string[]
-			: ['']
+		Array.isArray(initialData?.position_titles)
+			? initialData?.position_titles as string[]
+			: []
 	);
 
 
 
 	let qualifications = $state<string[]>(
-		Array.isArray(initialData['qualifications'])
-			? initialData['qualifications'] as string[]
-			: ['']
+		Array.isArray(initialData?.qualifications)
+			? initialData?.qualifications as string[]
+			: []
 	);
 
 
 
-	let referred_by_application_id = $state(String(initialData['referred_by_application_id'] ?? ''));
+	let referred_by_application_id = $state(String(initialData?.referred_by_application_id ?? ''));
 
 
 
-	let status = $state(String(initialData['status'] ?? ''));
+	let status = $state(String(initialData?.status ?? ''));
 
 
 
-	let uri = $state(String(initialData['uri'] ?? ''));
+	let uri = $state(String(initialData?.uri ?? ''));
 
 
 
@@ -122,7 +123,7 @@
 		const payload: Record<string, unknown> = {};
 
 
-		if (birth_date !== String(initialData['birth_date'] ?? '')) payload['birth_date'] = birth_date;
+		if (birth_date !== String(initialData?.birth_date ?? '')) payload['birth_date'] = birth_date;
 
 
 
@@ -134,7 +135,7 @@
 
 
 
-		if (JSON.stringify(application_process_history) !== JSON.stringify(initialData['application_process_history'] ?? {})) payload['application_process_history'] = application_process_history;
+		if (JSON.stringify(application_process_history) !== JSON.stringify(initialData?.application_process_history ?? {})) payload['application_process_history'] = application_process_history;
 
 
 
@@ -144,57 +145,57 @@
 
 		{
 			const current = compensation_expectation.trim();
-			const original = initialData['compensation_expectation'] != null ? String(initialData['compensation_expectation']) : '';
+			const original = initialData?.compensation_expectation != null ? String(initialData?.compensation_expectation) : '';
 			if (current !== original) payload['compensation_expectation'] = current !== '' ? Number(current) : undefined;
 		}
 
 
 
-		if (compensation_expectation_currency !== String(initialData['compensation_expectation_currency'] ?? '')) payload['compensation_expectation_currency'] = compensation_expectation_currency;
+		if (compensation_expectation_currency !== String(initialData?.compensation_expectation_currency ?? '')) payload['compensation_expectation_currency'] = compensation_expectation_currency;
 
 
 
-		if (JSON.stringify(distribution_guidelines) !== JSON.stringify(initialData['distribution_guidelines'] ?? {})) payload['distribution_guidelines'] = distribution_guidelines;
+		if (JSON.stringify(distribution_guidelines) !== JSON.stringify(initialData?.distribution_guidelines ?? {})) payload['distribution_guidelines'] = distribution_guidelines;
 
 
 
-		if (JSON.stringify(external_identifier) !== JSON.stringify(initialData['external_identifier'] ?? {})) payload['external_identifier'] = external_identifier;
+		if (JSON.stringify(external_identifier) !== JSON.stringify(initialData?.external_identifier ?? {})) payload['external_identifier'] = external_identifier;
 
 
 
-		if (gender !== String(initialData['gender'] ?? '')) payload['gender'] = gender;
+		if (gender !== String(initialData?.gender ?? '')) payload['gender'] = gender;
 
 
 
-		if (JSON.stringify(person_name) !== JSON.stringify(initialData['person_name'] ?? {})) payload['person_name'] = person_name;
+		if (JSON.stringify(person_name) !== JSON.stringify(initialData?.person_name ?? {})) payload['person_name'] = person_name;
 
 
 
-		if (position_schedule_type_codes !== String(initialData['position_schedule_type_codes'] ?? '')) payload['position_schedule_type_codes'] = [{ code: position_schedule_type_codes }];
+		if (position_schedule_type_codes !== String(initialData?.position_schedule_type_codes ?? '')) payload['position_schedule_type_codes'] = [{ code: position_schedule_type_codes }];
 
 
 
 		{
 			const filtered = position_titles.filter((v: string) => v.trim() !== '');
-			const original = Array.isArray(initialData['position_titles']) ? initialData['position_titles'] : [];
+			const original = Array.isArray(initialData?.position_titles) ? initialData?.position_titles : [];
 			if (JSON.stringify(filtered) !== JSON.stringify(original)) payload['position_titles'] = filtered;
 		}
 
 
 
-		if (JSON.stringify(qualifications) !== JSON.stringify(initialData['qualifications'] ?? {})) payload['qualifications'] = qualifications;
+		if (JSON.stringify(qualifications) !== JSON.stringify(initialData?.qualifications ?? {})) payload['qualifications'] = qualifications;
 
 
 
-		if (referred_by_application_id !== String(initialData['referred_by_application_id'] ?? '')) payload['referred_by_application_id'] = referred_by_application_id;
+		if (referred_by_application_id !== String(initialData?.referred_by_application_id ?? '')) payload['referred_by_application_id'] = referred_by_application_id;
 
 
 
-		if (status !== String(initialData['status'] ?? '')) payload['status'] = status;
+		if (status !== String(initialData?.status ?? '')) payload['status'] = status;
 
 
 
-		if (uri !== String(initialData['uri'] ?? '')) payload['uri'] = uri;
+		if (uri !== String(initialData?.uri ?? '')) payload['uri'] = uri;
 
 
 		return payload;
