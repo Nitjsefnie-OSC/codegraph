@@ -1,5 +1,6 @@
 ---
 source: crates/codegraph/tests/policy_rls_tests.rs
+assertion_line: 291
 expression: hashes
 ---
 ".codegraph-manifest.json": 4bb3dd445d0d1f9ac96679f050b5c2d540d0c5cca7f3c13a6a1bef74d0ac580c
@@ -584,7 +585,7 @@ src/server.rs: 0fb865d4bf916952adf52007bcd7691b9a58208b80e98dacbfbf8f682e4f07ed
 src/webhook_api.rs: 840bb0fb7d3f6b957bf1579c90c8ac83e370ec52ec81665f7e297655c6e1003a
 src/webhook_dispatch.rs: 2e7df825ab451c31b17343ae805da1acec303d3cd01e38686531d5c5e9c5f1ba
 src/webhook_router.rs: 2b7ab275e6c744d8009b57e1b3a7a98eb0737a0203e1b7b56c91e7a3c230fae0
-testkit/Cargo.toml: a73a514368994dcc18a369661bc5b0c6788486752dd8831bb53dbc849a1a3c42
+testkit/Cargo.toml: 5da9fe99f05b57e42473d51726734108faf70d6c3f467c925cdc68231b7a8496
 testkit/src/main.rs: dfbe1b1fd74e83110e12b1afa003ea6432f3edcf7d6c11062a73ec2a51f4f199
 tests/common/amount_dto_test.rs: f947bf1420cc684e98331ed5db2f22b093a87dba27a7ee4de692fe3ecec54b20
 tests/common/amount_test.rs: 10e017816009d08fdedf1c24ca31c5627dc40164cab56e51a4402d18f093c318

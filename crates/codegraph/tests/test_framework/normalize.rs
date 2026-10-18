@@ -17,10 +17,12 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 /// Normalize environment-dependent values out of generated `Cargo.toml`
-/// files before hashing: substitutes the local checkout root (resolved from
-/// `env!("CARGO_MANIFEST_DIR")` ancestors) with `<CODEGRAPH_ROOT>` and
-/// `rev = "<40-hex>"` git-rev pins with a 40-zero placeholder. Non-`Cargo.toml`
-/// files pass through byte-identical.
+/// files before hashing: collapses `../`-relative checkout path deps to
+/// `<CODEGRAPH_ROOT>/crates/…` (see
+/// [`normalize_relative_checkout_deps`]), substitutes the local checkout
+/// root (resolved from `env!("CARGO_MANIFEST_DIR")` ancestors) with
+/// `<CODEGRAPH_ROOT>` and `rev = "<40-hex>"` git-rev pins with a 40-zero
+/// placeholder. Non-`Cargo.toml` files pass through byte-identical.
 ///
 /// WHY this exists: generated `Cargo.toml` files embed two values that are
 /// *inputs* to generation, not generator output — the local checkout root
@@ -41,6 +43,7 @@ pub fn normalize_for_hash(path: &str, bytes: &[u8]) -> Vec<u8> {
         .expect("manifest dir two levels below workspace root")
         .to_string_lossy()
         .into_owned();
+    let text = normalize_relative_checkout_deps(&text, &root);
     let text = text.replace(root.trim_start_matches('/'), "<CODEGRAPH_ROOT>");
     let text = text.replace(&root, "<CODEGRAPH_ROOT>");
     let needle = "rev = \"";
@@ -64,6 +67,49 @@ pub fn normalize_for_hash(path: &str, bytes: &[u8]) -> Vec<u8> {
     }
     out.push_str(rest);
     out.into_bytes()
+}
+
+/// Canonicalize `../`-relative path deps that climb out of the generated tree
+/// to the checkout (the ops testkit's `codegraph-ops` dep is the one emitter).
+/// Runs BEFORE the absolute-root replaces and REQUIRES the `../` run so
+/// absolute pins stay with the legacy behaviour below. `pathdiff` eats every
+/// component the output tmpdir shares with the checkout root, so the
+/// stripped-root replace can miss — checkout `/tmp/opencode/wt` with tmpdir
+/// `/tmp/insta-*` yields `../../opencode/wt/crates/...`, which contains
+/// neither spelling of the root. Collapse the run plus the root suffix to
+/// `<CODEGRAPH_ROOT>/crates/` (longest suffix wins, needle must be followed
+/// by `/crates/`) so the normalized form is independent of both checkout
+/// location and tmpdir depth.
+fn normalize_relative_checkout_deps(text: &str, root: &str) -> String {
+    let components: Vec<&str> = root
+        .trim_start_matches('/')
+        .split('/')
+        .filter(|c| !c.is_empty())
+        .collect();
+    let mut current = text.to_string();
+    for k in 0..components.len() {
+        let needle = format!("{}/crates/", components[k..].join("/"));
+        let mut built = String::with_capacity(current.len());
+        let mut rest: &str = &current;
+        while let Some(i) = rest.find(&needle) {
+            let bytes = rest.as_bytes();
+            let mut start = i;
+            while start >= 3 && bytes[start - 3..start] == *b"../" {
+                start -= 3;
+            }
+            if start == i {
+                built.push_str(&rest[..=i]);
+                rest = &rest[i + 1..];
+                continue;
+            }
+            built.push_str(&rest[..start]);
+            built.push_str("<CODEGRAPH_ROOT>/crates/");
+            rest = &rest[i + needle.len()..];
+        }
+        built.push_str(rest);
+        current = built;
+    }
+    current
 }
 
 #[test]
@@ -97,8 +143,62 @@ fn relative_checkout_path_occurrence_is_normalized() {
         "[dependencies]\ncodegraph-ops = {{ path = \"../../../{stripped}/crates/codegraph-ops\" }}\n"
     );
     let out = normalize_for_hash("Cargo.toml", toml.as_bytes());
-    let expected = b"[dependencies]\ncodegraph-ops = { path = \"../../../<CODEGRAPH_ROOT>/crates/codegraph-ops\" }\n";
+    // The `../` run encodes tmpdir depth, not generator output — the
+    // relative-cleanup pass collapses it so 2-up and 3-up forms hash alike.
+    let expected =
+        b"[dependencies]\ncodegraph-ops = { path = \"<CODEGRAPH_ROOT>/crates/codegraph-ops\" }\n";
     assert_eq!(out, expected.to_vec());
+}
+
+#[test]
+fn sibling_tmpdir_relative_dep_collapses_to_canonical_form() {
+    // Checkout under a directory that also contains the test tmpdir
+    // (e.g. /tmp/opencode/wt vs /tmp/insta-*): pathdiff eats the shared
+    // parent, so the file never contains the stripped root and only the
+    // relative-cleanup pass can normalize the dep.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let components: Vec<&str> = root.trim_start_matches('/').split('/').collect();
+    let tail = components[components.len() - 2..].join("/");
+    let toml = format!(
+        "[dependencies]\ncodegraph-ops = {{ path = \"../../{tail}/crates/codegraph-ops\" }}\n"
+    );
+    let out = normalize_for_hash("Cargo.toml", toml.as_bytes());
+    let expected =
+        b"[dependencies]\ncodegraph-ops = { path = \"<CODEGRAPH_ROOT>/crates/codegraph-ops\" }\n";
+    assert_eq!(out, expected.to_vec());
+}
+
+#[test]
+fn relative_dep_up_counts_collapse_to_one_canonical_form() {
+    // The `../` run encodes tmpdir depth, not generator output — 2 ups and
+    // 3 ups must hash identically or the baseline is checkout-dependent.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let stripped = root.trim_start_matches('/');
+    let two_up = normalize_for_hash(
+        "Cargo.toml",
+        format!(
+            "[dependencies]\ncodegraph-ops = {{ path = \"../../{stripped}/crates/codegraph-ops\" }}\n"
+        )
+        .as_bytes(),
+    );
+    let three_up = normalize_for_hash(
+        "Cargo.toml",
+        format!(
+            "[dependencies]\ncodegraph-ops = {{ path = \"../../../{stripped}/crates/codegraph-ops\" }}\n"
+        )
+        .as_bytes(),
+    );
+    assert_eq!(two_up, three_up);
 }
 
 #[test]
