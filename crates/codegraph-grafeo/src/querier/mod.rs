@@ -90,7 +90,7 @@ impl GrafeoEngine {
         query_many(
             self,
             "MATCH (s:Schema)-[:HasProperty]->(:Property)-[:ReferencesSchema]->(t:Schema) \
-               RETURN DISTINCT s.title, t.title",
+               RETURN DISTINCT s.title, t.title ORDER BY s.title, t.title",
             |reader, row| {
                 Ok((
                     reader.get_string(row, "s.title")?,

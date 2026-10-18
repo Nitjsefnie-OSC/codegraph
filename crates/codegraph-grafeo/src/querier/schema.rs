@@ -374,6 +374,17 @@ impl GrafeoEngine {
             });
         }
 
+        // Total order at the boundary (issue #452): two GQL scans are
+        // concatenated here, so a final sort on (child, parent, field)
+        // is the cheap deterministic form.
+        candidates.sort_unstable_by(|a, b| {
+            (&a.child_title, &a.parent_title, &a.field_name).cmp(&(
+                &b.child_title,
+                &b.parent_title,
+                &b.field_name,
+            ))
+        });
+
         Ok(candidates)
     }
 
@@ -436,7 +447,8 @@ impl GrafeoEngine {
     pub(super) async fn query_codelists(&self) -> Result<Vec<CodeList>, GraphError> {
         query_many(
             self,
-            "MATCH (c:CodeList) RETURN c.name, c.description, c.pg_table_name, c.render_as, c.check_expression",
+            "MATCH (c:CodeList) RETURN c.name, c.description, c.pg_table_name, c.render_as, c.check_expression \
+             ORDER BY c.name",
             row_to_codelist,
         )
         .await
