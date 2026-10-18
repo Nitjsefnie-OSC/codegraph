@@ -11,31 +11,31 @@
 	import { ArrayField } from '#lib/components/ui/array-field/index.js';
 	import { StructuredWrapperField } from '#lib/components/ui/structured-wrapper-field/index.js';
 	import * as m from '#lib/paraglide/messages.js';
-	import type { CreateNameRequest, UpdateNameRequest } from '#lib/api/types.ts';
+	import type { CreateNameRequest, UpdateNameRequest, NameResponse } from '#lib/api/types.ts';
 
 	type FormData = CreateNameRequest | UpdateNameRequest;
 
 	interface Props {
 		mode: 'create' | 'edit';
-		initialData?: Record<string, unknown>;
+		initialData?: NameResponse;
 		onSubmit: (data: FormData) => void;
 		submitting?: boolean;
 	}
 
-	let { mode, initialData = {}, onSubmit, submitting = false }: Props = $props();
+	let { mode, initialData = undefined, onSubmit, submitting = false }: Props = $props();
 
 	// Form state
 
 
-	let family_name = $state(String(initialData['family_name'] ?? ''));
+	let family_name = $state(String(initialData?.family_name ?? ''));
 
 
 
-	let formatted_name = $state(String(initialData['formatted_name'] ?? ''));
+	let formatted_name = $state(String(initialData?.formatted_name ?? ''));
 
 
 
-	let given_name = $state(String(initialData['given_name'] ?? ''));
+	let given_name = $state(String(initialData?.given_name ?? ''));
 
 
 
@@ -61,15 +61,15 @@
 			// Edit mode: only send changed fields
 
 
-			if (family_name !== String(initialData['family_name'] ?? '')) data['family_name'] = family_name;
+			if (family_name !== String(initialData?.family_name ?? '')) data['family_name'] = family_name;
 
 
 
-			if (formatted_name !== String(initialData['formatted_name'] ?? '')) data['formatted_name'] = formatted_name;
+			if (formatted_name !== String(initialData?.formatted_name ?? '')) data['formatted_name'] = formatted_name;
 
 
 
-			if (given_name !== String(initialData['given_name'] ?? '')) data['given_name'] = given_name;
+			if (given_name !== String(initialData?.given_name ?? '')) data['given_name'] = given_name;
 
 
 		}

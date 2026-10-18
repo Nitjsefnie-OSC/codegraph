@@ -63,8 +63,8 @@ use super::dimension::{DimensionHints, infer_dimension_with_hints};
 /// | `{module}-table` | `ui/list_page.tera:372` | crud spec `:190`, ux spec, POM |
 /// | `{module}-sort-{field}` | `ui/list_page.tera:379` | ux spec sort blocks |
 /// | `{module}-pagination` | `ui/list_page.tera:447` | ux spec hydration waits, POM |
-/// | `{module}-delete-confirm` | `ui/list_page.tera:488`, `ui/child_section.tera:116` | ux spec `:275`, POM |
-/// | `{module}-delete-confirm-confirm` | `ui/list_page.tera:500`, `ui/child_section.tera:127` | ux spec delete flow, POM |
+/// | `{module}-delete-dialog` | `ui/list_page.tera`, `ui/child_section_component.tera` | ux spec, POM |
+/// | `{module}-delete-dialog-confirm` | `ui/list_page.tera`, `ui/child_section_component.tera` | ux spec delete flow, POM |
 /// | `{module}-form` | `ui/entity_form.tera:140` | validation/crud specs, POM |
 /// | `{module}-cancel-btn` | `ui/entity_form.tera:255` | POM cancel flow |
 /// | `{module}-submit-btn` | `ui/entity_form.tera:258` | crud spec `:204`, POM submit |
@@ -162,13 +162,38 @@ pub mod ids {
     }
 
     /// `{module}-delete-confirm` — the list page's row-delete dialog.
+    ///
+    /// Renamed `{module}-delete-dialog` (issue #468 finding 3): the only
+    /// composition rule for a dialog's confirm button is `{dialog}-confirm`
+    /// (the unprefixed `confirm-dialog` → `confirm-dialog-confirm` pair);
+    /// `…-delete-confirm` + `…-delete-confirm-confirm` read as a double
+    /// confirm leaked from template concatenation.
+    pub fn entity_delete_dialog(module: &str) -> String {
+        format!("{module}-delete-dialog")
+    }
+
+    /// `{module}-delete-dialog-confirm` — its confirm button.
+    #[deprecated(
+        since = "0.1.0",
+        note = "use entity_delete_dialog + the {dialog}-confirm rule"
+    )]
     pub fn entity_delete_confirm(module: &str) -> String {
         format!("{module}-delete-confirm")
     }
 
     /// `{module}-delete-confirm-confirm` — its confirm button.
+    #[deprecated(
+        since = "0.1.0",
+        note = "use entity_delete_dialog_confirm (issue #468)"
+    )]
     pub fn entity_delete_confirm_confirm(module: &str) -> String {
         format!("{module}-delete-confirm-confirm")
+    }
+
+    /// `{module}-delete-dialog-confirm` — the confirm button inside
+    /// [`entity_delete_dialog`], by the one dialog-button rule.
+    pub fn entity_delete_dialog_confirm(module: &str) -> String {
+        format!("{module}-delete-dialog-confirm")
     }
 
     /// `{module}-form` — the create/edit form root.
@@ -300,6 +325,32 @@ pub mod ids {
     /// `{prefix}-timeline-item` — one timeline entry.
     pub fn timeline_item(prefix: &str) -> String {
         format!("{prefix}-{TIMELINE_ITEM}")
+    }
+
+    /// `{prefix}-timeline-meta` — one entry's meta line.
+    pub fn timeline_meta(prefix: &str) -> String {
+        format!("{prefix}-timeline-meta")
+    }
+
+    /// `{prefix}-workflow-state` — a timeline row's state badge (the
+    /// detail panel's badge is the unprefixed [`workflow_state`]).
+    pub fn timeline_workflow_state(prefix: &str) -> String {
+        format!("{prefix}-workflow-state")
+    }
+
+    /// `{prefix}-action-delete` — the row-actions delete entry.
+    pub fn action_delete(prefix: &str) -> String {
+        format!("{prefix}-action-delete")
+    }
+
+    /// `{prefix}-action-edit` — the row-actions edit entry.
+    pub fn action_edit(prefix: &str) -> String {
+        format!("{prefix}-action-edit")
+    }
+
+    /// `manage-{prefix}-btn` — the child-section manage toggle.
+    pub fn manage(prefix: &str) -> String {
+        format!("manage-{prefix}-btn")
     }
 }
 
@@ -1520,14 +1571,20 @@ mod tests {
         assert_eq!(ids::entity_row("todo_item"), "todo_item-row");
         assert_eq!(ids::entity_sort("todo_item", "name"), "todo_item-sort-name");
         assert_eq!(ids::entity_pagination("todo_item"), "todo_item-pagination");
+        // The delete dialog follows the ONE dialog-button rule
+        // (`{dialog}-confirm`); the old `-delete-confirm-confirm` double is
+        // gone everywhere (issue #468 finding 3).
         assert_eq!(
-            ids::entity_delete_confirm("todo_item"),
-            "todo_item-delete-confirm"
+            ids::entity_delete_dialog("todo_item"),
+            "todo_item-delete-dialog"
         );
         assert_eq!(
-            ids::entity_delete_confirm_confirm("todo_item"),
-            "todo_item-delete-confirm-confirm"
+            ids::entity_delete_dialog_confirm("todo_item"),
+            "todo_item-delete-dialog-confirm"
         );
+        assert_eq!(ids::action_delete("todo_item"), "todo_item-action-delete");
+        assert_eq!(ids::action_edit("todo_item"), "todo_item-action-edit");
+        assert_eq!(ids::manage("todo_item"), "manage-todo_item-btn");
         assert_eq!(ids::entity_form("todo_item"), "todo_item-form");
         assert_eq!(ids::entity_cancel_btn("todo_item"), "todo_item-cancel-btn");
         assert_eq!(ids::entity_submit_btn("todo_item"), "todo_item-submit-btn");

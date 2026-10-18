@@ -4,9 +4,12 @@
 import { createBrowserClient, createServerClient, isBrowser } from '@supabase/ssr';
 import { PUBLIC_SUPABASE_ANON_KEY, PUBLIC_SUPABASE_URL } from '$app/env/public';
 
-const SUPABASE_URL = PUBLIC_SUPABASE_URL ?? '';
+// Same local fallback hooks.server.ts uses — an empty URL/Key makes
+// @supabase/ssr throw "Your project's URL and Key are required" on EVERY
+// SSR navigation, which renders the 500 boundary for the whole (app)
+// layout (issue #468: 1,199 measured failures traced to exactly this).
+const SUPABASE_URL = PUBLIC_SUPABASE_URL ?? 'http://localhost:54321';
 const SUPABASE_ANON_KEY = PUBLIC_SUPABASE_ANON_KEY ?? '';
-
 export function createSupabaseClient(opts?: {
 	fetch?: typeof globalThis.fetch;
 	cookies?: { getAll(): Array<{ name: string; value: string }>; setAll?(cookies: Array<{ name: string; value: string; options: Record<string, unknown> }>): void };

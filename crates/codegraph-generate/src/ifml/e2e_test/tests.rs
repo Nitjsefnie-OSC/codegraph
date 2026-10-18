@@ -692,6 +692,7 @@ entities = []
             rules.as_ref(),
             &HashMap::new(),
             false,
+            &[],
         );
         let files = pom_file_set(&[("customer-list", &pom)]);
         let paths: Vec<String> = files
@@ -737,4 +738,133 @@ fn js_literal_inner_strips_quotes() {
         Some("x y".into())
     );
     assert_eq!(entry_inner(&[("a".into(), "''".into())], "a"), None);
+}
+
+#[test]
+fn view_journey_spec_walks_hops_and_arrivals() {
+    use super::fixtures::view_route;
+    use super::spec_payload::{JourneyHop, JourneyHopKind, JourneyPath, JourneyStep, ViewJourney};
+
+    let hop = |target: &str| JourneyHop {
+        source_component: "grid".to_string(),
+        kind: JourneyHopKind::Row,
+        target_view: target.to_string(),
+        target_pattern: format!("{}$", escape_regex(&view_route(target))),
+        seed: Some(Fixture {
+            base_path: "/api/v1/sales/customer".to_string(),
+            entries: vec![("name".to_string(), "'Test name'".to_string())],
+        }),
+        fills: Vec::new(),
+    };
+    let journey = ViewJourney {
+        view_name: "CustomerList".to_string(),
+        label: "Customer Management".to_string(),
+        persona: Some("admin".to_string()),
+        open_param: None,
+        open_seed: None,
+        seeds: vec![Fixture {
+            base_path: "/api/v1/sales/customer".to_string(),
+            entries: vec![("name".to_string(), "'Test name'".to_string())],
+        }],
+        paths: vec![JourneyPath {
+            views: vec![
+                "CustomerList".to_string(),
+                "CustomerDetail".to_string(),
+                "CustomerEdit".to_string(),
+            ],
+            steps: vec![
+                JourneyStep {
+                    method: "journeyToCustomerDetail".to_string(),
+                    hop: hop("CustomerDetail"),
+                    arrival: true,
+                    arrival_heading: false,
+                    target_steps: Vec::new(),
+                },
+                JourneyStep {
+                    method: "journeyToCustomerEdit".to_string(),
+                    hop: hop("CustomerEdit"),
+                    arrival: false,
+                    arrival_heading: false,
+                    target_steps: vec!["Plan".to_string()],
+                },
+            ],
+        }],
+    };
+
+    let rendered = super::auth::render_view_journey(&journey, "../e2e/personas");
+    assert!(rendered.contains("import { asPersona, admin } from '../e2e/personas';"));
+    assert!(rendered.contains("asPersona(admin);"));
+    assert!(rendered.contains("test('journey: CustomerList → CustomerDetail → CustomerEdit'"));
+    // Seeds + open through the source page class.
+    assert!(rendered.contains("const rowSeed0 = await request.post('/api/v1/sales/customer'"));
+    assert!(rendered.contains("let ui = new CustomerListPage(page);"));
+    assert!(rendered.contains("await ui.open();"));
+    // Hop 1: drive + assert URL + arrival surface.
+    assert!(rendered.contains("await ui.journeyToCustomerDetail();"));
+    assert!(rendered.contains("await expect(page).toHaveURL(new RegExp('/customerdetail$'));"));
+    assert!(rendered.contains("const customer_detail = new CustomerDetailPage(page);"));
+    assert!(rendered.contains("await expect(customer_detail.primaryRoot()).toBeVisible();"));
+    // Hop 2 departs from the CURRENT view — ui rebinds, and the xor target
+    // asserts its wizard steps.
+    assert!(rendered.contains("ui = new CustomerDetailPage(page);"));
+    assert!(rendered.contains("await ui.journeyToCustomerEdit();"));
+    assert!(rendered.contains("await expect(customer_edit.step('Plan')).toBeVisible();"));
+    // Zero raw testids in the spec body.
+    assert!(!rendered.contains("getByTestId("), "{rendered}");
+}
+
+#[test]
+fn auth_spec_renders_gating_family_and_skip_comment() {
+    use super::spec_payload::PersonaTest;
+
+    let personas = |permitted: bool| PersonaTest {
+        actor: if permitted { "Admin" } else { "Agent" }.to_string(),
+        permitted,
+        route: "/reviewqueue".to_string(),
+        label: "Review Queue".to_string(),
+        assert_heading: true,
+        primary_testid: None,
+        denial_target: "/requestlist".to_string(),
+        capabilities: None,
+        control_testid: None,
+        control_component: None,
+    };
+    let spec = |personas: Vec<PersonaTest>, gate: bool| super::auth::AuthTestSpec {
+        view_name: "ReviewQueue".to_string(),
+        label: "Review Queue".to_string(),
+        denial_presentation: true,
+        required_capabilities: vec!["ApproveRequest".to_string()],
+        gate: gate.then_some(super::auth::GatePlan {
+            denied: personas
+                .iter()
+                .filter(|p| !p.permitted)
+                .map(|p| (super::auth::persona_id(&p.actor), p.actor.clone()))
+                .collect(),
+        }),
+        personas,
+    };
+
+    // Differing access: the gating describe drives the denied persona.
+    let rendered = super::auth::render_auth_spec(
+        &spec(vec![personas(true), personas(false)], true),
+        "../e2e/personas",
+    );
+    assert!(
+        rendered.contains("test.describe('Review Queue gated from agent'"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("asPersona(agent);"));
+    assert!(rendered.contains("await ui.expectDenied();"));
+    assert!(rendered.contains(
+        "await ui.expectDeniedPresentation('actor Agent is denied — ApproveRequest gating');"
+    ));
+
+    // No differing access: the skip comment, never a gating describe.
+    let skipped =
+        super::auth::render_auth_spec(&spec(vec![personas(true)], false), "../e2e/personas");
+    assert!(
+        skipped.contains("Gating coverage (issue #468 W5) skipped"),
+        "{skipped}"
+    );
+    assert!(!skipped.contains("gated from"));
 }

@@ -530,7 +530,9 @@ pub(super) fn render_form(spec: &FormSpec) -> RenderForm {
                     is_radio: html.is_radio,
                     required: field.required,
                     values: field.values.clone(),
-                    data_validate: validations.join(" && "),
+                    // Escaped for the double-quoted HTML attribute (model
+                    // expressions carry quotes; issue #468 W1b).
+                    data_validate: validations.join(" && ").replace('"', "&quot;"),
                     message,
                 }
             })

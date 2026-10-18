@@ -46,5 +46,12 @@ export default defineConfig({
       testMatch: /e2e\/webhooks\/.+\.test\.ts/,
       fullyParallel: true,
     },
+    {
+      // IFML modeled views (issue #468 W1b): specs, journeys, gating, and
+      // auth suites live under tests/ifml/ and end .spec.ts — disjoint
+      // from the entity projects' .test.ts globs.
+      name: 'ifml',
+      testMatch: /ifml\/.+\.spec\.ts/,
+    },
   ],
 });

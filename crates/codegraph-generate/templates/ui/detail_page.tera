@@ -8,9 +8,7 @@
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import * as Card from '#lib/components/ui/card/index.js';
-	import * as AlertDialog from '#lib/components/ui/alert-dialog/index.js';{% if ux_actions and has_child_sections %}
-	import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.js';
-{% endif %}
+	import * as AlertDialog from '#lib/components/ui/alert-dialog/index.js';
 {% if has_workflow %}
 	import WorkflowPanel from '#lib/components/ui/WorkflowPanel.svelte';
 	import { transition{{ entity_name }} } from '#lib/stores/{{ domain }}_{{ module_name }}.ts';
@@ -24,26 +22,14 @@
 {% if has_child_sections %}
 	import { onMount } from 'svelte';
 	import { entityNavigation, pushChild, popTo, resetNavigation, markDirty, clearDirty } from '#lib/stores/entity-navigation.ts';
-	import { apiGet, apiPost, apiDelete } from '#lib/api/client.ts';
+	import { apiGet } from '#lib/api/client.ts';
+	import ChildSection from '#lib/components/ChildSection.svelte';
 {% endif %}
 	import { TimeAgo } from '@crewbase/entities';
 	import { toast } from 'svelte-sonner';
 	import * as m from '#lib/paraglide/messages.js';
-	import type { {{ entity_name }}Response } from '#lib/api/types.ts';
-
-	function formatRange(range: unknown): string {
-		if (!range || typeof range !== 'string') return '—';
-		const inner = range.slice(1, -1);
-		const [start, end] = inner.split(',');
-		const fmt = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' });
-		try {
-			const startStr = start && start.trim() ? fmt.format(new Date(start.trim())) : '';
-			if (!end || end.trim() === '') return `${startStr} — Ongoing`;
-			return `${startStr} — ${fmt.format(new Date(end.trim()))}`;
-		} catch {
-			return String(range);
-		}
-	}
+	import * as fmt from '#lib/format.ts';
+	import type { {{ entity_name }}Response{% if has_child_sections %}{% for section in child_sections %}, {{ section.entity_name }}Response{% endfor %}{% endif %} } from '#lib/api/types.ts';
 
 	interface Props {
 		data: {
@@ -71,49 +57,19 @@
 	let transitioning = $state(false);
 {% endif %}
 {% if has_child_sections %}
-	let expandedSections = $state(new Set<string>());
-{% if ux_actions %}{% if ux_actions.confirm_delete %}
 {% for section in child_sections %}
-	let {{ section.module_name }}DeleteId = $state<string | null>(null);
+	let {{ section.module_name }}Items = $state<{{ section.entity_name }}Response[]>([]);
 {% endfor %}
-{% endif %}{% endif %}{% for section in child_sections %}
-	let {{ section.module_name }}Items = $state<any[]>([]);
-{% endfor %}
-
-	function toggleSection(name: string) {
-		expandedSections = new Set(expandedSections);
-		if (expandedSections.has(name)) {
-			expandedSections.delete(name);
-		} else {
-			expandedSections.add(name);
-		}
-	}
 
 	async function loadChildren() {
 {% for section in child_sections %}
 		try {
-			const res = await apiGet<any[]>('/{{ section.domain }}/{{ section.path_segment }}', { parent_id: item.id });
+			const res = await apiGet<{{ section.entity_name }}Response[]>('/{{ section.domain }}/{{ section.path_segment }}', { parent_id: item.id });
 			{{ section.module_name }}Items = res ?? [];
 		} catch {
 			{{ section.module_name }}Items = [];
 		}
 {% endfor %}
-	}
-
-	function startAddChild(domain: string, pathSegment: string) {
-		goto(`/${domain}/${pathSegment}/new?parent_id=${item.id}`);
-	}
-{% if ux_actions %}
-	// Per-item child action menu partition (issue #299), mirrored into the
-	// component so the child section rows can iterate it at runtime.
-	const ux_actions = {
-		child_menu: [
-{% for a in ux_actions.child_menu %}			{ action: '{{ a.action }}', label: '{{ a.label }}' }{% if not loop.last %},{% endif %}
-{% endfor %}		]
-	};
-{% endif %}
-	function editChild(domain: string, pathSegment: string, childId: string) {
-		goto(`/${domain}/${pathSegment}/${childId}/edit`);
 	}
 
 	function manageChild(domain: string, pathSegment: string, childId: string) {
@@ -133,24 +89,6 @@
 		goto(`/${domain}/${pathSegment}/${childId}`);
 	}
 
-	async function deleteChild(domain: string, pathSegment: string, childId: string) {
-		try {
-			await apiDelete(`/${domain}/${pathSegment}/${childId}`);
-			toast.success(m.common_child_deleted());
-			await loadChildren();
-		} catch (e) {
-			toast.error(m.common_delete_failed({ error: (e as Error).message }));
-		}
-	}
-{% if ux_actions %}{% if ux_actions.confirm_delete %}
-{% for section in child_sections %}
-	function confirmDelete{{ section.entity_name }}Child() {
-		const childId = {{ section.module_name }}DeleteId;
-		{{ section.module_name }}DeleteId = null;
-		if (childId !== null) void deleteChild('{{ section.domain }}', '{{ section.path_segment }}', childId);
-	}
-{% endfor %}
-{% endif %}{% endif %}
 	onMount(() => {
 		loadChildren();
 	});
@@ -242,7 +180,7 @@
 		<div class="flex gap-2">
 {% if has_update %}
 {% raw %}{#if page.data.organization?.role === 'owner'}{% endraw %}
-			<Button variant="outline" href={`${basePath}/${item.id}/edit`} data-testid="{{ module_name }}-edit-btn">
+			<Button variant="outline" href={`${basePath}/${item.id}/edit`} data-testid="{{ tid.edit_btn }}">
 				{% raw %}{m.common_edit()}{% endraw %}
 			</Button>
 {% raw %}{/if}{% endraw %}
@@ -250,7 +188,7 @@
 {% if has_delete %}
 {% raw %}
 			{#if page.data.organization?.role === 'owner'}
-				<Button variant="destructive" onclick={() => deleteDialogOpen = true} data-testid="{% endraw %}{{ module_name }}{% raw %}-delete-btn">
+				<Button variant="destructive" onclick={() => deleteDialogOpen = true} data-testid="{% endraw %}{{ tid.delete_btn }}{% raw %}">
 					{m.common_delete()}
 				</Button>
 			{/if}
@@ -289,26 +227,34 @@
 						{/if}{% endraw %}
 {% elif field.input_type == "date-range" %}
 						{% raw %}{#if item.{% endraw %}{{ field.name }}{% raw %}}
-							{formatRange(item.{% endraw %}{{ field.name }}{% raw %})}
+							{fmt.formatRange(item.{% endraw %}{{ field.name }}{% raw %})}
 						{:else}
 							—
 						{/if}{% endraw %}
 {% elif field.structured_sub_fields | length > 0 and not field.is_array %}
 						{% raw %}{#if item.{% endraw %}{{ field.name }}{% raw %}}
 							{@const obj = item.{% endraw %}{{ field.name }}{% raw %} as Record<string, unknown>}
-							{obj.value ?? obj.code ?? obj.name ?? obj.id ?? '—'}
+							{% endraw %}{% if field.nested_type_name %}{% raw %}{fmt.format{% endraw %}{{ field.nested_type_name | pascal_case }}{% raw %}(item.{% endraw %}{{ field.name }}{% raw %})}{% else %}{% raw %}{obj.value ?? obj.code ?? obj.name ?? obj.id ?? '—'}{% endraw %}{% endif %}{% raw %}
 							{#if obj.schemeId}
 								<span class="text-muted-foreground text-xs">({obj.schemeId})</span>
 							{/if}
 						{:else}—{/if}{% endraw %}
 {% elif field.structured_sub_fields | length > 0 and field.is_array %}
-						{% raw %}{#if Array.isArray(item.{% endraw %}{{ field.name }}{% raw %}) && item.{% endraw %}{{ field.name }}{% raw %}.length > 0}
+{% if field.nested_type_name %}						{% raw %}{#if Array.isArray(item.{% endraw %}{{ field.name }}{% raw %}) && item.{% endraw %}{{ field.name }}{% raw %}.length > 0}
+							<ul class="list-disc list-inside">
+								{#each (item.{% endraw %}{{ field.name }}{% raw %} as {% endraw %}{{ field.nested_type_name }}{% raw %}Response[]) as id}
+									<li>{fmt.format{% endraw %}{{ field.nested_type_name | pascal_case }}{% raw %}(id)}{#if 'schemeId' in id && id.schemeId} <span class="text-muted-foreground text-xs">({id.schemeId})</span>{/if}</li>
+								{/each}
+							</ul>
+						{:else}—{/if}{% endraw %}
+{% else %}						{% raw %}{#if Array.isArray(item.{% endraw %}{{ field.name }}{% raw %}) && item.{% endraw %}{{ field.name }}{% raw %}.length > 0}
 							<ul class="list-disc list-inside">
 								{#each (item.{% endraw %}{{ field.name }}{% raw %} as Record<string, string>[]) as id}
 									<li>{id.value ?? id.code ?? id.name ?? id.id ?? '—'}{#if id.schemeId} <span class="text-muted-foreground text-xs">({id.schemeId})</span>{/if}</li>
 								{/each}
 							</ul>
 						{:else}—{/if}{% endraw %}
+{% endif %}
 {% elif field.input_type == "array" %}
 						{% raw %}{#if Array.isArray(item.{% endraw %}{{ field.name }}{% raw %}) && item.{% endraw %}{{ field.name }}{% raw %}.length > 0}
 							<ul class="list-disc list-inside">
@@ -355,7 +301,36 @@
 		</Card.Header>
 		<Card.Content class="space-y-2">
 {% for section in child_sections %}
-			{% include "ui/child_section.tera" %}
+			<ChildSection
+				items={% raw %}{{% endraw %}{{ section.module_name }}Items{% raw %}}{% endraw %}
+				label="{{ section.label }}"
+				moduleName="{{ section.module_name }}"
+				domain="{{ section.domain }}"
+				pathSegment="{{ section.path_segment }}"
+				parentId={item.id}
+				displayField={% if section.display_field %}"{{ section.display_field }}"{% else %}{null}{% endif %}
+				childSectionTid="{{ section.tid.child_section }}"
+				addBtnTid="{{ section.tid.child_section_add_btn }}"
+				actionsTid="{{ section.tid.actions }}"
+				actionsMenuTid="{{ section.tid.actions_menu }}"
+				actionEditTid="{{ section.tid.action_edit }}"
+				actionDeleteTid="{{ section.tid.action_delete }}"
+				manageBtnTid="{{ section.tid.manage_btn }}"
+				hasChildren={{ section.has_children }}
+				deleteDialogTid="{{ section.tid.delete_dialog }}"
+				deleteDialogConfirmTid="{{ section.tid.delete_dialog_confirm }}"
+{% if ux_actions %}
+				menuActions={[{% for a in ux_actions.child_menu %}{ action: '{{ a.action }}', label: '{{ a.label }}' }{% if not loop.last %}, {% endif %}{% endfor %}]}
+				primaryActions={[{% for a in ux_actions.primary %}{ action: '{{ a.action }}', label: '{{ a.label }}' }{% if not loop.last %}, {% endif %}{% endfor %}]}
+				confirmDelete={ {{ ux_actions.confirm_delete }} }
+{% else %}
+				menuActions={[]}
+				primaryActions={[]}
+				confirmDelete={false}
+{% endif %}
+				onRefresh={loadChildren}
+				onManage={manageChild}
+			/>
 {% endfor %}
 		</Card.Content>
 	</Card.Root>
@@ -365,7 +340,7 @@
 {% if has_delete %}
 {% raw %}
 <AlertDialog.Root open={deleteDialogOpen} onOpenChange={(v) => deleteDialogOpen = v}>
-	<AlertDialog.Content data-testid="confirm-dialog">
+	<AlertDialog.Content data-testid="{% endraw %}{{ shared_tid.confirm_dialog }}{% raw %}">
 		<AlertDialog.Header>
 			<AlertDialog.Title>{m.common_confirm_delete_title({ entity: '{% endraw %}{{ entity_name }}{% raw %}' })}</AlertDialog.Title>
 			<AlertDialog.Description>
@@ -377,7 +352,7 @@
 			<AlertDialog.Action
 				onclick={handleDelete}
 				disabled={deleting}
-				data-testid="confirm-dialog-confirm"
+				data-testid="{% endraw %}{{ shared_tid.confirm_dialog_confirm }}{% raw %}"
 				class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
 			>
 				{deleting ? m.common_deleting() : m.common_delete()}

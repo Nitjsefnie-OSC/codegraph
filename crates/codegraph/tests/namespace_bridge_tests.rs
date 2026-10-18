@@ -714,6 +714,7 @@ async fn run_gate(root: &Path, output: &Path, mox: &[PathBuf], gated: bool) {
         rosetta_files: &[],
         ddd_files: &[],
         evt_files: &[],
+        deploy_files: &[],
         ifml_framework: &[],
         ifml_components: None,
         ifml_design_system: None,

@@ -288,6 +288,71 @@ async fn ui_form_generator_produces_form_component() {
         files[0].content.contains("<script"),
         "Should contain a script tag"
     );
+    // W2 type-safe seams (#468): initialData is the typed entity Response,
+    // read via optional chaining — never string indexing.
+    assert!(
+        files[0].content.contains(
+            "import type { CreateCandidateRequest, UpdateCandidateRequest, CandidateResponse } from '#lib/api/types.ts';"
+        ),
+        "Form should import the typed Response from '#lib/api/types.ts'"
+    );
+    assert!(
+        files[0]
+            .content
+            .contains("initialData?: CandidateResponse;"),
+        "initialData prop should be typed as the entity Response"
+    );
+    assert!(
+        !files[0].content.contains("initialData['"),
+        "Form must not string-index initialData"
+    );
+    assert!(
+        files[0].content.contains("String(initialData?."),
+        "Form should still coerce via typed optional-chained access"
+    );
+}
+
+#[tokio::test]
+async fn ui_cosmos_form_generator_types_initial_data() {
+    let mock = setup_mock();
+    let config = test_domain_config();
+    let tera = test_tera();
+    let output_dir = std::path::PathBuf::from("/tmp/hr-graph-test-ui-cosmos-form");
+
+    let generator = generate::ui::cosmos_entity_form::CosmosEntityFormGenerator::new(&output_dir);
+    let files = generator
+        .generate(
+            &mock,
+            "CandidateType",
+            "recruiting",
+            &config,
+            &tera,
+            &test_project_config(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(files.len(), 1, "Should produce one cosmos form component");
+    assert!(
+        files[0]
+            .content
+            .contains("import type { CandidateResponse } from '#lib/api/types.ts';"),
+        "Cosmos form should import the typed Response from '#lib/api/types.ts'"
+    );
+    assert!(
+        files[0]
+            .content
+            .contains("initialData?: CandidateResponse;"),
+        "Cosmos form initialData prop should be typed as the entity Response"
+    );
+    assert!(
+        !files[0].content.contains("initialData['"),
+        "Cosmos form must not string-index initialData"
+    );
+    assert!(
+        files[0].content.contains("String(initialData?."),
+        "Cosmos form should still coerce via typed optional-chained access"
+    );
 }
 
 // === UiStoreGenerator Tests ===
@@ -746,7 +811,11 @@ async fn ui_type_generator_produces_types_file() {
         .await
         .unwrap();
 
-    assert_eq!(files.len(), 1, "Should produce one types file");
+    assert_eq!(
+        files.len(),
+        2,
+        "Should produce types.ts + format.ts (issue #468 W2)"
+    );
     assert!(
         files[0].path.to_string_lossy().contains("types.ts"),
         "Should have types.ts"
@@ -754,6 +823,14 @@ async fn ui_type_generator_produces_types_file() {
     assert!(
         !files[0].content.is_empty(),
         "Types file should not be empty"
+    );
+    assert!(
+        files[1].path.to_string_lossy().ends_with("lib/format.ts"),
+        "Should have lib/format.ts"
+    );
+    assert!(
+        files[1].content.contains("export function formatRange"),
+        "format.ts carries the shared formatters"
     );
 }
 

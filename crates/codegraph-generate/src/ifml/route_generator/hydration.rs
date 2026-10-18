@@ -1,0 +1,244 @@
+//! Role hydration for the integrated `(views)` route group (issue #468 W1b
+//! follow-up): the view `+page.ts` guards read `globalThis.__USER_ROLES__`
+//! through `$lib/roles`, and nothing in the served app set it — every
+//! persona met the same (empty) role set, so allow-side and deny-side both
+//! misfired. Two files close the gap:
+//!
+//! - `(views)/+layout.server.ts` — derives the role tokens from the
+//!   session's BaseJump account (`get_accounts`, the same source the entity
+//!   `(app)` guard layout uses) and returns them as `roles`. NO redirect:
+//!   persona test contexts carry no session on purpose (their init scripts
+//!   seed `__USER_ROLES__` directly) and must reach the guarded pages; an
+//!   unauthenticated visitor keeps `roles: null` and the client guards deny.
+//! - `(views)/+layout.ts` — universal load that publishes non-null roles
+//!   onto `globalThis.__USER_ROLES__` in the browser. SvelteKit resolves
+//!   parent loads BEFORE the child `+page.ts` (during hydration AND
+//!   client-side navigations), so the guards read real roles on every
+//!   navigation. Null roles are deliberately not applied: they must never
+//!   clobber the persona init-script seeding, and an unset global already
+//!   means "no roles" to `currentRoles()`. SSR never touches `globalThis` —
+//!   it is process-global on the server, and the guards are browser-gated.
+//!
+//! ## Mapping convention (generation-time, from the ingested policy)
+//!
+//! BaseJump `account_role` is closed (`'owner' | 'member'`); the policy's
+//! actor tokens are open. The deterministic bridge:
+//!
+//! - basejump `'owner'` → the actor whose snake_case name is `owner`
+//!   (e.g. `Owner`), else the FIRST actor in [`PolicyContext::actors`]
+//!   order (sorted by actor name);
+//! - basejump `'member'` → the actor whose snake_case name is `member`
+//!   (e.g. `Member`), else the LAST actor in the same order.
+//!
+//! The mapped actor is emitted BOTH as its policy token — `can()` resolves
+//! the `ROLE_CAPABILITIES` map in `$lib/roles` through it — and as its
+//! snake_case form — the token the `.ifml` `roles:` guards compare. Limits:
+//! the mapping grants exactly the picked actor's effective capabilities (no
+//! ladder union — the extends resolution is the policy's own business), and
+//! views guarded by OTHER actors' tokens stay denied for hydrated sessions.
+//! No policy ⇒ no mapping ⇒ `roles: null` (every guard denies).
+//!
+//! Integrated mode only: standalone output stays byte-identical (the
+//! disjoint `{fw}/` tree emits no hydration files).
+
+use std::path::{Path, PathBuf};
+
+use codegraph_naming::to_snake_case;
+
+use crate::traits::GeneratedFile;
+
+use super::super::context::{IfmlModel, PolicyContext};
+
+/// The role tokens one actor seeds/exposes: the policy token verbatim (the
+/// `ROLE_CAPABILITIES` key `can()` resolves) plus its snake_case form (the
+/// token the `.ifml` `roles:` guards compare). Deduped for actors already
+/// named in snake_case.
+pub(crate) fn actor_role_tokens(actor: &str) -> Vec<String> {
+    let snake = to_snake_case(actor);
+    if snake == actor {
+        vec![actor.to_string()]
+    } else {
+        vec![actor.to_string(), snake]
+    }
+}
+
+/// Whether a view's `roles:` token matches an actor: the token may be
+/// authored either as the policy token verbatim (`.ifml` files that mirror
+/// the actor names) or as its snake_case form (the crewbase convention).
+pub(crate) fn role_token_matches(view_role: &str, actor: &str) -> bool {
+    view_role == actor || view_role == to_snake_case(actor)
+}
+
+/// The hydrated role tokens for one BaseJump `account_role` under one
+/// policy — see the module-level mapping convention. Empty when the policy
+/// carries no actors (no mapping exists).
+pub(crate) fn basejump_role_tokens(policy: &PolicyContext, account_role: &str) -> Vec<String> {
+    let actors = &policy.actors;
+    let Some(picked) = actors
+        .iter()
+        .find(|(name, _)| to_snake_case(name) == account_role)
+        .map(|(name, _)| name)
+        .or_else(|| match (account_role, actors.first(), actors.last()) {
+            ("owner", Some((name, _)), _) => Some(name),
+            ("member", _, Some((name, _))) => Some(name),
+            _ => None,
+        })
+    else {
+        return Vec::new();
+    };
+    actor_role_tokens(picked)
+}
+
+fn role_token_const(name: &str, tokens: &[String]) -> String {
+    let list = tokens
+        .iter()
+        .map(|token| format!("'{token}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("const {name}: string[] = [{list}];")
+}
+
+/// `(views)/+layout.server.ts`: session → BaseJump account → role tokens.
+fn layout_server_ts(policy: Option<&PolicyContext>) -> String {
+    let owner = policy
+        .map(|p| basejump_role_tokens(p, "owner"))
+        .unwrap_or_default();
+    let member = policy
+        .map(|p| basejump_role_tokens(p, "member"))
+        .unwrap_or_default();
+    let mut s = String::new();
+    s.push_str("// Generated by codegraph. DO NOT EDIT.\n");
+    s.push_str("//\n");
+    s.push_str("// (views) role hydration (issue #468): the view +page.ts guards read the\n");
+    s.push_str("// `globalThis.__USER_ROLES__` surface through $lib/roles — this load derives\n");
+    s.push_str("// those tokens from the session's BaseJump account (the same get_accounts\n");
+    s.push_str("// source the (app) guard layout uses), so the guards gate for real instead\n");
+    s.push_str("// of seeing an empty role set for every persona.\n");
+    s.push_str("//\n");
+    s.push_str("// Mapping convention (generation-time, from the ingested policy):\n");
+    s.push_str("//   basejump 'owner'  → the actor whose snake_case name is 'owner'\n");
+    s.push_str("//                       (e.g. `Owner`), else the FIRST policy actor;\n");
+    s.push_str("//   basejump 'member' → the actor whose snake_case name is 'member'\n");
+    s.push_str("//                       (e.g. `Member`), else the LAST policy actor.\n");
+    s.push_str("// The mapped actor is emitted BOTH as its policy token — can() resolves\n");
+    s.push_str("// the ROLE_CAPABILITIES map in $lib/roles through it — and as its\n");
+    s.push_str("// snake_case form — the token the .ifml `roles:` guards compare. Without\n");
+    s.push_str("// a policy no mapping exists and roles stay null (every guard denies).\n");
+    s.push_str("//\n");
+    s.push_str("// NO redirect here: an unauthenticated visitor keeps `roles: null` and the\n");
+    s.push_str("// +page.ts guards deny client-side; persona test contexts carry no session\n");
+    s.push_str("// on purpose (their init scripts seed __USER_ROLES__ directly) and MUST\n");
+    s.push_str("// reach the guarded pages for the gating specs.\n\n");
+    s.push_str("import type { LayoutServerLoad } from './$types';\n");
+    s.push_str("import { createSupabaseClient } from '#lib/supabase.ts';\n\n");
+    s.push_str(&(role_token_const("OWNER_ROLE_TOKENS", &owner) + "\n"));
+    s.push_str(&(role_token_const("MEMBER_ROLE_TOKENS", &member) + "\n\n"));
+    s.push_str("export const load: LayoutServerLoad = async ({ fetch, cookies }) => {\n");
+    s.push_str("\tconst supabase = createSupabaseClient({\n");
+    s.push_str("\t\tfetch,\n");
+    s.push_str("\t\tcookies: {\n");
+    s.push_str("\t\t\tgetAll() {\n");
+    s.push_str("\t\t\t\treturn cookies.getAll().map(({ name, value }) => ({ name, value }));\n");
+    s.push_str("\t\t\t},\n");
+    s.push_str("\t\t\tsetAll(cookiesToSet) {\n");
+    s.push_str("\t\t\t\tfor (const { name, value, options } of cookiesToSet) {\n");
+    s.push_str("\t\t\t\t\tcookies.set(name, value, { path: '/', ...options });\n");
+    s.push_str("\t\t\t\t}\n");
+    s.push_str("\t\t\t},\n");
+    s.push_str("\t\t},\n");
+    s.push_str("\t});\n");
+    s.push_str("\tconst { data: { session } } = await supabase.auth.getSession();\n\n");
+    s.push_str("\tif (!session) {\n");
+    s.push_str("\t\treturn { roles: null, organization: null };\n");
+    s.push_str("\t}\n\n");
+    s.push_str("\t// Resolve org membership via Basejump (best-effort, mirroring the (app)\n");
+    s.push_str("\t// guard layout). The non-personal account wins; with only a personal\n");
+    s.push_str("\t// account the user owns their workspace, so the first account falls back\n");
+    s.push_str("\t// in.\n");
+    s.push_str("\tlet accounts: { personal_account: boolean; account_id: string; name: string; slug: string; account_role: 'owner' | 'member' }[] | null = null;\n");
+    s.push_str("\ttry {\n");
+    s.push_str("\t\tconst { data, error } = await supabase.rpc('get_accounts');\n");
+    s.push_str("\t\tif (error) {\n");
+    s.push_str("\t\t\tconsole.error('[views layout] get_accounts failed:', (error as { message?: string }).message ?? String(error));\n");
+    s.push_str("\t\t} else {\n");
+    s.push_str("\t\t\taccounts = data;\n");
+    s.push_str("\t\t}\n");
+    s.push_str("\t} catch (e) {\n");
+    s.push_str("\t\tconsole.error('[views layout] get_accounts threw:', e);\n");
+    s.push_str("\t}\n");
+    s.push_str("\tconst account = accounts?.find((a: { personal_account: boolean }) => !a.personal_account) ?? accounts?.[0] ?? null;\n");
+    s.push_str("\tconst tokens = account\n");
+    s.push_str("\t\t? account.account_role === 'owner'\n");
+    s.push_str("\t\t\t? OWNER_ROLE_TOKENS\n");
+    s.push_str("\t\t\t: MEMBER_ROLE_TOKENS\n");
+    s.push_str("\t\t: [];\n\n");
+    s.push_str("\treturn {\n");
+    s.push_str("\t\t// An account without a policy mapping hydrates nothing: null keeps\n");
+    s.push_str("\t\t// the runtime __USER_ROLES__ surface untouched (init scripts win).\n");
+    s.push_str("\t\troles: account && tokens.length > 0 ? tokens : null,\n");
+    s.push_str("\t\torganization: account\n");
+    s.push_str("\t\t\t? { id: account.account_id, name: account.name, slug: account.slug, role: account.account_role }\n");
+    s.push_str("\t\t\t: null,\n");
+    s.push_str("\t};\n");
+    s.push_str("};\n");
+    s
+}
+
+/// `(views)/+layout.ts`: publishes non-null roles onto the
+/// `globalThis.__USER_ROLES__` surface before the child `+page.ts` guards
+/// run (parent loads resolve first). See the module docs for why this is a
+/// universal load rather than `+layout.svelte` component code: component
+/// init/effects run after loads, and the first navigation's guard would
+/// read a stale surface.
+fn layout_hydration_ts() -> String {
+    let mut s = String::new();
+    s.push_str("// Generated by codegraph. DO NOT EDIT.\n");
+    s.push_str("//\n");
+    s.push_str("// (views) role hydration (issue #468): publishes the server-derived role\n");
+    s.push_str("// tokens onto `globalThis.__USER_ROLES__` for the $lib/roles helpers. Runs\n");
+    s.push_str("// in the browser BEFORE the child +page.ts guards (SvelteKit resolves\n");
+    s.push_str("// parent loads first — during hydration AND client-side navigations), so\n");
+    s.push_str("// the guards read real roles on every navigation.\n");
+    s.push_str("//\n");
+    s.push_str("// `roles: null` (no session) is deliberately NOT applied: persona test\n");
+    s.push_str("// contexts seed __USER_ROLES__ through init scripts and must not be\n");
+    s.push_str("// clobbered, and an unset global already means \"no roles\" to\n");
+    s.push_str("// currentRoles(). SSR never touches globalThis — it is process-global on\n");
+    s.push_str("// the server, and the +page.ts guards are browser-gated anyway.\n\n");
+    s.push_str("import type { LayoutLoad } from './$types';\n\n");
+    s.push_str("export const load: LayoutLoad = async ({ data }) => {\n");
+    s.push_str("\tif (typeof window !== 'undefined' && data.roles) {\n");
+    s.push_str("\t\t(globalThis as any).__USER_ROLES__ = data.roles;\n");
+    s.push_str("\t}\n");
+    s.push_str("\treturn data;\n");
+    s.push_str("};\n");
+    s
+}
+
+/// The hydration files for the `(views)` route group; `None` when the model
+/// carries no guarded views (nothing reads the role surface). Callers gate
+/// on integrated mode.
+pub(super) fn hydration_files(
+    output_dir: &Path,
+    route_root: &str,
+    model: &IfmlModel,
+) -> Option<Vec<GeneratedFile>> {
+    let guarded = model
+        .view_containers
+        .iter()
+        .any(|vc| !vc.roles.is_empty() || !vc.requires.is_empty());
+    if !guarded {
+        return None;
+    }
+    let group = PathBuf::from(format!("src/routes/{route_root}"));
+    Some(vec![
+        GeneratedFile {
+            path: output_dir.join(group.join("+layout.server.ts")),
+            content: layout_server_ts(model.policy.as_ref()),
+        },
+        GeneratedFile {
+            path: output_dir.join(group.join("+layout.ts")),
+            content: layout_hydration_ts(),
+        },
+    ])
+}

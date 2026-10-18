@@ -513,6 +513,7 @@ fn evt_files_are_part_of_the_graph_cache_inputs() {
         std::slice::from_ref(&evt),
         &[],
         &[],
+        &[],
     )
     .unwrap();
     assert!(
@@ -540,6 +541,7 @@ fn evt_files_are_part_of_the_graph_cache_inputs() {
             std::slice::from_ref(&evt),
             &[],
             &[],
+            &[],
         )
         .unwrap(),
     );
@@ -553,6 +555,7 @@ fn evt_files_are_part_of_the_graph_cache_inputs() {
         None,
         None,
         &domains_path,
+        &[],
         &[],
         &[],
         &[],

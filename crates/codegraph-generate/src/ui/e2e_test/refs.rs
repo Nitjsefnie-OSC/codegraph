@@ -77,20 +77,35 @@ fn normalize_convention_stem(s: &str) -> String {
         .collect()
 }
 
-/// Resolve a required plain `format: uuid` scalar FK column with no `$ref`/
-/// graph edge (e.g. `case_id`) to its entity by naming convention: strip the
-/// `_id` suffix, normalize, and find the unique `is_entity` schema whose
-/// normalized `pg_table_name` or `rust_type_name` equals the stem. On multiple
-/// matches, prefer a same-domain schema; return `None` if still ambiguous.
+/// The name-convention FK shape: a required, non-array scalar column with no
+/// `$ref`/graph edge, whose `_id`-suffixed name claims an entity. The pg type
+/// is deliberately NOT checked here — the model may declare the FK as a plain
+/// string (`mox: String workerId` → pg TEXT, no `format: uuid`) and the
+/// convention is name-derived. Identity columns (`is_id`) are never FKs.
+fn is_convention_shape(prop: &PropertyNode) -> bool {
+    if prop.is_array || !prop.is_required || prop.ref_target.is_some() || prop.is_id {
+        return false;
+    }
+    let field = prop
+        .rust_field_name
+        .strip_prefix("r#")
+        .unwrap_or(&prop.rust_field_name);
+    field
+        .strip_suffix("_id")
+        .is_some_and(|stem| !stem.is_empty())
+}
+
+/// Resolve a required scalar FK column with no `$ref`/graph edge (e.g.
+/// `case_id`) to its entity by naming convention: strip the `_id` suffix,
+/// normalize, and find the unique `is_entity` schema whose normalized
+/// `pg_table_name` or `rust_type_name` equals the stem. On multiple matches,
+/// prefer a same-domain schema; return `None` if still ambiguous.
 async fn resolve_convention_ref(
     db: &dyn GraphQuerier,
     prop: &PropertyNode,
     current_domain: Option<&str>,
 ) -> Option<SchemaNode> {
-    if prop.is_array || !prop.is_required || prop.ref_target.is_some() {
-        return None;
-    }
-    if prop.format.as_deref() != Some("uuid") {
+    if !is_convention_shape(prop) {
         return None;
     }
     let field = prop
@@ -98,9 +113,6 @@ async fn resolve_convention_ref(
         .strip_prefix("r#")
         .unwrap_or(&prop.rust_field_name);
     let stem = field.strip_suffix("_id")?;
-    if stem.is_empty() {
-        return None;
-    }
     let stem_norm = normalize_convention_stem(stem);
     let matches: Vec<SchemaNode> = db
         .list_schemas(None)
@@ -130,16 +142,28 @@ async fn resolve_convention_ref(
     }
 }
 
+/// One convention-resolved entity ref: the marked field and its target.
+pub(super) struct ConventionRefResolution {
+    pub field_name: String,
+    pub target: SchemaNode,
+}
+
 /// Post-process collected UI fields: mark required plain-uuid convention FK
 /// columns (e.g. `case_id`) as entity refs so they participate in dependency
 /// setup and `testData()` emits the dep branch instead of a literal.
+///
+/// Returns the resolutions so the caller can gate on target creatability
+/// (the create-API check lives with the main-entity context, not here: the
+/// transitive dep path wants every resolved target marked so the tolerant
+/// optional-dep machinery applies).
 pub(super) async fn apply_convention_refs(
     db: &dyn GraphQuerier,
     config: &DomainConfig,
     domain: &str,
     props: &[PropertyNode],
     fields: &mut [UiField],
-) {
+) -> Vec<ConventionRefResolution> {
+    let mut resolved = Vec::new();
     for field in fields.iter_mut() {
         if field.is_entity_ref || !field.is_required {
             continue;
@@ -150,8 +174,35 @@ pub(super) async fn apply_convention_refs(
         if let Some(target) = resolve_convention_ref(db, prop, Some(domain)).await {
             field.is_entity_ref = true;
             field.ref_api_path = Some(api_path_for_schema(&target, config));
+            resolved.push(ConventionRefResolution {
+                field_name: field.name.clone(),
+                target,
+            });
         }
     }
+    resolved
+}
+
+/// True when the field has the name-convention FK shape but has NO creatable
+/// entity target — `testData` keeps the text sentinel and the templates emit
+/// the `// fixture: convention ref '<field>' has no creatable target` gap
+/// comment instead of silently shipping a mistyped literal.
+///
+/// Callers unmark resolved-but-not-creatable fields first, so a `true` here
+/// means exactly: the name claims an entity, but there is nothing we can
+/// dep-create for it.
+pub(super) fn is_convention_ref_gap(field: &UiField, props: &[PropertyNode]) -> bool {
+    if field.is_entity_ref
+        || !field.is_required
+        || field.is_codelist
+        || field.is_array
+        || !field.name.ends_with("_id")
+    {
+        return false;
+    }
+    find_ref_property(props, &field.name)
+        .map(is_convention_shape)
+        .unwrap_or(false)
 }
 
 /// Match a UI entity-ref field to its graph property. Entity-ref UI fields use

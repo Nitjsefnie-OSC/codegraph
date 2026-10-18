@@ -13,10 +13,12 @@
 //! exact same domain grouping as the monolith scaffold
 //! ([`build_scaffold_domains`](super::generator::build_scaffold_domains)).
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use codegraph_core::traits::GraphQuerier;
+use codegraph_core::types::{DeployComponentNode, DeployConnectionNode, DeployModelGraph};
 use serde::Serialize;
 
 use crate::error::Result;
@@ -39,9 +41,80 @@ pub fn worker_binding_name(domain: &str) -> String {
     domain.replace('-', "_").to_ascii_uppercase()
 }
 
+/// Resolved deployed worker name for `domain`: the explicit `worker_name`
+/// from config, or the `{app_name}-{domain}` convention.
+fn resolved_worker_name(app_name: &str, config: &DomainConfig, domain: &str) -> String {
+    config
+        .domains
+        .get(domain)
+        .map(|e| e.worker_name_or(&default_worker_name(app_name, domain)))
+        .unwrap_or_else(|| default_worker_name(app_name, domain))
+}
+
+/// The Workers-relevant projection of the ingested `.deploy` model(s): the
+/// application deployed through the first `cloudflareWorkers` profile,
+/// reduced to its components and `connects` edges.
+///
+/// When a shape exists it — not `domains.toml` `depends_on` — decides the
+/// topology wiring: a component named like a domain (kind `api`/`worker`)
+/// represents that domain's worker and its outgoing `connects` edges become
+/// the domain's service bindings, and a `gateway` component's edges decide
+/// which domains the gateway binds. Without a shape (no deploy file, or no
+/// CloudflareWorkers deployment in it) the scaffold keeps the purely
+/// config-derived behavior.
+#[derive(Debug, Clone)]
+pub struct DeployShape {
+    /// Components of the deployed application, in declaration order.
+    pub components: Vec<DeployComponentNode>,
+    /// `connects` edges of the deployed application, in declaration order.
+    pub connections: Vec<DeployConnectionNode>,
+}
+
+impl DeployShape {
+    /// Resolve the shape from the ingested models: the first model carrying
+    /// a `cloudflareWorkers` profile, that profile's first deployment, and
+    /// that deployment's application. Profile/deployment/application
+    /// references are intra-file names, so all three resolve within the same
+    /// model (models arrive in `source_path` order). `None` when no model
+    /// completes the profile → deployment → application chain, which the
+    /// scaffold treats exactly as "no deploy file".
+    pub fn from_models(models: &[DeployModelGraph]) -> Option<Self> {
+        models.iter().find_map(|model| {
+            let profile = model
+                .profiles
+                .iter()
+                .find(|p| p.target == "cloudflareWorkers")?;
+            let deployment = model
+                .deployments
+                .iter()
+                .find(|d| d.profile == profile.name)?;
+            let application = model
+                .applications
+                .iter()
+                .find(|a| a.name == deployment.application)?;
+            Some(Self {
+                components: application.components.clone(),
+                connections: application.connections.clone(),
+            })
+        })
+    }
+
+    /// Whether the application declares the conventional shared entry
+    /// point: an `api` component named `gateway`. Its `connects` edges then
+    /// decide which domains the gateway wrangler binds (vs bind-all when
+    /// absent).
+    fn has_gateway(&self) -> bool {
+        self.components
+            .iter()
+            .any(|c| c.kind == "api" && c.name == "gateway")
+    }
+}
+
 /// Path from a worker crate dir (`{output}/workers/{domain}/`) to a shared
-/// crate whose base path is absolute or declared relative to the process CWD
-/// (repo root). Empty bases (disabled crates) yield an empty path.
+/// crate whose base path is absolute or declared relative to the process
+/// CWD (repo root) — e.g. the hand-written hooks-api crate lives in the
+/// consuming repo, outside the generated output. Empty bases (disabled
+/// crates) yield an empty path.
 fn worker_crate_path(base: &str, abs_output: &Path, domain: &str) -> String {
     if base.is_empty() {
         return String::new();
@@ -53,6 +126,26 @@ fn worker_crate_path(base: &str, abs_output: &Path, domain: &str) -> String {
         std::env::current_dir()
             .expect("current_dir should be accessible")
             .join(base_path)
+    };
+    let worker_dir = abs_output.join("workers").join(domain);
+    pathdiff::diff_paths(&abs_base, &worker_dir)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// Path from a worker crate dir to a shared crate whose base is
+/// output-anchored (`{output}/{base}`) — the domain-types crate is
+/// scaffolded inside the output, and the monolith root Cargo.toml renders
+/// the same base manifest-relative. Empty bases yield an empty path.
+fn output_crate_path(base: &str, abs_output: &Path, domain: &str) -> String {
+    if base.is_empty() {
+        return String::new();
+    }
+    let base_path = Path::new(base);
+    let abs_base = if base_path.is_absolute() {
+        base_path.to_path_buf()
+    } else {
+        abs_output.join(base_path)
     };
     let worker_dir = abs_output.join("workers").join(domain);
     pathdiff::diff_paths(&abs_base, &worker_dir)
@@ -112,6 +205,11 @@ pub struct WorkerDomain {
     pub queue_binding: String,
     /// Max delivery attempts before an endpoint is auto-deactivated.
     pub queue_max_retries: u32,
+    /// Whether the gateway worker declares a `[[services]]` binding for this
+    /// domain: always true without a deploy model (bind-all); with an `api`
+    /// `gateway` component in the deploy model, only domains receiving a
+    /// `connects gateway -> <component>` edge are bound.
+    pub in_gateway: bool,
     /// Optional Cloudflare Queues consumer max_concurrency.
     pub queue_max_concurrency: Option<u32>,
     /// Whether Workers native observability is enabled for this domain
@@ -148,15 +246,45 @@ pub struct WorkerScaffoldContext {
 
 /// Build the per-domain worker contexts from the shared scaffold domains.
 ///
-/// Resolves worker names, service bindings (falling back to `depends_on`),
-/// hyperdrive bindings, cron triggers and custom domains from the domain
-/// config. `domain_types_path` is filled in later (it depends on the absolute
-/// output dir), so it starts empty here.
+/// Resolves worker names, service bindings, hyperdrive bindings, cron
+/// triggers and custom domains from the domain config. When `deploy` carries
+/// a shape, a domain whose deploy component (kind `api`/`worker`, name ==
+/// domain) exists gets its service bindings from that component's
+/// `connects` edges — explicit `service_bindings` in config still win, and
+/// domains without a matching component keep the `depends_on` fallback. The
+/// shape's `gateway` component similarly narrows the gateway's
+/// `[[services]]` set (`in_gateway`); without a shape the gateway binds all
+/// domains. `domain_types_path` is filled in later (it depends on the
+/// absolute output dir), so it starts empty here.
 pub fn build_worker_domains(
     app_name: &str,
     config: &DomainConfig,
     scaffold_domains: Vec<ScaffoldDomain>,
+    deploy: Option<&DeployShape>,
 ) -> Vec<WorkerDomain> {
+    let domain_names: HashSet<String> = scaffold_domains.iter().map(|d| d.name.clone()).collect();
+    // A component represents a domain's worker when its name equals a
+    // scaffold domain and its kind maps to a worker runtime. Edges to any
+    // other component (gateway, database, ...) carry no service binding.
+    let is_worker_component = |name: &str| {
+        deploy.is_some_and(|s| {
+            s.components.iter().any(|c| {
+                c.name == name
+                    && (c.kind == "api" || c.kind == "worker")
+                    && domain_names.contains(&c.name)
+            })
+        })
+    };
+    // With a gateway component, only domains receiving a
+    // `connects gateway -> <component>` edge stay bound; without one the
+    // gateway keeps binding every domain.
+    let gateway_bound: Option<HashSet<String>> = deploy.filter(|s| s.has_gateway()).map(|s| {
+        s.connections
+            .iter()
+            .filter(|e| e.from == "gateway" && is_worker_component(&e.to))
+            .map(|e| e.to.clone())
+            .collect()
+    });
     scaffold_domains
         .into_iter()
         .map(|d| {
@@ -164,20 +292,45 @@ pub fn build_worker_domains(
             let worker_name = entry
                 .map(|e| e.worker_name_or(&default_worker_name(app_name, &d.name)))
                 .unwrap_or_else(|| default_worker_name(app_name, &d.name));
-            let service_bindings = entry
-                .map(|e| e.service_bindings_or_depends())
-                .unwrap_or_default()
-                .into_iter()
-                .map(|dep| WorkerServiceBinding {
-                    domain: dep.to_string(),
-                    binding: worker_binding_name(dep),
-                    service_name: config
-                        .domains
-                        .get(dep)
-                        .map(|de| de.worker_name_or(&default_worker_name(app_name, dep)))
-                        .unwrap_or_else(|| default_worker_name(app_name, dep)),
-                })
-                .collect();
+            // Binding precedence: explicit config `service_bindings` > the
+            // deploy model's `connects` edges (when the domain has a
+            // component) > the `depends_on` fallback.
+            let service_bindings =
+                if let Some(configured) = entry.and_then(|e| e.service_bindings.as_ref()) {
+                    configured
+                        .iter()
+                        .map(|dep| WorkerServiceBinding {
+                            domain: dep.clone(),
+                            binding: worker_binding_name(dep),
+                            service_name: resolved_worker_name(app_name, config, dep),
+                        })
+                        .collect::<Vec<_>>()
+                } else if let Some(shape) = deploy.filter(|_| is_worker_component(&d.name)) {
+                    shape
+                        .connections
+                        .iter()
+                        .filter(|e| e.from == d.name && is_worker_component(&e.to))
+                        .map(|e| WorkerServiceBinding {
+                            domain: e.to.clone(),
+                            binding: worker_binding_name(&e.to),
+                            service_name: resolved_worker_name(app_name, config, &e.to),
+                        })
+                        .collect()
+                } else {
+                    entry
+                        .map(|e| e.service_bindings_or_depends())
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|dep| WorkerServiceBinding {
+                            domain: dep.to_string(),
+                            binding: worker_binding_name(dep),
+                            service_name: resolved_worker_name(app_name, config, dep),
+                        })
+                        .collect()
+                };
+            let in_gateway = gateway_bound
+                .as_ref()
+                .is_none_or(|bound| bound.contains(&d.name));
             let has_workflow_timers = entry.map(domain_has_workflow_timers).unwrap_or(false);
             let has_webhooks = entry.map(|e| e.webhooks_or(false)).unwrap_or(false);
             let mut cron_triggers = entry
@@ -208,6 +361,7 @@ pub fn build_worker_domains(
                 binding: worker_binding_name(&d.name),
                 custom_domain: entry.and_then(|e| e.custom_domain.clone()),
                 service_bindings,
+                in_gateway,
                 hyperdrive_binding: entry
                     .map(|e| e.hyperdrive_binding_or("HYPERDRIVE"))
                     .unwrap_or_else(|| "HYPERDRIVE".to_string()),
@@ -278,6 +432,15 @@ impl GlobalGenerator for WorkerScaffoldGenerator {
         let gateway_name = format!("{app_name}-gateway");
         let gateway_lib_name = codegraph_naming::to_snake_case(&gateway_name);
 
+        // The `.deploy` plane (rexlang #49) decides the Workers topology's
+        // wiring when it deploys a CloudflareWorkers profile: per-domain
+        // service bindings come from `connects` edges and the gateway binds
+        // only the domains it connects to. An empty graph query (no deploy
+        // file) or no CloudflareWorkers deployment keeps the config-derived
+        // behavior.
+        let deploy_models = db.get_deploy_models().await.unwrap_or_default();
+        let deploy_shape = DeployShape::from_models(&deploy_models);
+
         // Shared codegraph crate paths. The workspace manifest lives in the
         // `workers/` directory, so dependency paths are re-based from there
         // (empty when the consuming project pins them via git rev).
@@ -286,10 +449,16 @@ impl GlobalGenerator for WorkerScaffoldGenerator {
             resolve_path(&project.paths.codegraph_workflow_base, &workers_abs);
         let type_contracts_rel = resolve_path(&project.paths.type_contracts_base, &workers_abs);
 
-        let mut domains = build_worker_domains(&app_name, config, scaffold_domains);
+        let mut domains =
+            build_worker_domains(&app_name, config, scaffold_domains, deploy_shape.as_ref());
         for domain in &mut domains {
+            // The domain-types crate is scaffolded INSIDE the output
+            // (`{output}/crates/…`) — output-anchored, the same
+            // manifest-relative convention the monolith root Cargo.toml
+            // renders. The hooks-api crate is hand-written in the consuming
+            // repo — CWD(repo)-anchored (see `worker_crate_path`).
             domain.domain_types_path =
-                worker_crate_path(&project.paths.domain_types_base, &abs_output, &domain.name);
+                output_crate_path(&project.paths.domain_types_base, &abs_output, &domain.name);
             domain.hooks_api_path = if project.identity.hooks_api_crate.is_empty() {
                 String::new()
             } else {
@@ -369,6 +538,12 @@ impl GlobalGenerator for WorkerScaffoldGenerator {
         files.push(GeneratedFile {
             path: gateway_dir.join("src").join("lib.rs"),
             content: gateway_lib,
+        });
+        let gateway_cors =
+            render_template_with_project(tera, "scaffold/gateway_cors.tera", &ctx, project)?;
+        files.push(GeneratedFile {
+            path: gateway_dir.join("src").join("cors.rs"),
+            content: gateway_cors,
         });
         let gateway_worker =
             render_template_with_project(tera, "scaffold/gateway.tera", &ctx, project)?;
@@ -626,7 +801,7 @@ service_bindings = ["timecard"]
     #[test]
     fn worker_name_defaults_to_app_domain() {
         let config = test_config();
-        let domains = build_worker_domains("hr", &config, vec![scaffold_domain("common")]);
+        let domains = build_worker_domains("hr", &config, vec![scaffold_domain("common")], None);
         assert_eq!(domains.len(), 1);
         assert_eq!(domains[0].worker_name, "hr-common");
         assert_eq!(domains[0].worker_lib_name, "hr_common");
@@ -635,7 +810,7 @@ service_bindings = ["timecard"]
     #[test]
     fn explicit_worker_name_wins_over_convention() {
         let config = test_config();
-        let domains = build_worker_domains("hr", &config, vec![scaffold_domain("payroll")]);
+        let domains = build_worker_domains("hr", &config, vec![scaffold_domain("payroll")], None);
         assert_eq!(domains[0].worker_name, "hr-payroll-worker");
         assert_eq!(domains[0].worker_lib_name, "hr_payroll_worker");
     }
@@ -643,7 +818,7 @@ service_bindings = ["timecard"]
     #[test]
     fn service_bindings_fallback_to_depends_on() {
         let config = test_config();
-        let domains = build_worker_domains("hr", &config, vec![scaffold_domain("payroll")]);
+        let domains = build_worker_domains("hr", &config, vec![scaffold_domain("payroll")], None);
         assert_eq!(domains.len(), 1);
         let bindings = &domains[0].service_bindings;
         assert_eq!(bindings.len(), 1);
@@ -661,6 +836,7 @@ service_bindings = ["timecard"]
             "hr",
             &config,
             vec![scaffold_domain("common"), scaffold_domain("payroll")],
+            None,
         );
         let common = domains.iter().find(|d| d.name == "common").unwrap();
         assert_eq!(common.service_bindings.len(), 1);
@@ -676,6 +852,7 @@ service_bindings = ["timecard"]
             "hr",
             &config,
             vec![scaffold_domain("common"), scaffold_domain("payroll")],
+            None,
         );
         let payroll = domains.iter().find(|d| d.name == "payroll").unwrap();
         assert_eq!(payroll.hyperdrive_binding, "PAYROLL_DB");
@@ -727,7 +904,8 @@ target_state = "escalated"
         )
         .unwrap();
 
-        let domains = build_worker_domains("hr", &config, vec![scaffold_domain("recruiting")]);
+        let domains =
+            build_worker_domains("hr", &config, vec![scaffold_domain("recruiting")], None);
         assert_eq!(domains.len(), 1);
         assert!(domains[0].has_workflow_timers);
         assert_eq!(domains[0].cron_triggers, vec!["*/1 * * * *"]);
@@ -746,7 +924,7 @@ entities = ["CodeType"]
 "#,
         )
         .unwrap();
-        let common = build_worker_domains("hr", &no_timers, vec![scaffold_domain("common")]);
+        let common = build_worker_domains("hr", &no_timers, vec![scaffold_domain("common")], None);
         assert!(!common[0].has_workflow_timers);
         assert!(common[0].cron_triggers.is_empty());
     }
@@ -771,7 +949,7 @@ queue_max_concurrency = 10
         )
         .unwrap();
 
-        let domains = build_worker_domains("hr", &config, vec![scaffold_domain("timecard")]);
+        let domains = build_worker_domains("hr", &config, vec![scaffold_domain("timecard")], None);
         assert_eq!(domains.len(), 1);
         let d = &domains[0];
         assert!(d.has_webhooks);
@@ -800,7 +978,7 @@ webhooks = true
         )
         .unwrap();
 
-        let domains = build_worker_domains("hr", &config, vec![scaffold_domain("payroll")]);
+        let domains = build_worker_domains("hr", &config, vec![scaffold_domain("payroll")], None);
         let d = &domains[0];
         assert!(d.has_webhooks);
         assert_eq!(d.queue_binding, "WEBHOOK_QUEUE");
@@ -823,7 +1001,7 @@ entities = ["CodeType"]
 "#,
         )
         .unwrap();
-        let common = build_worker_domains("hr", &config, vec![scaffold_domain("common")]);
+        let common = build_worker_domains("hr", &config, vec![scaffold_domain("common")], None);
         assert!(!common[0].has_webhooks);
     }
 
@@ -835,7 +1013,8 @@ entities = ["CodeType"]
         let project = ProjectConfig::default();
 
         let config = test_config();
-        let mut domains = build_worker_domains("hr", &config, vec![scaffold_domain("payroll")]);
+        let mut domains =
+            build_worker_domains("hr", &config, vec![scaffold_domain("payroll")], None);
         domains[0].domain_types_path = "../../crates/hr-domain-types".to_string();
 
         let rendered = render_template_with_project(
@@ -896,7 +1075,8 @@ queue_max_concurrency = 10
         )
         .unwrap();
 
-        let mut domains = build_worker_domains("hr", &config, vec![scaffold_domain("timecard")]);
+        let mut domains =
+            build_worker_domains("hr", &config, vec![scaffold_domain("timecard")], None);
         domains[0].domain_types_path = "../../crates/hr-domain-types".to_string();
 
         let rendered = render_template_with_project(
@@ -947,7 +1127,7 @@ observability = true
         )
         .unwrap();
 
-        let domains = build_worker_domains("hr", &enabled, vec![scaffold_domain("payroll")]);
+        let domains = build_worker_domains("hr", &enabled, vec![scaffold_domain("payroll")], None);
         assert!(domains[0].observability);
         let rendered = render_template_with_project(
             &tera,
@@ -978,7 +1158,7 @@ entities = ["CodeType"]
 "#,
         )
         .unwrap();
-        let domains = build_worker_domains("hr", &disabled, vec![scaffold_domain("common")]);
+        let domains = build_worker_domains("hr", &disabled, vec![scaffold_domain("common")], None);
         assert!(!domains[0].observability);
         let rendered = render_template_with_project(
             &tera,
@@ -1003,10 +1183,14 @@ entities = ["CodeType"]
             "hr",
             &config,
             vec![scaffold_domain("common"), scaffold_domain("payroll")],
+            None,
         );
         for domain in &mut domains {
             domain.domain_types_path = "../../crates/hr-domain-types".to_string();
         }
+        // No deploy shape: every domain is gateway-bound (bind-all, the
+        // pre-deploy behavior) and the rendered wrangler is unchanged.
+        assert!(domains.iter().all(|d| d.in_gateway));
         let ctx = WorkerScaffoldContext {
             app_name: "hr".to_string(),
             gateway_name: "hr-gateway".to_string(),
@@ -1085,7 +1269,7 @@ entities = ["CodeType"]
             has_custom_routes: false,
             atproto_nsids: vec![],
         };
-        let mut domains = build_worker_domains("hr", &config, vec![full, query_only]);
+        let mut domains = build_worker_domains("hr", &config, vec![full, query_only], None);
         for d in &mut domains {
             d.domain_types_path = "crates/hr-domain-types".to_string();
             d.hooks_api_path = "crates/hr-hooks-api".to_string();
@@ -1148,7 +1332,7 @@ entities = ["CodeType"]
             ..Default::default()
         };
         let config = test_config();
-        let domains = build_worker_domains("hr", &config, vec![scaffold_domain("payroll")]);
+        let domains = build_worker_domains("hr", &config, vec![scaffold_domain("payroll")], None);
         let rendered =
             render_template_with_project(&tera, "scaffold/worker_lib.tera", &domains[0], &project)
                 .unwrap();
@@ -1186,5 +1370,359 @@ entities = ["CodeType"]
                 "{template} must not hyphenate the crate identifier in code position"
             );
         }
+    }
+
+    use codegraph_core::types::{DeployApplicationNode, DeployDeploymentNode, DeployProfileNode};
+
+    fn deploy_component(
+        application: &str,
+        name: &str,
+        kind: &str,
+        ordinal: usize,
+    ) -> DeployComponentNode {
+        DeployComponentNode {
+            application: application.to_string(),
+            name: name.to_string(),
+            kind: kind.to_string(),
+            requires: vec![],
+            settings: vec![],
+            designs: vec![],
+            flows: vec![],
+            ordinal,
+        }
+    }
+
+    fn deploy_connection(application: &str, from: &str, to: &str) -> DeployConnectionNode {
+        DeployConnectionNode {
+            application: application.to_string(),
+            from: from.to_string(),
+            to: to.to_string(),
+        }
+    }
+
+    fn deploy_shape(
+        components: Vec<DeployComponentNode>,
+        connections: Vec<DeployConnectionNode>,
+    ) -> DeployShape {
+        DeployShape {
+            components,
+            connections,
+        }
+    }
+
+    /// Deploy-model `connects` edges drive the service bindings for domains
+    /// with a matching component: the edge set replaces the `depends_on`
+    /// fallback entirely (a component with no outgoing edges binds nothing).
+    #[test]
+    fn deploy_connections_replace_the_depends_on_fallback() {
+        let config = parse_domain_config_str(
+            r#"
+[defaults]
+operations = ["create", "read", "update", "delete", "list"]
+
+[domains.core]
+label = "Core"
+schema_dir = "core"
+postgres_schema = "core"
+entities = ["EmployeeType"]
+depends_on = ["audit"]
+
+[domains.payroll]
+label = "Payroll"
+schema_dir = "payroll"
+postgres_schema = "payroll"
+entities = ["PayRunType"]
+depends_on = ["core"]
+"#,
+        )
+        .unwrap();
+        let shape = deploy_shape(
+            vec![
+                deploy_component("hr", "core", "api", 0),
+                deploy_component("hr", "payroll", "worker", 1),
+            ],
+            vec![deploy_connection("hr", "core", "payroll")],
+        );
+
+        let domains = build_worker_domains(
+            "hr",
+            &config,
+            vec![scaffold_domain("core"), scaffold_domain("payroll")],
+            Some(&shape),
+        );
+
+        let core = domains.iter().find(|d| d.name == "core").unwrap();
+        assert_eq!(core.service_bindings.len(), 1);
+        assert_eq!(core.service_bindings[0].domain, "payroll");
+        assert_eq!(core.service_bindings[0].binding, "PAYROLL");
+        assert_eq!(core.service_bindings[0].service_name, "hr-payroll");
+
+        // payroll's component exists but has no outgoing edges: the deploy
+        // model owns its bindings, so the `depends_on` fallback is not used.
+        let payroll = domains.iter().find(|d| d.name == "payroll").unwrap();
+        assert!(payroll.service_bindings.is_empty());
+    }
+
+    /// Explicit `domains.toml` `service_bindings` still win over the deploy
+    /// model's `connects` edges.
+    #[test]
+    fn explicit_config_service_bindings_win_over_deploy_connections() {
+        let config = parse_domain_config_str(
+            r#"
+[defaults]
+operations = ["create", "read", "update", "delete", "list"]
+
+[domains.core]
+label = "Core"
+schema_dir = "core"
+postgres_schema = "core"
+entities = ["EmployeeType"]
+service_bindings = ["timecard"]
+
+[domains.payroll]
+label = "Payroll"
+schema_dir = "payroll"
+postgres_schema = "payroll"
+entities = ["PayRunType"]
+"#,
+        )
+        .unwrap();
+        let shape = deploy_shape(
+            vec![
+                deploy_component("hr", "core", "api", 0),
+                deploy_component("hr", "payroll", "api", 1),
+            ],
+            vec![deploy_connection("hr", "core", "payroll")],
+        );
+
+        let domains = build_worker_domains(
+            "hr",
+            &config,
+            vec![scaffold_domain("core"), scaffold_domain("payroll")],
+            Some(&shape),
+        );
+
+        let core = domains.iter().find(|d| d.name == "core").unwrap();
+        assert_eq!(core.service_bindings.len(), 1);
+        assert_eq!(core.service_bindings[0].domain, "timecard");
+        assert_eq!(core.service_bindings[0].binding, "TIMECARD");
+        assert_eq!(core.service_bindings[0].service_name, "hr-timecard");
+    }
+
+    /// Edges pointing at non-domain components (the gateway, a database)
+    /// produce no service bindings; domains without a matching component
+    /// keep the config-derived fallback.
+    #[test]
+    fn non_domain_edges_produce_no_service_bindings() {
+        let config = parse_domain_config_str(
+            r#"
+[defaults]
+operations = ["create", "read", "update", "delete", "list"]
+
+[domains.core]
+label = "Core"
+schema_dir = "core"
+postgres_schema = "core"
+entities = ["EmployeeType"]
+depends_on = ["audit"]
+"#,
+        )
+        .unwrap();
+        let shape = deploy_shape(
+            vec![
+                deploy_component("hr", "core", "api", 0),
+                deploy_component("hr", "gateway", "api", 1),
+                deploy_component("hr", "pg", "database", 2),
+            ],
+            vec![
+                deploy_connection("hr", "core", "gateway"),
+                deploy_connection("hr", "core", "pg"),
+                deploy_connection("hr", "gateway", "pg"),
+            ],
+        );
+
+        let domains =
+            build_worker_domains("hr", &config, vec![scaffold_domain("core")], Some(&shape));
+
+        // Every outgoing edge of `core` targets a non-domain component, so
+        // the deploy-derived binding list is empty (the `audit` fallback is
+        // gone with the deploy model in play).
+        assert!(domains[0].service_bindings.is_empty());
+    }
+
+    /// With an `api` `gateway` component in the deploy model, the gateway
+    /// wrangler binds exactly the domains receiving a
+    /// `connects gateway -> <component>` edge, in domain order — not all
+    /// domains. Edges to non-domain components don't bind anything.
+    #[test]
+    fn gateway_wrangler_binds_only_domains_receiving_a_deploy_connection() {
+        let template_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+        let tera = crate::template_engine::create_tera(&template_dir).unwrap();
+        let project = ProjectConfig::default();
+
+        let config = parse_domain_config_str(
+            r#"
+[defaults]
+operations = ["create", "read", "update", "delete", "list"]
+
+[domains.core]
+label = "Core"
+schema_dir = "core"
+postgres_schema = "core"
+entities = ["EmployeeType"]
+
+[domains.payroll]
+label = "Payroll"
+schema_dir = "payroll"
+postgres_schema = "payroll"
+entities = ["PayRunType"]
+
+[domains.timecard]
+label = "Timecard"
+schema_dir = "timecard"
+postgres_schema = "timecard"
+entities = ["TimeEntryType"]
+"#,
+        )
+        .unwrap();
+        let shape = deploy_shape(
+            vec![
+                deploy_component("hr", "gateway", "api", 0),
+                deploy_component("hr", "core", "api", 1),
+                deploy_component("hr", "payroll", "api", 2),
+                deploy_component("hr", "timecard", "worker", 3),
+                deploy_component("hr", "pg", "database", 4),
+            ],
+            vec![
+                deploy_connection("hr", "gateway", "core"),
+                deploy_connection("hr", "gateway", "pg"),
+                deploy_connection("hr", "gateway", "payroll"),
+                deploy_connection("hr", "core", "payroll"),
+            ],
+        );
+
+        let mut domains = build_worker_domains(
+            "hr",
+            &config,
+            vec![
+                scaffold_domain("core"),
+                scaffold_domain("payroll"),
+                scaffold_domain("timecard"),
+            ],
+            Some(&shape),
+        );
+        for domain in &mut domains {
+            domain.domain_types_path = "../../crates/hr-domain-types".to_string();
+        }
+        let in_gateway: Vec<bool> = domains.iter().map(|d| d.in_gateway).collect();
+        assert_eq!(in_gateway, vec![true, true, false]);
+
+        let ctx = WorkerScaffoldContext {
+            app_name: "hr".to_string(),
+            gateway_name: "hr-gateway".to_string(),
+            gateway_lib_name: "hr_gateway".to_string(),
+            domains,
+            codegraph_workflow_path: String::new(),
+            type_contracts_path: String::new(),
+            gateway_observability: false,
+        };
+        let rendered =
+            render_template_with_project(&tera, "scaffold/gateway_wrangler.tera", &ctx, &project)
+                .unwrap();
+        let parsed: toml::Value = toml::from_str(&rendered).expect("gateway wrangler must parse");
+        let services = parsed["services"].as_array().expect("services array");
+        assert_eq!(
+            services
+                .iter()
+                .map(|s| s["binding"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["CORE", "PAYROLL"],
+            "only the deploy-connected domains get a [[services]] entry"
+        );
+
+        // Incoming edges bind nothing: `core` receives gateway->core but its
+        // own bindings come only from its outgoing core->payroll edge.
+        let core = ctx.domains.iter().find(|d| d.name == "core").unwrap();
+        assert_eq!(
+            core.service_bindings
+                .iter()
+                .map(|b| b.binding.as_str())
+                .collect::<Vec<_>>(),
+            vec!["PAYROLL"]
+        );
+    }
+
+    /// The shape resolves intra-file: the first `cloudflareWorkers` profile,
+    /// that profile's first deployment, and that deployment's application —
+    /// even when a non-Workers profile/application pair is declared first.
+    #[test]
+    fn deploy_shape_resolves_first_cloudflareworkers_profile_chain() {
+        fn profile(name: &str, target: &str) -> DeployProfileNode {
+            DeployProfileNode {
+                source_path: "svc.deploy".to_string(),
+                name: name.to_string(),
+                target: target.to_string(),
+                defaults: vec![],
+                policies: vec![],
+                mappings: vec![],
+            }
+        }
+        fn application(name: &str, components: Vec<DeployComponentNode>) -> DeployApplicationNode {
+            DeployApplicationNode {
+                source_path: "svc.deploy".to_string(),
+                name: name.to_string(),
+                components,
+                connections: vec![],
+            }
+        }
+        fn deployment(name: &str, application: &str, profile: &str) -> DeployDeploymentNode {
+            DeployDeploymentNode {
+                source_path: "svc.deploy".to_string(),
+                name: name.to_string(),
+                application: application.to_string(),
+                profile: profile.to_string(),
+                configure: vec![],
+            }
+        }
+
+        let model = DeployModelGraph {
+            source_path: "svc.deploy".to_string(),
+            applications: vec![
+                application(
+                    "compose-app",
+                    vec![deploy_component("compose-app", "db", "database", 0)],
+                ),
+                application(
+                    "workers-app",
+                    vec![
+                        deploy_component("workers-app", "gateway", "api", 0),
+                        deploy_component("workers-app", "core", "api", 1),
+                    ],
+                ),
+            ],
+            profiles: vec![
+                profile("compose", "dockerCompose"),
+                profile("cf", "cloudflareWorkers"),
+            ],
+            deployments: vec![
+                deployment("local", "compose-app", "compose"),
+                deployment("prod", "workers-app", "cf"),
+            ],
+        };
+        let shape = DeployShape::from_models(std::slice::from_ref(&model))
+            .expect("cloudflareWorkers chain must resolve");
+        assert!(shape.has_gateway());
+        let component_names: Vec<&str> = shape.components.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(component_names, vec!["gateway", "core"]);
+
+        // No CloudflareWorkers profile anywhere → no shape (config-derived
+        // behavior, exactly as when no deploy file exists).
+        let compose_only = DeployModelGraph {
+            source_path: "other.deploy".to_string(),
+            applications: model.applications.clone(),
+            profiles: vec![profile("compose", "dockerCompose")],
+            deployments: vec![deployment("local", "compose-app", "compose")],
+        };
+        assert!(DeployShape::from_models(&[compose_only]).is_none());
     }
 }

@@ -7,6 +7,7 @@ mod composite;
 mod composition;
 mod condition;
 mod ddd;
+mod deploy;
 mod discovery;
 mod edge;
 mod events;
@@ -50,6 +51,11 @@ pub use ddd::{
     DddApplicationNode, DddDesignFlags, DddDesignNode, DddDocumentField, DddModelGraph,
     DddModuleNode, DddPagination, DddParam, DddRepositoryNode, DddRepositoryOperation,
     DddSearchField, DddSearchNode, DddServiceNode, DddServiceOperation,
+};
+pub use deploy::{
+    DeployApplicationNode, DeployBindingNode, DeployComponentNode, DeployConnectionNode,
+    DeployDeploymentNode, DeployMappingNode, DeployModelGraph, DeployPolicyNode, DeployProfileNode,
+    DeploySettingNode, DeployValueNode,
 };
 pub use discovery::{DetectionSource, Extension, ParentCandidate};
 pub use edge::{EdgeProperties, EdgeType};
