@@ -140,6 +140,23 @@ pub trait GraphQuerier: Send + Sync {
         self.get_property_ref_target(property_name, schema_id).await
     }
 
+    /// Bulk-resolve the ref-target plane in ONE query (issue #350): every
+    /// property in the graph, keyed by `(property name, owning schema
+    /// title)`. `Some(schema)` mirrors a `ReferencesSchema` hit;
+    /// `None` records the negative space (the property has no reference
+    /// edge) so callers can negative-cache without re-querying. Per-key
+    /// results are identical to `get_property_ref_target` (first row wins,
+    /// matching the point lookup). The batch exists to kill the per-key
+    /// N+1 — ref-target keys are unique per call, so the per-key cache
+    /// never hits on first touch. Implementations that don't support the
+    /// batch return an empty map; callers must degrade to the per-key
+    /// method (the `CachingQuerier` miss path does exactly that).
+    async fn list_all_property_ref_targets(
+        &self,
+    ) -> Result<HashMap<(String, String), Option<SchemaNode>>, GraphError> {
+        Ok(HashMap::new())
+    }
+
     /// Get properties associated with a schema by its unique schema_id (not title).
     async fn get_properties_by_schema_id(
         &self,

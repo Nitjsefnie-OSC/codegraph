@@ -6,7 +6,7 @@ use codegraph_core::types::{
     Extension, FkDirection, FkTarget, PropertyNode, SchemaNode, StructuredSubField,
 };
 
-use super::query::{query_gql_params, query_many_params, query_one_params};
+use super::query::{query_gql, query_gql_params, query_many_params, query_one_params};
 use super::{PROPERTY_RETURN_COLS, SCHEMA_RETURN_COLS};
 use crate::conversions::{
     RowReader, row_to_codelist, row_to_composite_column, row_to_composite_range, row_to_extension,
@@ -313,6 +313,42 @@ impl GrafeoEngine {
             row_to_schema_node,
         )
         .await
+    }
+
+    /// Bulk form of `query_property_ref_target` (issue #350): every
+    /// property's ref-target resolution in ONE query, keyed by (property
+    /// name, owning schema title). `OPTIONAL MATCH` also covers the
+    /// negative space — properties with no `ReferencesSchema` edge seed a
+    /// `None` entry, so post-seed point lookups only happen for keys the
+    /// graph never heard of. First row wins per key — the same first-row
+    /// semantics as the point lookup.
+    pub(super) async fn query_all_property_ref_targets(
+        &self,
+    ) -> Result<HashMap<(String, String), Option<SchemaNode>>, GraphError> {
+        let result = query_gql(
+            self,
+            &format!(
+                "MATCH (p:Property) OPTIONAL MATCH (p)-[:ReferencesSchema]->(s:Schema) \
+                 RETURN p.name, p._schema_title, {SCHEMA_RETURN_COLS}"
+            ),
+        )?;
+        let reader = RowReader::from_columns(&result.columns);
+        let mut map: HashMap<(String, String), Option<SchemaNode>> = HashMap::new();
+        for row in &result.rows {
+            let (Ok(name), Ok(stitle)) = (
+                reader.get_string(row, "p.name"),
+                reader.get_string(row, "p._schema_title"),
+            ) else {
+                continue;
+            };
+            let target = if reader.get_opt_string(row, "s.title")?.is_some() {
+                Some(row_to_schema_node(&reader, row)?)
+            } else {
+                None
+            };
+            map.entry((name, stitle)).or_insert(target);
+        }
+        Ok(map)
     }
 
     pub(super) async fn query_property_ref_target_by_id(
@@ -1613,5 +1649,52 @@ mod query_count_tests {
         // never demoted to the jsonb plane) skips the target-schema lookup
         // for the fixture's one scalar entity ref: 47 → 46.
         assert_eq!(query_count(), 46);
+    }
+
+    /// Issue #350: the batch ref-target resolution must return identical
+    /// data to the N single-key `get_property_ref_target` calls it
+    /// replaces (same keys, same targets, including `None` for the
+    /// negative space). Executes GQL, so it holds the counter lock like
+    /// every other in-crate read test.
+    #[tokio::test]
+    async fn list_all_property_ref_targets_matches_point_lookups() {
+        let _counter = COUNTER_LOCK.lock().await;
+        let engine = representative_engine().await;
+
+        let batch = engine.list_all_property_ref_targets().await.unwrap();
+        for (pname, stitle) in [
+            ("homeAddress", "CaseType"),
+            ("postalAddress", "CaseType"),
+            ("owner", "CaseType"),
+            ("status", "CaseType"),
+            ("watchers", "CaseType"),
+        ] {
+            let point = engine.get_property_ref_target(pname, stitle).await.unwrap();
+            assert_eq!(
+                batch
+                    .get(&(pname.to_string(), stitle.to_string()))
+                    .cloned()
+                    .flatten(),
+                point,
+                "{pname}/{stitle}: batch must match the point lookup"
+            );
+        }
+        // Negative space: `title` has no reference edge — the batch carries
+        // None so the point query never runs for it again.
+        let plain = engine
+            .get_property_ref_target("title", "CaseType")
+            .await
+            .unwrap();
+        assert_eq!(plain, None);
+        assert_eq!(
+            batch
+                .get(&("title".to_string(), "CaseType".to_string()))
+                .cloned()
+                .flatten(),
+            None
+        );
+        // The property universe: 6 CaseType props + 1 AddressType + 1
+        // CaseBaseType.
+        assert_eq!(batch.len(), 8);
     }
 }

@@ -278,6 +278,22 @@ impl GraphQuerier for MockEngine {
             .cloned())
     }
 
+    async fn list_all_property_ref_targets(
+        &self,
+    ) -> Result<HashMap<(String, String), Option<SchemaNode>>, GraphError> {
+        let properties = self.properties.lock().unwrap();
+        let ref_targets = self.ref_targets.lock().unwrap();
+        let mut map: HashMap<(String, String), Option<SchemaNode>> = HashMap::new();
+        for (title, props) in properties.iter() {
+            for prop in props {
+                let key = (prop.name.clone(), title.clone());
+                let target = ref_targets.get(&key).cloned();
+                map.insert(key, target);
+            }
+        }
+        Ok(map)
+    }
+
     async fn get_property_ref_target_by_id(
         &self,
         property_name: &str,

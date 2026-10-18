@@ -96,6 +96,17 @@ pub struct CachingQuerier<'a> {
     evt_models_cache: RwLock<Option<Vec<EvtModelGraph>>>,
     codelists_cache: RwLock<Option<Vec<CodeList>>>,
     parent_candidates_cache: RwLock<Option<Vec<ParentCandidate>>>,
+    /// Whole-store families cached first-read-wins (issue #350: the
+    /// generation loop re-reads these per entity; the graph is immutable
+    /// under this wrapper, so one fetch serves the whole pass).
+    entity_names_cache: RwLock<Option<Vec<String>>>,
+    list_schemas_cache: RwLock<HashMap<String, Vec<SchemaNode>>>,
+    list_all_properties_cache: RwLock<Option<HashMap<String, Vec<PropertyNode>>>>,
+    mox_derived_features_cache: RwLock<Option<Vec<MoxDerivedFeatureNode>>>,
+    /// Whether the ref-target per-key cache has been bulk-seeded via the
+    /// `list_all_property_ref_targets` batch (issue #350). The batch result
+    /// itself is not cached — it populates the per-key entries.
+    property_ref_targets_seeded: RwLock<bool>,
     /// Populated for future tenant-scoped queries; not read yet.
     #[allow(dead_code)]
     tenants_cache: RwLock<HashMap<String, TenantNode>>,
@@ -138,6 +149,11 @@ impl<'a> CachingQuerier<'a> {
             evt_models_cache: RwLock::new(None),
             codelists_cache: RwLock::new(None),
             parent_candidates_cache: RwLock::new(None),
+            entity_names_cache: RwLock::new(None),
+            list_schemas_cache: RwLock::new(HashMap::new()),
+            list_all_properties_cache: RwLock::new(None),
+            mox_derived_features_cache: RwLock::new(None),
+            property_ref_targets_seeded: RwLock::new(false),
             tenants_cache: RwLock::new(HashMap::new()),
         }
     }
@@ -361,7 +377,18 @@ impl GraphQuerier for CachingQuerier<'_> {
     }
 
     async fn list_schemas(&self, domain: Option<&str>) -> Result<Vec<SchemaNode>, GraphError> {
-        self.inner.list_schemas(domain).await
+        let key = domain.unwrap_or("");
+        if let Some(cached) = self.list_schemas_cache.read().unwrap().get(key) {
+            cache_record("list_schemas", true);
+            return Ok(cached.clone());
+        }
+        cache_record("list_schemas", false);
+        let schemas = self.inner.list_schemas(domain).await?;
+        self.list_schemas_cache
+            .write()
+            .unwrap()
+            .insert(key.to_string(), schemas.clone());
+        Ok(schemas)
     }
 
     async fn get_properties(&self, schema_title: &str) -> Result<Vec<PropertyNode>, GraphError> {
@@ -389,7 +416,14 @@ impl GraphQuerier for CachingQuerier<'_> {
     }
 
     async fn get_entity_names(&self) -> Result<Vec<String>, GraphError> {
-        self.inner.get_entity_names().await
+        if let Some(cached) = self.entity_names_cache.read().unwrap().as_ref() {
+            cache_record("get_entity_names", true);
+            return Ok(cached.clone());
+        }
+        cache_record("get_entity_names", false);
+        let names = self.inner.get_entity_names().await?;
+        *self.entity_names_cache.write().unwrap() = Some(names.clone());
+        Ok(names)
     }
 
     async fn get_entity_schema_map(&self) -> Result<HashMap<String, String>, GraphError> {
@@ -596,15 +630,45 @@ impl GraphQuerier for CachingQuerier<'_> {
         property_name: &str,
         schema_title: &str,
     ) -> Result<Option<SchemaNode>, GraphError> {
-        cached_pair!(
-            self,
-            property_ref_target_cache,
-            "get_property_ref_target",
-            property_name,
-            schema_title,
-            self.inner
-                .get_property_ref_target(property_name, schema_title)
-        )
+        let key = (property_name.to_string(), schema_title.to_string());
+        {
+            let cache = self.property_ref_target_cache.read().unwrap();
+            if let Some(val) = cache.get(&key) {
+                cache_record("get_property_ref_target", true);
+                return Ok(val.clone());
+            }
+        }
+        // Miss: bulk-seed the per-key cache once via the batch API (issue
+        // #350 — ref-target keys are unique per call, so per-key caching
+        // alone never hits on first touch). The batch result itself is not
+        // cached; it populates the per-key entries. An inner querier
+        // without batch support returns an empty map and we degrade to the
+        // per-key call below.
+        if !*self.property_ref_targets_seeded.read().unwrap() {
+            let batch = self.inner.list_all_property_ref_targets().await?;
+            {
+                let mut cache = self.property_ref_target_cache.write().unwrap();
+                for (batch_key, target) in batch {
+                    cache.insert(batch_key, target);
+                }
+            }
+            *self.property_ref_targets_seeded.write().unwrap() = true;
+            let cache = self.property_ref_target_cache.read().unwrap();
+            if let Some(val) = cache.get(&key) {
+                cache_record("get_property_ref_target", false);
+                return Ok(val.clone());
+            }
+        }
+        cache_record("get_property_ref_target", false);
+        let result = self
+            .inner
+            .get_property_ref_target(property_name, schema_title)
+            .await?;
+        {
+            let mut cache = self.property_ref_target_cache.write().unwrap();
+            cache.insert(key, result.clone());
+        }
+        Ok(result)
     }
 
     async fn get_property_ref_target_by_id(
@@ -667,7 +731,14 @@ impl GraphQuerier for CachingQuerier<'_> {
     }
 
     async fn list_all_properties(&self) -> Result<HashMap<String, Vec<PropertyNode>>, GraphError> {
-        self.inner.list_all_properties().await
+        if let Some(cached) = self.list_all_properties_cache.read().unwrap().as_ref() {
+            cache_record("list_all_properties", true);
+            return Ok(cached.clone());
+        }
+        cache_record("list_all_properties", false);
+        let all = self.inner.list_all_properties().await?;
+        *self.list_all_properties_cache.write().unwrap() = Some(all.clone());
+        Ok(all)
     }
 
     // ── IFML query delegation ──────────────────────────────────────────
@@ -1074,7 +1145,14 @@ impl GraphQuerier for CachingQuerier<'_> {
     }
 
     async fn get_mox_derived_features(&self) -> Result<Vec<MoxDerivedFeatureNode>, GraphError> {
-        self.inner.get_mox_derived_features().await
+        if let Some(cached) = self.mox_derived_features_cache.read().unwrap().as_ref() {
+            cache_record("get_mox_derived_features", true);
+            return Ok(cached.clone());
+        }
+        cache_record("get_mox_derived_features", false);
+        let features = self.inner.get_mox_derived_features().await?;
+        *self.mox_derived_features_cache.write().unwrap() = Some(features.clone());
+        Ok(features)
     }
 
     async fn get_mox_derived_features_for_schema(
@@ -1224,5 +1302,333 @@ mod cache_stats_tests {
         assert!(cache_stats_snapshot().contains_key("cache_stats_test_family"));
         cache_stats_reset();
         assert!(!cache_stats_snapshot().contains_key("cache_stats_test_family"));
+    }
+
+    /// Whole-store families cached first-read-wins (issue #350): the
+    /// generation loop re-reads these per entity; one miss then cache hits.
+    #[test]
+    fn whole_store_families_record_miss_then_hit() {
+        let _guard = stats_lock();
+        block_on(async {
+            let mock = MockEngine::default();
+            let querier = CachingQuerier::new(&mock);
+            cache_stats_reset();
+
+            let _ = querier.get_entity_names().await.unwrap();
+            let _ = querier.get_entity_names().await.unwrap();
+            let snapshot = cache_stats_snapshot();
+            assert_eq!(snapshot.get("get_entity_names"), Some(&(1, 1)));
+
+            let _ = querier.list_all_properties().await.unwrap();
+            let _ = querier.list_all_properties().await.unwrap();
+            let snapshot = cache_stats_snapshot();
+            assert_eq!(snapshot.get("list_all_properties"), Some(&(1, 1)));
+
+            let _ = querier.list_schemas(None).await.unwrap();
+            let _ = querier.list_schemas(None).await.unwrap();
+            let snapshot = cache_stats_snapshot();
+            assert_eq!(snapshot.get("list_schemas"), Some(&(1, 1)));
+
+            let _ = querier.get_mox_derived_features().await.unwrap();
+            let _ = querier.get_mox_derived_features().await.unwrap();
+            let snapshot = cache_stats_snapshot();
+            assert_eq!(snapshot.get("get_mox_derived_features"), Some(&(1, 1)));
+        });
+    }
+}
+
+#[cfg(test)]
+mod batch_tests {
+    //! Issue #350: batch-backed miss path + whole-store family caching.
+
+    use super::*;
+    use crate::mock::MockEngine;
+    use crate::test_fixtures::{gender_codelist_schema, person_properties};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(fut)
+    }
+
+    /// Inner querier double that counts batch vs per-key ref-target calls.
+    struct CountingInner {
+        mock: MockEngine,
+        batch_calls: AtomicUsize,
+        point_calls: AtomicUsize,
+    }
+
+    impl CountingInner {
+        fn new(mock: MockEngine) -> Self {
+            Self {
+                mock,
+                batch_calls: AtomicUsize::new(0),
+                point_calls: AtomicUsize::new(0),
+            }
+        }
+
+        fn batch_calls(&self) -> usize {
+            self.batch_calls.load(Ordering::Relaxed)
+        }
+
+        fn point_calls(&self) -> usize {
+            self.point_calls.load(Ordering::Relaxed)
+        }
+    }
+
+    #[async_trait]
+    impl GraphQuerier for CountingInner {
+        async fn get_schema(&self, title: &str) -> Result<Option<SchemaNode>, GraphError> {
+            self.mock.get_schema(title).await
+        }
+
+        async fn list_schemas(&self, domain: Option<&str>) -> Result<Vec<SchemaNode>, GraphError> {
+            self.mock.list_schemas(domain).await
+        }
+
+        async fn get_properties(
+            &self,
+            schema_title: &str,
+        ) -> Result<Vec<PropertyNode>, GraphError> {
+            self.mock.get_properties(schema_title).await
+        }
+
+        async fn get_child_schemas(
+            &self,
+            schema_title: &str,
+        ) -> Result<Vec<SchemaNode>, GraphError> {
+            self.mock.get_child_schemas(schema_title).await
+        }
+
+        async fn get_classification_data(
+            &self,
+        ) -> Result<Vec<SchemaClassificationData>, GraphError> {
+            self.mock.get_classification_data().await
+        }
+
+        async fn get_entity_names(&self) -> Result<Vec<String>, GraphError> {
+            self.mock.get_entity_names().await
+        }
+
+        async fn get_entity_schema_map(&self) -> Result<HashMap<String, String>, GraphError> {
+            self.mock.get_entity_schema_map().await
+        }
+
+        async fn get_value_object_schemas(&self) -> Result<Vec<SchemaNode>, GraphError> {
+            self.mock.get_value_object_schemas().await
+        }
+
+        async fn get_parent_candidates(&self) -> Result<Vec<ParentCandidate>, GraphError> {
+            self.mock.get_parent_candidates().await
+        }
+
+        async fn get_codelist(&self, name: &str) -> Result<Option<CodeList>, GraphError> {
+            self.mock.get_codelist(name).await
+        }
+
+        async fn list_codelists(&self) -> Result<Vec<CodeList>, GraphError> {
+            self.mock.list_codelists().await
+        }
+
+        async fn get_enum_values(&self, codelist_name: &str) -> Result<Vec<EnumValue>, GraphError> {
+            self.mock.get_enum_values(codelist_name).await
+        }
+
+        async fn get_composite_columns(
+            &self,
+            property_name: &str,
+            schema_title: &str,
+        ) -> Result<Vec<CompositeColumn>, GraphError> {
+            self.mock
+                .get_composite_columns(property_name, schema_title)
+                .await
+        }
+
+        async fn get_structured_sub_fields(
+            &self,
+            schema_title: &str,
+        ) -> Result<Vec<StructuredSubField>, GraphError> {
+            self.mock.get_structured_sub_fields(schema_title).await
+        }
+
+        async fn get_composite_range(
+            &self,
+            schema_title: &str,
+        ) -> Result<Option<CompositeRange>, GraphError> {
+            self.mock.get_composite_range(schema_title).await
+        }
+
+        async fn get_consumed_fields(
+            &self,
+            schema_title: &str,
+        ) -> Result<Vec<(PropertyNode, String)>, GraphError> {
+            self.mock.get_consumed_fields(schema_title).await
+        }
+
+        async fn get_codelist_for_property(
+            &self,
+            property_name: &str,
+            schema_title: &str,
+        ) -> Result<Option<(CodeList, String)>, GraphError> {
+            self.mock
+                .get_codelist_for_property(property_name, schema_title)
+                .await
+        }
+
+        async fn get_required_extensions(
+            &self,
+            schema_title: &str,
+        ) -> Result<Vec<Extension>, GraphError> {
+            self.mock.get_required_extensions(schema_title).await
+        }
+
+        async fn get_composition_tree(
+            &self,
+            schema_title: &str,
+        ) -> Result<CompositionTree, GraphError> {
+            self.mock.get_composition_tree(schema_title).await
+        }
+
+        async fn get_allof_targets(&self, schema_title: &str) -> Result<Vec<String>, GraphError> {
+            self.mock.get_allof_targets(schema_title).await
+        }
+
+        async fn get_referencing_schemas(
+            &self,
+            schema_title: &str,
+        ) -> Result<Vec<String>, GraphError> {
+            self.mock.get_referencing_schemas(schema_title).await
+        }
+
+        async fn get_referenced_schemas(
+            &self,
+            schema_title: &str,
+        ) -> Result<Vec<SchemaNode>, GraphError> {
+            self.mock.get_referenced_schemas(schema_title).await
+        }
+
+        async fn get_property_ref_target(
+            &self,
+            property_name: &str,
+            schema_title: &str,
+        ) -> Result<Option<SchemaNode>, GraphError> {
+            self.point_calls.fetch_add(1, Ordering::Relaxed);
+            self.mock
+                .get_property_ref_target(property_name, schema_title)
+                .await
+        }
+
+        async fn get_array_item_schema(
+            &self,
+            property_name: &str,
+            schema_title: &str,
+        ) -> Result<Option<SchemaNode>, GraphError> {
+            self.mock
+                .get_array_item_schema(property_name, schema_title)
+                .await
+        }
+
+        async fn get_generation_order(&self) -> Result<Vec<String>, GraphError> {
+            self.mock.get_generation_order().await
+        }
+
+        async fn list_all_property_ref_targets(
+            &self,
+        ) -> Result<HashMap<(String, String), Option<SchemaNode>>, GraphError> {
+            self.batch_calls.fetch_add(1, Ordering::Relaxed);
+            self.mock.list_all_property_ref_targets().await
+        }
+    }
+
+    fn ref_target_mock() -> MockEngine {
+        MockEngine::builder()
+            .with_properties("PersonType", person_properties())
+            .with_ref_target("gender", "PersonType", gender_codelist_schema())
+            .build()
+    }
+
+    #[test]
+    fn ref_target_batch_seeds_per_key_cache_once() {
+        block_on(async {
+            let inner = CountingInner::new(ref_target_mock());
+            let querier = CachingQuerier::new(&inner);
+
+            let gender = gender_codelist_schema();
+
+            // First miss bulk-seeds every key from the batch; covered keys
+            // never reach the point query.
+            let first = querier
+                .get_property_ref_target("gender", "PersonType")
+                .await
+                .unwrap();
+            assert_eq!(first.as_ref(), Some(&gender));
+            assert_eq!(inner.batch_calls(), 1);
+            assert_eq!(inner.point_calls(), 0);
+
+            // A negative-space key (property without a reference edge) is
+            // served from the seed's None entry.
+            let none = querier
+                .get_property_ref_target("givenName", "PersonType")
+                .await
+                .unwrap();
+            assert_eq!(none, None);
+            assert_eq!(inner.batch_calls(), 1);
+            assert_eq!(inner.point_calls(), 0);
+
+            // Repeat reads are plain cache hits.
+            let _ = querier
+                .get_property_ref_target("gender", "PersonType")
+                .await
+                .unwrap();
+            assert_eq!(inner.batch_calls(), 1);
+            assert_eq!(inner.point_calls(), 0);
+
+            // A key the batch did not cover (no such property) degrades to
+            // the point query.
+            let miss = querier
+                .get_property_ref_target("absent", "PersonType")
+                .await
+                .unwrap();
+            assert_eq!(miss, None);
+            assert_eq!(inner.batch_calls(), 1);
+            assert_eq!(inner.point_calls(), 1);
+        });
+    }
+
+    #[test]
+    fn mock_batch_matches_point_lookups() {
+        block_on(async {
+            let mock = ref_target_mock();
+            let batch = mock.list_all_property_ref_targets().await.unwrap();
+            // The property universe: the fixture's three PersonType props.
+            assert_eq!(batch.len(), 3);
+            let gender = gender_codelist_schema();
+            assert_eq!(
+                batch
+                    .get(&("gender".to_string(), "PersonType".to_string()))
+                    .cloned()
+                    .flatten(),
+                Some(gender)
+            );
+            assert_eq!(
+                batch
+                    .get(&("givenName".to_string(), "PersonType".to_string()))
+                    .cloned()
+                    .flatten(),
+                None
+            );
+            for ((pname, stitle), target) in &batch {
+                assert_eq!(
+                    target.as_ref(),
+                    mock.get_property_ref_target(pname, stitle)
+                        .await
+                        .unwrap()
+                        .as_ref()
+                );
+            }
+        });
     }
 }
