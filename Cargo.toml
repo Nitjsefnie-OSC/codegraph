@@ -73,3 +73,10 @@ sigil-model = { git = "https://github.com/yestechgroup/sigil.git", rev = "49a6a2
 sigil-resolve = { git = "https://github.com/yestechgroup/sigil.git", rev = "49a6a27f589fa89cbb20641504923c911700ee67" }
 sigil-syntax = { git = "https://github.com/yestechgroup/sigil.git", rev = "49a6a27f589fa89cbb20641504923c911700ee67" }
 sigil-diag = { git = "https://github.com/yestechgroup/sigil.git", rev = "49a6a27f589fa89cbb20641504923c911700ee67" }
+
+# Performance profiling profile (issues #469/#471): release optimizations with
+# symbols intact so samply / hotpath-cpu can attribute samples. Build with
+# `cargo build --profile profiling`.
+[profile.profiling]
+inherits = "release"
+debug = true

@@ -1,6 +1,7 @@
 use codegraph_core::error::GraphError;
 use codegraph_core::types::EvtModelGraph;
 
+use super::gql::CountingSession;
 use super::gql::{escape_gql, opt_str};
 use crate::engine::GrafeoEngine;
 
@@ -10,7 +11,7 @@ fn json_string<T: serde::Serialize>(value: &T) -> Result<String, GraphError> {
 
 impl GrafeoEngine {
     pub(super) async fn insert_evt_model(&self, model: &EvtModelGraph) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
 
         for event in &model.events {
             let fields_json = json_string(&event.fields)?;

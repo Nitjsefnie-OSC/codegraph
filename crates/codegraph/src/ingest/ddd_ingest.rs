@@ -66,6 +66,7 @@ impl std::fmt::Display for DddIngestStats {
 /// resolve design class / search entity names against the graph's schema
 /// titles (exact → title + `type_suffix` → warn + count), and ingest one
 /// [`DddModelGraph`] per application.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub async fn ingest_ddd_files(
     ingestor: &dyn GraphIngestor,
     querier: &dyn GraphQuerier,

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use codegraph_core::error::GraphError;
 use codegraph_core::types::{
     EdgeProperties, EdgeType, RegulatoryEdgeKind, RegulatoryKind, RegulatoryOwner,
@@ -6,6 +8,34 @@ use codegraph_core::types::{
 use codegraph_type_contracts::RefClassificationKind;
 
 use crate::engine::GrafeoEngine;
+
+/// Session wrapper that bumps `ingest_gql_calls` on every execution so the
+/// ingest and read GQL volumes split at the wrapper boundary (issue #473).
+/// Method signatures mirror `grafeo::Session`'s execute API one-for-one so
+/// ingest call sites compile unchanged.
+pub(super) struct CountingSession {
+    inner: grafeo::session::Session,
+}
+
+impl CountingSession {
+    pub(super) fn new(inner: grafeo::session::Session) -> Self {
+        Self { inner }
+    }
+
+    pub(super) fn execute(&self, query: &str) -> grafeo::Result<grafeo::QueryResult> {
+        crate::perf::bump_ingest_gql();
+        self.inner.execute(query)
+    }
+
+    pub(super) fn execute_with_params(
+        &self,
+        query: &str,
+        params: HashMap<String, grafeo::Value>,
+    ) -> grafeo::Result<grafeo::QueryResult> {
+        crate::perf::bump_ingest_gql();
+        self.inner.execute_with_params(query, params)
+    }
+}
 
 /// Escape a value for a GQL string literal: backslashes first (the GQL
 /// parser processes backslash escapes, so a literal `\` must be doubled or
@@ -238,7 +268,7 @@ pub(super) fn bool_to_grafeo_value(b: bool) -> grafeo::Value {
 }
 
 pub(super) fn count_from_gql(engine: &GrafeoEngine, gql: &str) -> Result<usize, GraphError> {
-    let session = engine.db().session();
+    let session = CountingSession::new(engine.db().session());
     let result = session
         .execute(gql)
         .map_err(|e| GraphError::Query(e.to_string()))?;

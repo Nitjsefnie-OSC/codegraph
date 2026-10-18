@@ -41,6 +41,7 @@ use codegraph_core::types::{
     ViewContainerNode,
 };
 
+use self::gql::CountingSession;
 use self::gql::{
     bool_to_grafeo_value, classification_kind_to_str, count_from_gql, escape_gql, opt_str,
     opt_to_grafeo_value,
@@ -49,7 +50,7 @@ use crate::engine::GrafeoEngine;
 
 impl GrafeoEngine {
     pub(super) async fn insert_schema(&self, node: &SchemaNode) -> Result<String, GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let gql = "INSERT (:Schema {\
             schema_id: $schema_id, title: $title, description: $description, \
             schema_type: $schema_type, classification: $classification, \
@@ -159,7 +160,7 @@ impl GrafeoEngine {
         schema_id: &str,
         prop: &PropertyNode,
     ) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let gql = "INSERT (:Property {\
             name: $name, prop_type: $prop_type, description: $description, \
             format: $format, \
@@ -268,7 +269,7 @@ impl GrafeoEngine {
     }
 
     pub(super) async fn insert_condition(&self, node: &ConditionNode) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let options_json =
             serde_json::to_string(&node.options).unwrap_or_else(|_| "[]".to_string());
         let options_str = format!("'{}'", escape_gql(&options_json));
@@ -305,7 +306,7 @@ impl GrafeoEngine {
     }
 
     pub(super) async fn insert_codelist(&self, codelist: &CodeList) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let gql = format!(
             "INSERT (:CodeList {{name: '{name}', description: {description}, \
              pg_table_name: '{pg_table_name}', render_as: '{render_as}', \
@@ -327,7 +328,7 @@ impl GrafeoEngine {
         codelist_name: &str,
         value: &EnumValue,
     ) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let gql = format!(
             "INSERT (:EnumValue {{value: '{val}', display_name: {dn}, sort_order: {so}, \
              _codelist_name: '{cn}'}})",
@@ -357,7 +358,7 @@ impl GrafeoEngine {
         &self,
         col: &CompositeColumn,
     ) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let gql = format!(
             "MERGE (:CompositeColumn {{suffix: '{suffix}', wrapper_schema: '{wrapper_schema}', \
              pg_type: '{pg_type}', rust_type: '{rust_type}', sea_orm_type: '{sea_orm_type}', \
@@ -377,7 +378,7 @@ impl GrafeoEngine {
     }
 
     pub(super) async fn insert_extension(&self, name: &str) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let gql = format!("MERGE (:Extension {{name: '{}'}})", escape_gql(name),);
         session
             .execute(&gql)
@@ -389,7 +390,7 @@ impl GrafeoEngine {
         &self,
         range: &CompositeRange,
     ) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let gql = format!(
             "INSERT (:CompositeRange {{pg_column_name: '{pg_col}', pg_type: '{pg_type}', \
              rust_type: '{rust_type}', start_field: '{start}', end_field: '{end}', \
@@ -411,7 +412,7 @@ impl GrafeoEngine {
         &self,
         node: &NamespaceNode,
     ) -> Result<String, GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let gql = format!(
             "INSERT (:Namespace {{ fqn: '{}', parent: {}, source: {} }})",
             escape_gql(&node.fqn),
@@ -442,7 +443,7 @@ impl GrafeoEngine {
         &self,
         import: &NamespaceImport,
     ) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let gql = format!(
             "MATCH (a:Namespace {{fqn: '{}'}}), (b:Namespace {{fqn: '{}'}}) \
              INSERT (a)-[:NamespaceImports {{wildcard: {}, alias: {}}}]->(b)",
@@ -519,7 +520,7 @@ impl GrafeoEngine {
         title: &str,
         is_entity: bool,
     ) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let query = format!(
             "MATCH (s:Schema {{title: '{}'}}) SET s.is_entity = {}",
             title.replace('\'', "\\'"),
@@ -537,7 +538,7 @@ impl GrafeoEngine {
         property_name: &str,
         kind: &str,
     ) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let query = format!(
             "MATCH (s:Schema {{title: '{}'}})-[:HasProperty]->(p:Property {{name: '{}'}}) SET p.classification_kind = '{}'",
             schema_title.replace('\'', "\\'"),
@@ -554,6 +555,7 @@ impl GrafeoEngine {
 #[async_trait]
 impl GraphIngestor for GrafeoEngine {
     async fn ingest_schema(&self, node: &SchemaNode) -> Result<String, GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_schema(node).await
     }
 
@@ -563,14 +565,17 @@ impl GraphIngestor for GrafeoEngine {
         schema_id: &str,
         prop: &PropertyNode,
     ) -> Result<(), GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_property(schema_title, schema_id, prop).await
     }
 
     async fn ingest_condition(&self, node: &ConditionNode) -> Result<(), GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_condition(node).await
     }
 
     async fn ingest_regulatory(&self, node: &RegulatoryNode) -> Result<(), GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_regulatory(node).await
     }
 
@@ -587,14 +592,17 @@ impl GraphIngestor for GrafeoEngine {
     }
 
     async fn ingest_function(&self, node: &FunctionNode) -> Result<(), GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_function(node).await
     }
 
     async fn ingest_rule(&self, node: &RuleNode) -> Result<(), GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_rule(node).await
     }
 
     async fn ingest_codelist(&self, codelist: &CodeList) -> Result<(), GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_codelist(codelist).await
     }
 
@@ -603,18 +611,22 @@ impl GraphIngestor for GrafeoEngine {
         codelist_name: &str,
         value: &EnumValue,
     ) -> Result<(), GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_enum_value(codelist_name, value).await
     }
 
     async fn ingest_composite_column(&self, col: &CompositeColumn) -> Result<(), GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_composite_column(col).await
     }
 
     async fn ingest_extension(&self, name: &str) -> Result<(), GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_extension(name).await
     }
 
     async fn ingest_composite_range(&self, range: &CompositeRange) -> Result<(), GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_composite_range(range).await
     }
 
@@ -629,6 +641,7 @@ impl GraphIngestor for GrafeoEngine {
     }
 
     async fn ingest_view_container(&self, node: &ViewContainerNode) -> Result<String, GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_view_container(node).await
     }
 
@@ -636,18 +649,22 @@ impl GraphIngestor for GrafeoEngine {
         &self,
         node: &ModuleDefinitionNode,
     ) -> Result<String, GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_module_definition(node).await
     }
 
     async fn ingest_view_component(&self, node: &ViewComponentNode) -> Result<String, GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_view_component(node).await
     }
 
     async fn ingest_event(&self, node: &EventNode) -> Result<String, GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_event(node).await
     }
 
     async fn ingest_action_node(&self, node: &ActionNode) -> Result<String, GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_action_node(node).await
     }
 
@@ -655,10 +672,12 @@ impl GraphIngestor for GrafeoEngine {
         &self,
         node: &ParameterDefinitionNode,
     ) -> Result<String, GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_parameter_definition(node).await
     }
 
     async fn ingest_data_binding(&self, node: &DataBindingNode) -> Result<String, GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_data_binding(node).await
     }
 
@@ -666,26 +685,32 @@ impl GraphIngestor for GrafeoEngine {
         &self,
         node: &AtprotoNamespaceNode,
     ) -> Result<String, GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_atproto_namespace(node).await
     }
 
     async fn ingest_namespace(&self, node: &NamespaceNode) -> Result<String, GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_namespace(node).await
     }
 
     async fn ingest_namespace_import(&self, import: &NamespaceImport) -> Result<(), GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_namespace_import(import).await
     }
 
     async fn ingest_lexicon(&self, node: &LexiconNode) -> Result<String, GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_lexicon(node).await
     }
 
     async fn ingest_collection(&self, node: &CollectionNode) -> Result<String, GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_collection(node).await
     }
 
     async fn ingest_repository(&self, node: &RepositoryNode) -> Result<String, GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_repository(node).await
     }
 
@@ -708,22 +733,27 @@ impl GraphIngestor for GrafeoEngine {
     }
 
     async fn ingest_api_resource(&self, node: &ApiResourceNode) -> Result<String, GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_api_resource(node).await
     }
 
     async fn ingest_api_operation(&self, node: &ApiOperationNode) -> Result<String, GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_api_operation(node).await
     }
 
     async fn ingest_interaction(&self, node: &InteractionNode) -> Result<String, GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_interaction(node).await
     }
 
     async fn ingest_http_endpoint(&self, node: &HttpEndpointNode) -> Result<String, GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_http_endpoint(node).await
     }
 
     async fn ingest_pipeline(&self, node: &PipelineNode) -> Result<String, GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_pipeline(node).await
     }
 
@@ -731,18 +761,22 @@ impl GraphIngestor for GrafeoEngine {
         &self,
         node: &ErrorDefinitionNode,
     ) -> Result<String, GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_error_definition(node).await
     }
 
     async fn ingest_permission(&self, node: &PermissionNode) -> Result<String, GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_permission(node).await
     }
 
     async fn ingest_policy(&self, policy: &PolicyNode) -> Result<(), GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_policy(policy).await
     }
 
     async fn ingest_relationship(&self, relationship: &RelationshipNode) -> Result<(), GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_relationship(relationship).await
     }
 
@@ -750,30 +784,37 @@ impl GraphIngestor for GrafeoEngine {
         &self,
         identity: &SecurityIdentityNode,
     ) -> Result<(), GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_security_identity(identity).await
     }
 
     async fn ingest_membership(&self, membership: &MembershipNode) -> Result<(), GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_membership(membership).await
     }
 
     async fn ingest_tenant(&self, tenant: &TenantNode) -> Result<(), GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_tenant(tenant).await
     }
 
     async fn ingest_actor_policy(&self, model: &ActorPolicyModel) -> Result<(), GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_actor_policy(model).await
     }
 
     async fn ingest_mox_domain(&self, model: &MoxDomainModel) -> Result<(), GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_mox_domain(model).await
     }
 
     async fn ingest_ddd_model(&self, model: &DddModelGraph) -> Result<(), GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_ddd_model(model).await
     }
 
     async fn ingest_evt_model(&self, model: &EvtModelGraph) -> Result<(), GraphError> {
+        crate::perf::bump_ingest_node();
         self.insert_evt_model(model).await
     }
 }

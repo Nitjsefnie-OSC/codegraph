@@ -56,6 +56,7 @@ pub(crate) fn sanitize_rust_type_name(s: &str) -> String {
 ///
 /// Uses `entity_names` to determine which schemas are entities vs value objects.
 /// This is the async replacement for the legacy `Ingester` which used `GraphClient`.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub async fn ingest_schemas(
     db: &dyn GraphIngestor,
     schema_dir: &Path,
@@ -80,6 +81,7 @@ pub async fn ingest_schemas(
 /// already created from a `.mox` source (mox-first pipeline, issue #231).
 /// Skipped entries contribute no schema node, properties, inline defs, or
 /// composition edges. Skips are logged to stderr with the schema's rel_path.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub async fn ingest_schemas_with_skips(
     db: &dyn GraphIngestor,
     schema_dir: &Path,
@@ -112,6 +114,7 @@ pub async fn ingest_schemas_with_skips(
 /// `titles` are the schema titles now in the graph — the driver adds them to
 /// the schema pass's skip-set so a file passed both ways (import +
 /// `--schemas`) ingests exactly once.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub async fn ingest_imported_schemas(
     db: &dyn GraphIngestor,
     imports: &[crate::ingest::mox_ingest::MoxSchemaImport],
@@ -1248,6 +1251,7 @@ fn extract_ref_stem(ref_path: &str) -> &str {
 
 /// Pass 2: Update entity flags and re-classify property $ref targets.
 /// Called after the AutoClassifier has determined which schemas are entities.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub async fn reclassify_with_entities(
     db: &dyn GraphIngestor,
     querier: &dyn codegraph_core::traits::GraphQuerier,

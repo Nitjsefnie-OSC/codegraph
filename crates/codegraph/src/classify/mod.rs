@@ -39,6 +39,7 @@ impl AutoClassifier {
     }
 
     /// Classify all schemas for a domain, applying overrides.
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
     pub fn classify_domain(
         &self,
         domain_name: &str,

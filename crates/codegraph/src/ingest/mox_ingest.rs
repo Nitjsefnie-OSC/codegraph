@@ -333,6 +333,7 @@ pub(crate) fn collect_schema_imports(
 /// [`MoxIngestOutcome::imported_files`] for the schema pipeline to ingest,
 /// and alias-typed features on [`MoxIngestOutcome::pending_alias_refs`] for
 /// the post-schema-pass wiring step ([`wire_alias_refs`]).
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub async fn ingest_mox_files(
     ingestor: &dyn GraphIngestor,
     querier: &dyn GraphQuerier,
@@ -856,6 +857,7 @@ pub async fn ingest_mox_files(
 /// node. Unresolvable aliases warn (naming both names) and are counted in
 /// `stats.unresolved_aliases`; they are never a hard error — the imported
 /// file was valid, the mismatch is a naming miss.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub async fn wire_alias_refs(
     ingestor: &dyn GraphIngestor,
     querier: &dyn GraphQuerier,

@@ -34,6 +34,7 @@ pub(super) struct QResult {
 
 pub(super) fn query_gql(engine: &GrafeoEngine, gql: &str) -> Result<QResult, GraphError> {
     QUERY_COUNT.fetch_add(1, Ordering::Relaxed);
+    crate::perf::bump_read_gql();
     let session = engine.db().session();
     let result = session
         .execute(gql)
@@ -53,6 +54,7 @@ pub(super) fn query_gql_params(
     params: HashMap<String, grafeo::Value>,
 ) -> Result<QResult, GraphError> {
     QUERY_COUNT.fetch_add(1, Ordering::Relaxed);
+    crate::perf::bump_read_gql();
     let result = engine
         .db()
         .execute_with_params(gql, params)

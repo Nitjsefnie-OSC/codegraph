@@ -6,12 +6,13 @@ use codegraph_core::types::{
     RegulatoryOwner, RelationshipNode, RepositoryNode, RuleNode, SecurityIdentityNode, TenantNode,
 };
 
+use super::gql::CountingSession;
 use super::gql::{escape_gql, opt_str, regulatory_reference_gql, serde_enum_str};
 use crate::engine::GrafeoEngine;
 
 impl GrafeoEngine {
     pub(super) async fn insert_regulatory(&self, node: &RegulatoryNode) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let properties_json =
             serde_json::to_string(&node.properties).unwrap_or_else(|_| "{}".to_string());
         let properties = format!("'{}'", escape_gql(&properties_json));
@@ -39,7 +40,8 @@ impl GrafeoEngine {
         edge_kind: RegulatoryEdgeKind,
         ref_path: Option<&str>,
     ) -> Result<(), GraphError> {
-        let session = self.db().session();
+        crate::perf::bump_ingest_edge();
+        let session = CountingSession::new(self.db().session());
         let gql = regulatory_reference_gql(owner, target, target_kind, edge_kind, ref_path);
         session
             .execute(&gql)
@@ -48,7 +50,7 @@ impl GrafeoEngine {
     }
 
     pub(super) async fn insert_function(&self, node: &FunctionNode) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let payload_json = serde_json::to_string(&node).map_err(|e| {
             GraphError::Ingest(format!("ingest_function payload serialization failed: {e}"))
         })?;
@@ -77,7 +79,7 @@ impl GrafeoEngine {
     }
 
     pub(super) async fn insert_rule(&self, node: &RuleNode) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let payload_json = serde_json::to_string(&node).map_err(|e| {
             GraphError::Ingest(format!("ingest_rule payload serialization failed: {e}"))
         })?;
@@ -107,7 +109,7 @@ impl GrafeoEngine {
         &self,
         node: &AtprotoNamespaceNode,
     ) -> Result<String, GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let gql = format!(
             "INSERT (:AtprotoNamespace {{ authority: '{}', segment: '{}', domain: '{}' }})",
             escape_gql(&node.authority),
@@ -121,7 +123,7 @@ impl GrafeoEngine {
     }
 
     pub(super) async fn insert_lexicon(&self, node: &LexiconNode) -> Result<String, GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let revision_val = match &node.revision {
             Some(v) => v.to_string(),
             None => "null".to_string(),
@@ -146,7 +148,7 @@ impl GrafeoEngine {
         &self,
         node: &CollectionNode,
     ) -> Result<String, GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let gql = format!(
             "INSERT (:Collection {{ nsid: '{}', key_strategy: '{}', domain: '{}' }})",
             escape_gql(&node.nsid),
@@ -163,7 +165,7 @@ impl GrafeoEngine {
         &self,
         node: &RepositoryNode,
     ) -> Result<String, GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let gql = format!(
             "INSERT (:Repository {{ did: '{}', handle: {}, pds_endpoint: '{}', \
              org_name: '{}', tenancy_mode: '{}' }})",
@@ -185,7 +187,7 @@ impl GrafeoEngine {
         &self,
         node: &ApiResourceNode,
     ) -> Result<String, GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let id = format!("ar:{}", node.name);
         let gql = format!(
             "INSERT (:ApiResource {{ \
@@ -209,7 +211,7 @@ impl GrafeoEngine {
         &self,
         node: &ApiOperationNode,
     ) -> Result<String, GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let id = format!("ao:{}", node.name);
         let gql = format!(
             "INSERT (:ApiOperation {{ \
@@ -236,7 +238,7 @@ impl GrafeoEngine {
         &self,
         node: &InteractionNode,
     ) -> Result<String, GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let id = format!("ia:{}", uuid::Uuid::new_v4());
         let gql = format!(
             "INSERT (:Interaction {{ name: '{}', transport: '{}', domain: {} }})",
@@ -254,7 +256,7 @@ impl GrafeoEngine {
         &self,
         node: &HttpEndpointNode,
     ) -> Result<String, GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let id = format!("he:{}", uuid::Uuid::new_v4());
         let gql = format!(
             "INSERT (:HttpEndpoint {{ name: '{}', method: '{}', path_template: '{}', domain: {} }})",
@@ -270,7 +272,7 @@ impl GrafeoEngine {
     }
 
     pub(super) async fn insert_pipeline(&self, node: &PipelineNode) -> Result<String, GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let id = format!("pl:{}", node.name);
         let middleware_str = node
             .middleware
@@ -293,7 +295,7 @@ impl GrafeoEngine {
         &self,
         node: &ErrorDefinitionNode,
     ) -> Result<String, GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let id = format!("ed:{}", node.code);
         let gql = format!(
             "INSERT (:ErrorDefinition {{ \
@@ -314,7 +316,7 @@ impl GrafeoEngine {
         &self,
         node: &PermissionNode,
     ) -> Result<String, GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let id = format!("pm:{}", node.name);
         let gql = format!(
             "INSERT (:Permission {{ _node_id: '{}', name: '{}', domain: {} }})",
@@ -334,7 +336,7 @@ impl GrafeoEngine {
         &self,
         relationship: &RelationshipNode,
     ) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let fk_json = serde_json::to_string(&relationship.foreign_key)
             .map_err(|e| GraphError::Ingest(e.to_string()))?;
         let propagation_json = serde_json::to_string(&relationship.propagation)
@@ -365,7 +367,7 @@ impl GrafeoEngine {
         &self,
         identity: &SecurityIdentityNode,
     ) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let domain = identity.domain.clone().unwrap_or_default();
         let gql = format!(
             "INSERT (:SecurityIdentity {{ \
@@ -385,7 +387,7 @@ impl GrafeoEngine {
         &self,
         membership: &MembershipNode,
     ) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let roles_json = serde_json::to_string(&membership.roles)
             .map_err(|e| GraphError::Ingest(e.to_string()))?;
         let valid_from = membership.valid_from.clone().unwrap_or_default();
@@ -409,7 +411,7 @@ impl GrafeoEngine {
     }
 
     pub(super) async fn insert_tenant(&self, tenant: &TenantNode) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let strategy_json = serde_json::to_string(&tenant.strategy)
             .map_err(|e| GraphError::Ingest(e.to_string()))?;
         let domain = tenant.domain.clone().unwrap_or_default();
@@ -431,7 +433,7 @@ impl GrafeoEngine {
     // ── mox domain metamodel ─────────────────────────────────────────
 
     pub(super) async fn insert_mox_domain(&self, model: &MoxDomainModel) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
 
         for package in &model.packages {
             let gql = format!(

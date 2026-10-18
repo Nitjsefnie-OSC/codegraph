@@ -5,6 +5,11 @@ edition.workspace = true
 
 [features]
 e2e = []
+# Performance instrumentation (issues #469/#472) — strictly opt-in. Flag-off
+# builds carry no hotpath code and stay byte-identical.
+hotpath = ["dep:hotpath", "hotpath?/hotpath"]
+hotpath-alloc = ["hotpath", "hotpath?/hotpath-alloc"]
+hotpath-cpu = ["hotpath", "hotpath?/hotpath-cpu"]
 
 [dependencies]
 codegraph-generate = { path = "../codegraph-generate" }
@@ -55,6 +60,9 @@ sigil-model = { workspace = true }
 sigil-resolve = { workspace = true }
 sigil-syntax = { workspace = true }
 sigil-diag = { workspace = true }
+# hotpath-rs performance instrumentation (issues #469/#472): wall-clock timing,
+# alloc, and CPU-sampling signals behind the `hotpath*` features. No-op when off.
+hotpath = { version = "0.28", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

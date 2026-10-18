@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use codegraph_core::error::GraphError;
 use codegraph_core::types::{EdgeProperties, EdgeType, strip_ifml_prefix};
 
+use super::gql::CountingSession;
 use super::gql::{
     build_edge_props_string, decode_regulatory_edge_ids, edge_kind_ref, escape_gql,
     regulatory_reference_gql, split_compound_id, strip_api_prefix,
@@ -17,7 +18,8 @@ impl GrafeoEngine {
         edge_type: EdgeType,
         props: Option<&EdgeProperties>,
     ) -> Result<(), GraphError> {
-        let session = self.db().session();
+        crate::perf::bump_ingest_edge();
+        let session = CountingSession::new(self.db().session());
 
         // Regulatory reference plane (issue #265) — encoded natural keys,
         // same GQL the dedicated `ingest_regulatory_reference` emits.

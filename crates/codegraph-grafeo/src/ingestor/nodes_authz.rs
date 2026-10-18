@@ -1,12 +1,13 @@
 use codegraph_core::error::GraphError;
 use codegraph_core::types::{ActorPolicyModel, PolicyNode};
 
+use super::gql::CountingSession;
 use super::gql::{escape_gql, opt_str};
 use crate::engine::GrafeoEngine;
 
 impl GrafeoEngine {
     pub(super) async fn insert_policy(&self, policy: &PolicyNode) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let kind_json =
             serde_json::to_string(&policy.kind).map_err(|e| GraphError::Ingest(e.to_string()))?;
         let domain = policy.domain.clone().unwrap_or_default();
@@ -31,7 +32,7 @@ impl GrafeoEngine {
         &self,
         model: &ActorPolicyModel,
     ) -> Result<(), GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
 
         for actor in &model.actors {
             let gql = format!(

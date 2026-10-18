@@ -8,6 +8,7 @@ mod cli;
 use codegraph_backend::{BackendConfig, create_backend};
 
 #[tokio::main]
+#[cfg_attr(feature = "hotpath", hotpath::main)]
 async fn main() -> codegraph::error::Result<()> {
     if let Ok(filter) = tracing_subscriber::EnvFilter::try_from_default_env() {
         let _ = tracing_subscriber::fmt()

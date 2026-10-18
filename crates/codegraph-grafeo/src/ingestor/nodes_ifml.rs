@@ -4,6 +4,7 @@ use codegraph_core::types::{
     ViewComponentNode, ViewContainerNode,
 };
 
+use super::gql::CountingSession;
 use super::gql::{escape_gql, opt_str};
 use crate::engine::GrafeoEngine;
 
@@ -12,7 +13,7 @@ impl GrafeoEngine {
         &self,
         node: &ViewContainerNode,
     ) -> Result<String, GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let id = format!("vc:{}", node.name);
         let module_uses_json = node
             .module_uses
@@ -53,7 +54,7 @@ impl GrafeoEngine {
         &self,
         node: &ModuleDefinitionNode,
     ) -> Result<String, GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let id = format!("module:{}", node.name);
         let json = |v: &Option<String>| v.clone();
         let module_uses_json = node
@@ -82,7 +83,7 @@ impl GrafeoEngine {
         &self,
         node: &ViewComponentNode,
     ) -> Result<String, GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let id = format!("comp:{}", node.name);
         let fields_json = node
             .fields
@@ -112,7 +113,7 @@ impl GrafeoEngine {
     }
 
     pub(super) async fn insert_event(&self, node: &EventNode) -> Result<String, GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let id = format!("evt:{}", node.name);
         let params_json = node
             .params
@@ -141,7 +142,7 @@ impl GrafeoEngine {
     }
 
     pub(super) async fn insert_action_node(&self, node: &ActionNode) -> Result<String, GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let id = format!("action:{}", node.name);
         let gql = format!(
             "INSERT (:ActionNode {{ name: '{}', domain: {} }})",
@@ -158,7 +159,7 @@ impl GrafeoEngine {
         &self,
         node: &ParameterDefinitionNode,
     ) -> Result<String, GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let id = format!("param:{}", node.name);
         let exists = session
             .execute(&format!(
@@ -198,7 +199,7 @@ impl GrafeoEngine {
         &self,
         node: &DataBindingNode,
     ) -> Result<String, GraphError> {
-        let session = self.db().session();
+        let session = CountingSession::new(self.db().session());
         let id = format!("db:{}", node.name);
         let gql = format!(
             "INSERT (:DataBinding {{ \
