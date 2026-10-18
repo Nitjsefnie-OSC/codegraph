@@ -1,0 +1,13 @@
+inline_enum_threshold = 20
+required_extensions = []
+
+[primitive_wrappers]
+
+[array_wrappers]
+
+[range_wrappers]
+
+[structured_wrappers]
+
+[codelist_as_check]
+schemas = []

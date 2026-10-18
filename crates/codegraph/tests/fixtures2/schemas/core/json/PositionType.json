@@ -1,0 +1,16 @@
+{
+  "$id": "PositionType.json",
+  "title": "PositionType",
+  "description": "A position referring to a job",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Position title"
+    },
+    "job": {
+      "$ref": "JobType.json",
+      "description": "Referenced job (scalar entity reference)"
+    }
+  }
+}

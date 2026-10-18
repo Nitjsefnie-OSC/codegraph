@@ -1,3 +1,4 @@
+use crate::api::include_path::{IncludeSegment, ResolvedIncludePath};
 use crate::code_writer::CodeWriter;
 
 use super::query_search::emit_sort_ordering;
@@ -289,4 +290,102 @@ fn sort_ordering_tiebreaker_is_direction_independent() {
     let out = code.as_str();
     assert_eq!(out.matches("order_by_asc").count(), 1, "{out}");
     assert!(out.contains("\"due_date\""), "{out}");
+}
+
+// --- include-fetch hydrator type adaptation (issue #459) ---
+
+fn single_include_path() -> ResolvedIncludePath {
+    ResolvedIncludePath {
+        alias: "job".into(),
+        segments: vec![IncludeSegment {
+            entity_name: "Job".into(),
+            schema_title: "JobType".into(),
+            module_name: "job".into(),
+            domain: "hr".into(),
+            table: "\"hr\".\"job\"".into(),
+            fk_column: "job_id".into(),
+            reverse_fk_column: "job_id".into(),
+            fk_is_required: false,
+            reverse_fk_is_required: false,
+            is_array: false,
+            child_table_override: None,
+        }],
+        response_rust_type: "JobResponse".into(),
+        fetch_method: "fetch_job_for_task".into(),
+        batch_fetch_method: "fetch_job_batch_for_task".into(),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_single_include(dto_type: Option<&str>, col_type: &str, nullable: bool) -> String {
+    let tree = sort_test_tree(false);
+    let path = single_include_path();
+    let mut code = CodeWriter::new();
+    RepositoryImplEmitter.emit_include_fetch_methods(
+        &tree,
+        &mut code,
+        std::slice::from_ref(&path),
+        &[None],
+        &[vec![vec!["organization_id".to_string()]]],
+        &[vec![vec!["organization_id".to_string()]]],
+        &[vec![vec![false]]],
+        &[vec![vec![false]]],
+        &[vec![vec![dto_type.map(str::to_string)]]],
+        &[vec![vec![nullable]]],
+        &[vec![vec![col_type.to_string()]]],
+    );
+    code.into_string()
+}
+
+/// A Uuid entity column hydrating a String DTO field (the mox unformatted
+/// datatype shape: the refers-FK column is Uuid while the TEXT-mapped DTO
+/// field is String) must adapt with `.to_string()` — a plain assignment
+/// fails E0308 in the generated app (issue #459).
+#[test]
+fn include_fetch_converts_uuid_column_to_string_dto() {
+    let out = emit_single_include(Some("String"), "Uuid", false);
+    assert!(
+        out.contains("organization_id: target.organization_id.to_string(),"),
+        "uuid column → String DTO must emit .to_string(). Got:\n{out}"
+    );
+}
+
+#[test]
+fn include_fetch_converts_nullable_uuid_column_to_string_dto() {
+    let out = emit_single_include(Some("String"), "Uuid", true);
+    assert!(
+        out.contains("organization_id: target.organization_id.map(|v| v.to_string()),"),
+        "nullable uuid column → String DTO must emit .map(|v| v.to_string()). Got:\n{out}"
+    );
+}
+
+/// A String entity column hydrating a non-String DTO field mirrors the main
+/// hydrator's `.parse()` conversion.
+#[test]
+fn include_fetch_parses_string_column_to_non_string_dto() {
+    let out = emit_single_include(Some("CurrencyCodeList"), "String", false);
+    assert!(
+        out.contains("organization_id: target.organization_id.parse().unwrap_or_default(),"),
+        "String column → non-String DTO must emit .parse().unwrap_or_default(). Got:\n{out}"
+    );
+}
+
+#[test]
+fn include_fetch_parses_nullable_string_column_to_non_string_dto() {
+    let out = emit_single_include(Some("CurrencyCodeList"), "String", true);
+    assert!(
+        out.contains("organization_id: target.organization_id.and_then(|v| v.parse().ok()),"),
+        "nullable String column → non-String DTO must emit .and_then(parse). Got:\n{out}"
+    );
+}
+
+/// Matching types keep the byte-identical plain assignment.
+#[test]
+fn include_fetch_keeps_plain_assignment_for_matching_types() {
+    let out = emit_single_include(Some("Uuid"), "Uuid", false);
+    assert!(
+        out.contains("organization_id: target.organization_id,"),
+        "matching types must keep the plain assignment. Got:\n{out}"
+    );
+    assert!(!out.contains(".to_string()"), "{out}");
 }
