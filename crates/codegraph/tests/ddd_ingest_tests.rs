@@ -742,6 +742,7 @@ fn ddd_files_are_part_of_the_graph_cache_inputs() {
         &[],
         &[],
         &[],
+        &[],
     )
     .unwrap();
     assert!(
@@ -769,6 +770,7 @@ fn ddd_files_are_part_of_the_graph_cache_inputs() {
             &[],
             &[],
             &[],
+            &[],
         )
         .unwrap(),
     );
@@ -782,6 +784,7 @@ fn ddd_files_are_part_of_the_graph_cache_inputs() {
         None,
         None,
         &domains_path,
+        &[],
         &[],
         &[],
         &[],

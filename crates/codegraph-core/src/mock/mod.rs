@@ -96,6 +96,8 @@ pub struct MockEngine {
     ddd_models: Mutex<Vec<DddModelGraph>>,
     /// Ingested `.evt` event-contract models (issue #454).
     evt_models: Mutex<Vec<EvtModelGraph>>,
+    /// Ingested `.deploy` deployment models (rexlang #49).
+    deploy_models: Mutex<Vec<DeployModelGraph>>,
     start_time: Instant,
 }
 
@@ -168,6 +170,7 @@ impl MockEngine {
             rule_refs: Mutex::new(Vec::new()),
             ddd_models: Mutex::new(Vec::new()),
             evt_models: Mutex::new(Vec::new()),
+            deploy_models: Mutex::new(Vec::new()),
             start_time: Instant::now(),
         }
     }

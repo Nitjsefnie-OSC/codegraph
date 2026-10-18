@@ -458,6 +458,7 @@ async fn consumer_generates_against_pinned_face() {
         rosetta_files: &[],
         ddd_files: &[],
         evt_files: &[],
+        deploy_files: &[],
         ifml_framework: &[],
         ifml_components: None,
         ifml_design_system: None,
@@ -553,6 +554,8 @@ fn doctor_command_reports_dependency_outcomes() {
         rosetta_files: vec![],
         ddd_files: vec![],
         evt_files: vec![],
+        deploy_files: vec![],
+        ifml_files: vec![],
     };
     let summary = cmd_doctor(&args(project.join("domains.toml"))).unwrap();
     assert_eq!(

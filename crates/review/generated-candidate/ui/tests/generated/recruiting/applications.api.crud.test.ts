@@ -5,6 +5,9 @@
 
 import { test, expect } from '../../e2e/fixtures/personas';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateApplicationRequest } from '#lib/api/types.ts';
+
 import {
   createEntityAsAcme,
   createEntityViaApi,
@@ -26,17 +29,15 @@ const BASE_PATH = '/recruiting/applications';
 const depIds: Record<string, string | string[]> = {};
 
 
-
-function testData(): Record<string, unknown> {
-
+function testData(): Partial<Record<keyof CreateApplicationRequest | 'code', unknown>> {
   return {
 
 
-    'application_id': 'Test Application Id',
+    // 'application_id': entity ref — emitted by _dep_setup.tera
 
 
 
-    'applied_date': '2025-01-15',
+    'applied_date': '2026-01-15',
 
 
 
@@ -49,20 +50,20 @@ function testData(): Record<string, unknown> {
 
 
 
+    ...(depIds['application_id'] ? { 'application_id': depIds['application_id'] } : {}),
+
   };
 }
 
-
-function updatedData(): Record<string, unknown> {
-
+function updatedData(): Partial<Record<keyof CreateApplicationRequest | 'code', unknown>> {
   return {
 
 
-    'application_id': 'Updated Application Id',
+    // 'application_id': entity ref — emitted by _dep_setup.tera
 
 
 
-    'applied_date': '2025-06-20',
+    'applied_date': '2026-06-20',
 
 
 
@@ -75,11 +76,27 @@ function updatedData(): Record<string, unknown> {
 
 
 
+    ...(depIds['application_id'] ? { 'application_id': depIds['application_id'] } : {}),
+
   };
 }
 
 test.describe('Application CRUD', () => {
 
+
+  test.beforeAll(async ({ orgContext }) => {
+
+
+
+
+  });
+
+  test.afterAll(async ({ orgContext }) => {
+
+const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
+
+
+  });
 
 
   test('list page loads with table', async ({ ownerPage: page }) => {
@@ -96,11 +113,14 @@ test.describe('Application CRUD', () => {
     await ui.gotoCreate();
     // Wait for SvelteKit to hydrate so the form's onsubmit handler is attached
     await ui.waitForForm();
-    const data = testData();
+    // Widened read view: the keyed testData() checks the payload's keys;
+    // form-fill reads may touch convention-resolved FK columns the
+    // generated Create request type does not declare.
+    const data: Record<string, unknown> = testData();
 
 
 
-    await ui.fillApplicationId(String(data['application_id']));
+    await ui.fillApplicationId(String(data['application_id'] ?? ''));
 
 
 
@@ -224,11 +244,11 @@ test.describe('Application CRUD', () => {
 
     await ui.gotoEdit(myId);
     await ui.waitForForm();
-    const data = updatedData();
+    const data: Record<string, unknown> = updatedData();
 
 
 
-    await ui.fillApplicationId(String(data['application_id']));
+    await ui.fillApplicationId(String(data['application_id'] ?? ''));
 
 
 

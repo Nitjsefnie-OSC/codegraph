@@ -306,6 +306,12 @@ pub(crate) fn build_global_generators(ctx: &GeneratorContext<'_>) -> Vec<Box<dyn
     )) as Box<dyn GlobalGenerator>);
     global_gens
         .push(Box::new(ui::types::UiTypeGenerator::new(output_dir)) as Box<dyn GlobalGenerator>);
+    // One testid vocabulary (issue #468 W3): emits `ui/src/lib/testids.ts`
+    // when the `testid_module` feature is on (the generator itself warns
+    // and emits nothing otherwise). Plan-filtered like the other globals.
+    global_gens.push(
+        Box::new(ui::testids_gen::UiTestidsGenerator::new(output_dir)) as Box<dyn GlobalGenerator>,
+    );
     global_gens.push(Box::new(ui::codelist::UiCodelistGenerator::new(
         output_dir,
         ctx.schema_base_dir,
@@ -443,8 +449,17 @@ pub(crate) fn build_global_generators(ctx: &GeneratorContext<'_>) -> Vec<Box<dyn
     let mut global_gens: Vec<Box<dyn GlobalGenerator>> = global_gens
         .into_iter()
         .filter(|generator| {
-            generator.name() == "evt_events" && evt_events_implied || {
-                ctx.plan_has_global(generator.name())
+            // The workers topology swap (above) replaces the monolith
+            // scaffold with the per-worker scaffold + gateway — the plan may
+            // gate it under either spelling: the profile-facing "scaffold"
+            // (profiles.toml lists the monolith name) or the explicit
+            // "worker_scaffold".
+            if ctx.workers_topology && generator.name() == "worker_scaffold" {
+                ctx.plan_has_global("worker_scaffold") || ctx.plan_has_global("scaffold")
+            } else {
+                generator.name() == "evt_events" && evt_events_implied || {
+                    ctx.plan_has_global(generator.name())
+                }
             }
         })
         .filter(|generator| {
@@ -462,18 +477,37 @@ pub(crate) fn build_global_generators(ctx: &GeneratorContext<'_>) -> Vec<Box<dyn
         ctx.ifml_frameworks.clone()
     };
     for fw in &ifml_frameworks {
-        let fw_output = output_dir.join(fw);
+        // Issue #468 W1b: integrated mode — when the SAME plan builds the
+        // entity ui app (`ui_scaffold`/`ui_page`) AND the IFML route
+        // generator for svelte, the IFML artifacts land INSIDE the ui tree
+        // (`ui/`) so one app and one playwright run cover entity CRUD and
+        // the modeled views. Standalone plans (ifml-only profiles, plan-less
+        // runs, non-svelte frameworks) keep the disjoint `{fw}/` tree.
+        let integrated = ifml_integrated(ctx, fw);
+        let fw_output = if integrated {
+            output_dir.join("ui")
+        } else {
+            output_dir.join(fw)
+        };
         if ctx.build_plan.is_none() || ctx.plan_has_global(&format!("ifml_skeleton_{}", fw)) {
+            // If-absent emission: inside an existing ui tree every skeleton
+            // file is already scaffolded, so this is a no-op; in an ifml-only
+            // plan it still builds the standalone SvelteKit skeleton.
             global_gens.push(
                 Box::new(ifml::skeleton::IfmlSkeletonGenerator::new(&fw_output, fw))
                     as Box<dyn GlobalGenerator>,
             );
         }
         if ctx.build_plan.is_none() || ctx.plan_has_global(&format!("ifml_route_{}", fw)) {
-            global_gens.push(Box::new(
-                ifml::route_generator::IfmlRouteGenerator::new(&fw_output, fw)
-                    .with_mappings(ctx.ifml_components.cloned()),
-            ) as Box<dyn GlobalGenerator>);
+            let mut route_gen = ifml::route_generator::IfmlRouteGenerator::new(&fw_output, fw)
+                .with_mappings(ctx.ifml_components.cloned());
+            if integrated {
+                // Route group: sibling of the entity `(app)`/`(auth)` groups,
+                // so the entity auth-guard layout does not wrap views — views
+                // gate themselves via their +page.ts guards.
+                route_gen = route_gen.with_route_root(ifml::route_generator::ROUTE_GROUP);
+            }
+            global_gens.push(Box::new(route_gen) as Box<dyn GlobalGenerator>);
         }
         if ctx.build_plan.is_none() || ctx.plan_has_global(&format!("ifml_navigation_{}", fw)) {
             global_gens.push(
@@ -483,10 +517,15 @@ pub(crate) fn build_global_generators(ctx: &GeneratorContext<'_>) -> Vec<Box<dyn
             );
         }
         if ctx.build_plan.is_none() || ctx.plan_has_global(&format!("ifml_e2e_test_{}", fw)) {
-            global_gens.push(Box::new(
-                ifml::e2e_test::IfmlE2eTestGenerator::new(&fw_output, fw)
-                    .with_mappings(ctx.ifml_components.cloned()),
-            ) as Box<dyn GlobalGenerator>);
+            let mut e2e_gen = ifml::e2e_test::IfmlE2eTestGenerator::new(&fw_output, fw)
+                .with_mappings(ctx.ifml_components.cloned());
+            if integrated {
+                // Specs/journeys/bootstrap move under ui/tests/ifml (support
+                // under ui/tests/ifml/support) so they never collide with the
+                // entity suite's tests/e2e tree.
+                e2e_gen = e2e_gen.with_integration();
+            }
+            global_gens.push(Box::new(e2e_gen) as Box<dyn GlobalGenerator>);
         }
     }
 
@@ -515,4 +554,23 @@ pub(crate) fn build_global_generators(ctx: &GeneratorContext<'_>) -> Vec<Box<dyn
     }
 
     global_gens
+}
+
+/// Integrated IFML mode (issue #468 W1b): the build plan carries BOTH the
+/// entity ui app generators (`ui_scaffold` global or `ui_page` entity) AND
+/// the `ifml_route_{fw}` generator for the framework. Svelte only — the
+/// route-group layout is a SvelteKit device. Plan-less runs never integrate
+/// (there is no plan promising the ui app), and the plan-less `ifml_generate`
+/// path never reaches here anyway.
+fn ifml_integrated(ctx: &GeneratorContext<'_>, fw: &str) -> bool {
+    if fw != "svelte" {
+        return false;
+    }
+    match ctx.build_plan {
+        Some(bp) => {
+            (bp.has_global_gen("ui_scaffold") || bp.has_entity_gen("ui_page"))
+                && bp.has_global_gen(&format!("ifml_route_{fw}"))
+        }
+        None => false,
+    }
 }

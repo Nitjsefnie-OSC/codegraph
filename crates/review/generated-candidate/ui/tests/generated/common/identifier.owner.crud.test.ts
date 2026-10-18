@@ -6,6 +6,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi, expectToast } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateIdentifierRequest } from '#lib/api/types.ts';
+
 import { IdentifierPage } from './identifier.page';
 
 
@@ -17,7 +20,7 @@ const BASE_PATH = '/common/identifier';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreateIdentifierRequest | 'code', unknown>> {
   return {
     'scheme_agency_id': 'Test Scheme Agency Id',
     'scheme_id': 'Test Scheme Id',
@@ -28,7 +31,7 @@ function testData(): Record<string, unknown> {
   };
 }
 
-function updatedData(): Record<string, unknown> {
+function updatedData(): Partial<Record<keyof CreateIdentifierRequest | 'code', unknown>> {
   return {
     'scheme_agency_id': 'Updated Scheme Agency Id',
     'scheme_id': 'Updated Scheme Id',

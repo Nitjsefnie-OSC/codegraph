@@ -249,7 +249,7 @@ view "EditCustomer" {
         .await
         .unwrap();
     assert_eq!(components.len(), 1);
-    assert_eq!(components[0].name, "form");
+    assert_eq!(components[0].name, "EditCustomer/form");
 }
 
 #[tokio::test]
@@ -278,7 +278,7 @@ view "Refunds" {
     // the `requires` field lands on EventNode (RED: the parse above fails
     // until the grammar learns the clause).
     let events = engine
-        .get_ifml_events("comp:grid")
+        .get_ifml_events("comp:Refunds/grid")
         .await
         .expect("component events should be queryable");
     assert_eq!(events.len(), 2, "{events:?}");

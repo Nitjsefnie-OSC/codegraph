@@ -6,6 +6,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi, expectToast } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreatePersonBaseRequest } from '#lib/api/types.ts';
+
 import { PersonBasePage } from './person-base.page';
 
 
@@ -17,9 +20,9 @@ const BASE_PATH = '/common/person-base';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreatePersonBaseRequest | 'code', unknown>> {
   return {
-    'birth_date': '2025-01-15',
+    'birth_date': '2026-01-15',
     'family_name': 'Test Family Name',
     'given_name': 'Test Given Name',
 
@@ -27,9 +30,9 @@ function testData(): Record<string, unknown> {
   };
 }
 
-function updatedData(): Record<string, unknown> {
+function updatedData(): Partial<Record<keyof CreatePersonBaseRequest | 'code', unknown>> {
   return {
-    'birth_date': '2025-06-20',
+    'birth_date': '2026-06-20',
     'family_name': 'Updated Family Name',
     'given_name': 'Updated Given Name',
 

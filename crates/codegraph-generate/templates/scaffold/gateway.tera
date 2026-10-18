@@ -236,6 +236,26 @@ mod worker_impl {
         _ctx: Context,
     ) -> Result<axum::http::Response<axum::body::Body>> {
         let state = GatewayState { env };
+        let cors = crate::cors::Cors::resolve(
+            state
+                .env
+                .var("CORS_ALLOWED_ORIGINS")
+                .ok()
+                .map(|v| v.to_string())
+                .as_deref(),
+        );
+        // CORS rides the fetch boundary directly: the inbound request body is
+        // `worker::Body` while responses are `axum::body::Body`, so a
+        // `from_fn` middleware cannot span that seam. Preflights answer here
+        // without reaching the router; every response gains the CORS headers.
+        let origin = req.headers().get(axum::http::header::ORIGIN).cloned();
+        if cors.enabled() && crate::cors::is_preflight(&req) {
+            let mut res = axum::http::Response::new(axum::body::Body::empty());
+            for (name, value) in crate::cors::cors_headers(&cors, origin.as_ref()) {
+                res.headers_mut().insert(name, value);
+            }
+            return Ok(res);
+        }
         let mut app = Router::new()
             .route("/version", axum::routing::get(version))
             .route("/health", axum::routing::get(health))
@@ -245,6 +265,10 @@ mod worker_impl {
                 axum::routing::any(forward),
             )
             .with_state(state);
-        Ok(app.call(req).await?)
+        let mut response = app.call(req).await?;
+        for (name, value) in crate::cors::cors_headers(&cors, origin.as_ref()) {
+            response.headers_mut().insert(name, value);
+        }
+        Ok(response)
     }
 }

@@ -1,8 +1,8 @@
 {# Timeline collections keep their fixed DESC date order (issue #306 v1): no sort buttons, no aria-sort. If/when IFML parity lands, a RenderColumn-style per-entry contract would mirror the table's header-button pattern — deliberately not built here (ledger item, #291). #}
 {% raw %}
-		<ol class="timeline" data-testid="{% endraw %}{{ module_name }}{% raw %}-timeline">
+		<ol class="timeline" data-testid="{% endraw %}{{ tid.timeline }}{% raw %}">
 			{#each displayRowsSorted as row}
-				<li class="timeline-item" data-testid="{% endraw %}{{ module_name }}{% raw %}-timeline-item"{% endraw %}{% if ux.inactive_shading %}{% raw %} class:timeline-inactive={isInactiveRow(row as Record<string, unknown>)}{% endraw %}{% endif %}{% raw %}>
+				<li class="timeline-item" data-testid="{% endraw %}{{ tid.timeline_item }}{% raw %}"{% endraw %}{% if ux.inactive_shading %}{% raw %} class:timeline-inactive={isInactiveRow(row as Record<string, unknown>)}{% endraw %}{% endif %}{% raw %}>
 					<time class="timeline-time">{formatDate((row as Record<string, unknown>)[orderKey])}</time>
 					<div class="timeline-rail" aria-hidden="true"></div>
 					<div class="timeline-body">
@@ -13,7 +13,7 @@
 							<div class="timeline-meta-list">
 								{#each previewColumns as col}
 									{@const value = (row as Record<string, unknown>)[col.key]}
-									<span class="timeline-meta" data-testid="{% endraw %}{{ module_name }}{% raw %}-timeline-meta">{col.label}: {% endraw %}{% raw %}
+									<span class="timeline-meta" data-testid="{% endraw %}{{ tid.timeline_meta }}{% raw %}">{col.label}: {% endraw %}{% raw %}
 									{#if value === null || value === undefined}
 										{formatValue(value)}
 									{:else if isBooleanField(value)}
@@ -21,7 +21,7 @@
 											{formatValue(value)}
 										</Badge>
 									{:else if col.display === 'chip'}
-										<Badge variant={toneFor(col, value)} data-testid="{% endraw %}{{ module_name }}{% raw %}-chip">
+										<Badge variant={toneFor(col, value)} data-testid="{% endraw %}{{ tid.chip }}{% raw %}">
 											{formatValue(value)}
 										</Badge>
 									{:else if col.display === 'copy-chip'}
@@ -29,7 +29,7 @@
 											<Tooltip.Root>
 												<Tooltip.Trigger
 													class="inline-flex max-w-[12rem] items-center gap-1 rounded-md border bg-muted/40 px-1.5 py-0.5 font-mono text-xs"
-													data-testid="{% endraw %}{{ module_name }}{% raw %}-copy"
+													data-testid="{% endraw %}{{ tid.copy }}{% raw %}"
 													onclick={(e) => { e.stopPropagation(); copyValue(value); }}
 												>
 													{truncate(value, 8)}
@@ -39,7 +39,7 @@
 										{:else}
 											<button
 												class="inline-flex max-w-[12rem] items-center gap-1 rounded-md border bg-muted/40 px-1.5 py-0.5 font-mono text-xs"
-												data-testid="{% endraw %}{{ module_name }}{% raw %}-copy"
+												data-testid="{% endraw %}{{ tid.copy }}{% raw %}"
 												onclick={(e) => { e.stopPropagation(); copyValue(value); }}
 											>
 												{truncate(value, 8)}
@@ -67,7 +67,7 @@
 						{/if}
 {% endraw %}
 {% if has_workflow and ux.workflow_status_field %}
-{% raw %}						<Badge variant={workflowVariant(String((row as Record<string, unknown>)['{% endraw %}{{ ux.workflow_status_field }}{% raw %}'] ?? ''))} data-testid="{% endraw %}{{ module_name }}{% raw %}-workflow-state">
+{% raw %}						<Badge variant={workflowVariant(String((row as Record<string, unknown>)['{% endraw %}{{ ux.workflow_status_field }}{% raw %}'] ?? ''))} data-testid="{% endraw %}{{ tid.timeline_workflow_state }}{% raw %}">
 							{String((row as Record<string, unknown>)['{% endraw %}{{ ux.workflow_status_field }}{% raw %}'] ?? '')}
 						</Badge>
 {% endraw %}
@@ -95,7 +95,7 @@
 												{...props}
 												variant="ghost"
 												size="sm"
-												data-testid="{% endraw %}{{ module_name }}{% raw %}-actions"
+												data-testid="{% endraw %}{{ tid.actions }}{% raw %}"
 												onclick={(e) => { e.stopPropagation(); props.onclick?.(e); }}
 											>
 												{m.common_actions()}
@@ -103,19 +103,19 @@
 											{/snippet}
 										</DropdownMenu.Trigger>
 										<DropdownMenu.Portal>
-											<DropdownMenu.Content data-testid="{% endraw %}{{ module_name }}{% raw %}-actions-menu" class="w-40">
+											<DropdownMenu.Content data-testid="{% endraw %}{{ tid.actions_menu }}{% raw %}" class="w-40">
 												{#each ux_actions.menu as item}
 													{#if item.action === 'delete'}
 													<DropdownMenu.Item
 														class="text-destructive data-[highlighted]:text-destructive"
-														data-testid="{% endraw %}{{ module_name }}{% raw %}-action-delete"
+														data-testid="{% endraw %}{{ tid.action_delete }}{% raw %}"
 														onclick={(e) => { e.stopPropagation(); requestDelete(row as Record<string, unknown>); }}
 													>
 														{actionLabel(item.action, item.label)}
 													</DropdownMenu.Item>
 													{:else if item.action === 'edit'}
 													<DropdownMenu.Item
-														data-testid="{% endraw %}{{ module_name }}{% raw %}-action-edit"
+														data-testid="{% endraw %}{{ tid.action_edit }}{% raw %}"
 														onclick={(e) => { e.stopPropagation(); goto(`${basePath}/${row['id']}/edit`); }}
 													>
 														{actionLabel(item.action, item.label)}

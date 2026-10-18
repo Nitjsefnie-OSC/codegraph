@@ -6,6 +6,7 @@
 	import Input from '@community-os/ui/Input.svelte';
 	import Select from '@community-os/ui/Select.svelte';
 	import { api } from '$lib/api';
+	import type { ApplicationResponse } from '#lib/api/types.ts';
 
 	type FormData = Record<string, unknown>;
 
@@ -14,11 +15,11 @@
 		apiPath: string;
 		routePath: string;
 		id?: string;
-		initialData?: Record<string, unknown>;
+		initialData?: ApplicationResponse;
 		submitting?: boolean;
 	}
 
-	let { mode, apiPath, routePath, id = '', initialData = {}, submitting = $bindable(false) }: Props = $props();
+	let { mode, apiPath, routePath, id = '', initialData = undefined, submitting = $bindable(false) }: Props = $props();
 
 	let error = $state('');
 	let loading = $state(mode === 'edit');
@@ -26,19 +27,19 @@
 	// Form state
 
 
-	let application_id = $state(String(initialData['application_id'] ?? ''));
+	let application_id = $state(String(initialData?.application_id ?? ''));
 
 
 
-	let applied_date = $state(String(initialData['applied_date'] ?? ''));
+	let applied_date = $state(String(initialData?.applied_date ?? ''));
 
 
 
-	let candidate_id = $state(String(initialData['candidate_id'] ?? ''));
+	let candidate_id = $state(String(initialData?.candidate_id ?? ''));
 
 
 
-	let status = $state(String(initialData['status'] ?? ''));
+	let status = $state(String(initialData?.status ?? ''));
 
 
 
@@ -50,15 +51,15 @@
 
 
 
-		if (applied_date !== String(initialData['applied_date'] ?? '')) payload['applied_date'] = applied_date;
+		if (applied_date !== String(initialData?.applied_date ?? '')) payload['applied_date'] = applied_date;
 
 
 
-		if (candidate_id !== String(initialData['candidate_id'] ?? '')) payload['candidate_id'] = candidate_id;
+		if (candidate_id !== String(initialData?.candidate_id ?? '')) payload['candidate_id'] = candidate_id;
 
 
 
-		if (status !== String(initialData['status'] ?? '')) payload['status'] = status;
+		if (status !== String(initialData?.status ?? '')) payload['status'] = status;
 
 
 		return payload;

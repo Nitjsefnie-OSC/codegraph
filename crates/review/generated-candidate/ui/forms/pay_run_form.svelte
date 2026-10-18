@@ -6,6 +6,7 @@
 	import Input from '@community-os/ui/Input.svelte';
 	import Select from '@community-os/ui/Select.svelte';
 	import { api } from '$lib/api';
+	import type { PayRunResponse } from '#lib/api/types.ts';
 
 	type FormData = Record<string, unknown>;
 
@@ -14,11 +15,11 @@
 		apiPath: string;
 		routePath: string;
 		id?: string;
-		initialData?: Record<string, unknown>;
+		initialData?: PayRunResponse;
 		submitting?: boolean;
 	}
 
-	let { mode, apiPath, routePath, id = '', initialData = {}, submitting = $bindable(false) }: Props = $props();
+	let { mode, apiPath, routePath, id = '', initialData = undefined, submitting = $bindable(false) }: Props = $props();
 
 	let error = $state('');
 	let loading = $state(mode === 'edit');
@@ -26,19 +27,19 @@
 	// Form state
 
 
-	let pay_run_id = $state(String(initialData['pay_run_id'] ?? ''));
+	let pay_run_id = $state(String(initialData?.pay_run_id ?? ''));
 
 
 
-	let run_date = $state(String(initialData['run_date'] ?? ''));
+	let run_date = $state(String(initialData?.run_date ?? ''));
 
 
 
-	let total_amount = $state<string>(initialData['total_amount'] != null ? String(initialData['total_amount']) : '');
+	let total_amount = $state<string>(initialData?.total_amount != null ? String(initialData?.total_amount) : '');
 
 
 
-	let total_amount_currency = $state(String(initialData['total_amount_currency'] ?? ''));
+	let total_amount_currency = $state(String(initialData?.total_amount_currency ?? ''));
 
 
 
@@ -50,19 +51,19 @@
 
 
 
-		if (run_date !== String(initialData['run_date'] ?? '')) payload['run_date'] = run_date;
+		if (run_date !== String(initialData?.run_date ?? '')) payload['run_date'] = run_date;
 
 
 
 		{
 			const current = total_amount.trim();
-			const original = initialData['total_amount'] != null ? String(initialData['total_amount']) : '';
+			const original = initialData?.total_amount != null ? String(initialData?.total_amount) : '';
 			if (current !== original) payload['total_amount'] = current !== '' ? Number(current) : undefined;
 		}
 
 
 
-		if (total_amount_currency !== String(initialData['total_amount_currency'] ?? '')) payload['total_amount_currency'] = total_amount_currency;
+		if (total_amount_currency !== String(initialData?.total_amount_currency ?? '')) payload['total_amount_currency'] = total_amount_currency;
 
 
 		return payload;

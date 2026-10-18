@@ -11,35 +11,35 @@
 	import { ArrayField } from '#lib/components/ui/array-field/index.js';
 	import { StructuredWrapperField } from '#lib/components/ui/structured-wrapper-field/index.js';
 	import * as m from '#lib/paraglide/messages.js';
-	import type { CreateRsvpRequest, UpdateRsvpRequest } from '#lib/api/types.ts';
+	import type { CreateRsvpRequest, UpdateRsvpRequest, RsvpResponse } from '#lib/api/types.ts';
 
 	type FormData = CreateRsvpRequest | UpdateRsvpRequest;
 
 	interface Props {
 		mode: 'create' | 'edit';
-		initialData?: Record<string, unknown>;
+		initialData?: RsvpResponse;
 		onSubmit: (data: FormData) => void;
 		submitting?: boolean;
 	}
 
-	let { mode, initialData = {}, onSubmit, submitting = false }: Props = $props();
+	let { mode, initialData = undefined, onSubmit, submitting = false }: Props = $props();
 
 	// Form state
 
 
 	let event = $state<Record<string, unknown>>(
-		typeof initialData['event'] === 'object' && initialData['event'] !== null && !Array.isArray(initialData['event'])
-			? (initialData['event'] as Record<string, unknown>)
+		typeof initialData?.event === 'object' && initialData?.event !== null && !Array.isArray(initialData?.event)
+			? (initialData?.event as Record<string, unknown>)
 			: {}
 	);
 
 
 
-	let status = $state(String(initialData['status'] ?? ''));
+	let status = $state(String(initialData?.status ?? ''));
 
 
 
-	let timestamp = $state(String(initialData['timestamp'] ?? ''));
+	let timestamp = $state(String(initialData?.timestamp ?? ''));
 
 
 
@@ -65,15 +65,15 @@
 			// Edit mode: only send changed fields
 
 
-			if (JSON.stringify(event) !== JSON.stringify(initialData['event'] ?? {})) data['event'] = event;
+			if (JSON.stringify(event) !== JSON.stringify(initialData?.event ?? {})) data['event'] = event;
 
 
 
-			if (status !== String(initialData['status'] ?? '')) data['status'] = status;
+			if (status !== String(initialData?.status ?? '')) data['status'] = status;
 
 
 
-			if (timestamp !== String(initialData['timestamp'] ?? '')) data['timestamp'] = timestamp.includes('Z') ? timestamp : timestamp + ':00Z';
+			if (timestamp !== String(initialData?.timestamp ?? '')) data['timestamp'] = timestamp.includes('Z') ? timestamp : timestamp + ':00Z';
 
 
 		}

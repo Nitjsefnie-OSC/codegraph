@@ -12,6 +12,9 @@ import {
   deleteEntityViaApi,
   expectToast,
 } from '../../e2e/helpers';
+
+import type { CreateCandidateRequest } from '#lib/api/types.ts';
+
 import { CandidatePage } from './candidate.page';
 
 
@@ -23,13 +26,11 @@ const BASE_PATH = '/recruiting/candidate';
 const depIds: Record<string, string | string[]> = {};
 
 
-
-function testData(): Record<string, unknown> {
-
+function testData(): Partial<Record<keyof CreateCandidateRequest | 'code', unknown>> {
   return {
 
 
-    'birth_date': '2025-01-15',
+    'birth_date': '2026-01-15',
 
 
 
@@ -45,11 +46,11 @@ function testData(): Record<string, unknown> {
 
 
 
-    'candidate_id': 'Test Candidate Id',
+    // 'candidate_id': entity ref — emitted by _dep_setup.tera
 
 
 
-    'compensation_expectation': 42,
+    'compensation_expectation': 42.5,
 
 
 
@@ -98,12 +99,27 @@ function testData(): Record<string, unknown> {
 
 
 
+    ...(depIds['candidate_id'] ? { 'candidate_id': depIds['candidate_id'] } : {}),
+
   };
 }
 
 test.describe('Candidate Workflow', () => {
   let entityId: string;
 
+
+  test.beforeAll(async ({ orgContext }) => {
+
+
+
+
+  });
+
+  test.afterAll(async ({ orgContext }) => {
+
+const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
+
+  });
 
 
   test.beforeEach(async ({ orgContext }) => {

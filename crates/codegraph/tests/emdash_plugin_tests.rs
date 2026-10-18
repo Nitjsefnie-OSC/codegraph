@@ -193,6 +193,8 @@ fn emdash_build_plan() -> BuildPlan {
         ux_rules: false,
         expr_ir: false,
         ifml_e2e_auth: false,
+        testid_module: false,
+        structural_gates: false,
         public_operations_rls: false,
         features: Default::default(),
     }

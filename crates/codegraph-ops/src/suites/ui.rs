@@ -113,6 +113,12 @@ pub async fn run_ui(config: &OpsConfig, args: &UiArgs) -> OpsResult<()> {
         cmd.current_dir(&config.ui_dir);
         cmd.env("PUBLIC_API_URL", &api_url);
         cmd.env("PUBLIC_API_KEY", &api_key);
+        // The generated (app) layout creates a Supabase SSR client on every
+        // navigation — without these it throws "Your project's URL and Key
+        // are required" and every page renders the 500 boundary (issue
+        // #468: 1,199 measured failures traced to exactly this).
+        cmd.env("PUBLIC_SUPABASE_URL", supabase_base_url(config));
+        cmd.env("PUBLIC_SUPABASE_ANON_KEY", &config.anon_key);
         let mut proc =
             match ManagedProcess::spawn(cmd, "SvelteKit preview", Path::new(SVELTEKIT_LOG)) {
                 Ok(proc) => proc,

@@ -124,6 +124,7 @@ async fn run_pipeline(output: &Path, mox_file: &Path, config: &Path, profiles: &
         rosetta_files: &[],
         ddd_files: &[],
         evt_files: &[],
+        deploy_files: &[],
         ifml_framework: &[],
         ifml_components: None,
         ifml_design_system: None,

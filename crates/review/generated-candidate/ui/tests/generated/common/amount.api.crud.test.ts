@@ -5,6 +5,9 @@
 
 import { test, expect } from '../../e2e/fixtures/personas';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateAmountRequest } from '#lib/api/types.ts';
+
 import {
   createEntityAsAcme,
   createEntityViaApi,
@@ -26,9 +29,7 @@ const BASE_PATH = '/common/amount';
 const depIds: Record<string, string | string[]> = {};
 
 
-
-function testData(): Record<string, unknown> {
-
+function testData(): Partial<Record<keyof CreateAmountRequest | 'code', unknown>> {
   return {
 
 
@@ -36,7 +37,7 @@ function testData(): Record<string, unknown> {
 
 
 
-    'value': 42,
+    'value': 42.5,
 
 
 
@@ -44,9 +45,7 @@ function testData(): Record<string, unknown> {
   };
 }
 
-
-function updatedData(): Record<string, unknown> {
-
+function updatedData(): Partial<Record<keyof CreateAmountRequest | 'code', unknown>> {
   return {
 
 
@@ -54,7 +53,7 @@ function updatedData(): Record<string, unknown> {
 
 
 
-    'value': 99,
+    'value': 99.5,
 
 
 
@@ -80,7 +79,10 @@ test.describe('Amount CRUD', () => {
     await ui.gotoCreate();
     // Wait for SvelteKit to hydrate so the form's onsubmit handler is attached
     await ui.waitForForm();
-    const data = testData();
+    // Widened read view: the keyed testData() checks the payload's keys;
+    // form-fill reads may touch convention-resolved FK columns the
+    // generated Create request type does not declare.
+    const data: Record<string, unknown> = testData();
 
 
 
@@ -184,7 +186,7 @@ test.describe('Amount CRUD', () => {
 
     await ui.gotoEdit(myId);
     await ui.waitForForm();
-    const data = updatedData();
+    const data: Record<string, unknown> = updatedData();
 
 
 

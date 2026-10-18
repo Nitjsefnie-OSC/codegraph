@@ -9,6 +9,7 @@
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import * as Empty from '#lib/components/ui/empty/index.js';
+	import { formatFallback } from '#lib/format.ts';
 	import SearchInput from '#lib/components/ui/SearchInput.svelte';{% if ux %}
 	import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.js';
 	import * as AlertDialog from '#lib/components/ui/alert-dialog/index.js';
@@ -135,19 +136,11 @@
 {% endif %}
 
 {% raw %}
-	function formatObject(obj: Record<string, unknown>): string {
-		for (const key of ['value', 'code', 'name', 'id']) {
-			if (key in obj && obj[key] != null) return String(obj[key]);
-		}
-		const vals = Object.values(obj).filter(v => v != null && typeof v !== 'object');
-		return vals.length ? String(vals[0]) : JSON.stringify(obj);
-	}
-
 	function formatValue(value: unknown): string {
 		if (value === null || value === undefined) return '\u2014';
 		if (typeof value === 'boolean') return value ? m.common_yes() : m.common_no();
-		if (Array.isArray(value)) return value.map(v => typeof v === 'object' && v !== null ? formatObject(v as Record<string, unknown>) : String(v)).join(', ');
-		if (typeof value === 'object' && value !== null) return formatObject(value as Record<string, unknown>);
+		if (Array.isArray(value)) return value.map(v => typeof v === 'object' && v !== null ? formatFallback(v as Record<string, unknown>) : String(v)).join(', ');
+		if (typeof value === 'object' && value !== null) return formatFallback(value as Record<string, unknown>);
 		return String(value);
 	}
 
@@ -330,12 +323,12 @@
 	<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 		<div class="w-full sm:w-64">
 {% raw %}
-			<SearchInput value={searchQuery} onSearch={handleSearch} placeholder={m.common_search_placeholder({ entity: '{% endraw %}{{ entity_name }}{% raw %}' })} data-testid="{% endraw %}{{ module_name }}{% raw %}-search" />
+			<SearchInput value={searchQuery} onSearch={handleSearch} placeholder={m.common_search_placeholder({ entity: '{% endraw %}{{ entity_name }}{% raw %}' })} data-testid="{% endraw %}{{ tid.search }}{% raw %}" />
 {% endraw %}
 		</div>
 {% if has_create %}
 {% raw %}{#if page.data.organization?.role === 'owner'}{% endraw %}
-		<Button href={`${basePath}/new`} data-testid="{{ module_name }}-create-btn">
+		<Button href={`${basePath}/new`} data-testid="{{ tid.create_btn }}">
 			+ {% raw %}{{% endraw %}m.{{ domain }}_{{ module_name }}_new(){% raw %}}{% endraw %}
 		</Button>
 {% raw %}{/if}{% endraw %}
@@ -344,7 +337,7 @@
 
 {% raw %}
 	{#if displayRows.length === 0 && !searchQuery}
-		<Empty.Root data-testid="{% endraw %}{{ module_name }}{% raw %}-empty">
+		<Empty.Root data-testid="{% endraw %}{{ tid.empty }}{% raw %}">
 			<Empty.Header>
 				<Empty.Media variant="icon">
 					<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
@@ -363,12 +356,12 @@
 {% raw %}
 		</Empty.Root>
 	{:else if displayRows.length === 0 && searchQuery}
-		<div class="py-12 text-center text-muted-foreground" data-testid="{% endraw %}{{ module_name }}{% raw %}-no-results">
+		<div class="py-12 text-center text-muted-foreground" data-testid="{% endraw %}{{ tid.no_results }}{% raw %}">
 			{m.common_no_results({ query: searchQuery })}
 		</div>
 	{:else}{% endraw %}{% if ux.timeline %}{% include "ui/list_timeline.tera" %}{% else %}{% raw %}
 		<div class="rounded-md border">
-			<Table.Root data-testid="{% endraw %}{{ module_name }}{% raw %}-table">
+			<Table.Root data-testid="{% endraw %}{{ tid.table }}{% raw %}">
 				<Table.Header>
 					<Table.Row>
 						{#each columns as col}{% endraw %}{% if ux %}{% raw %}
@@ -418,7 +411,7 @@
 											{formatValue(value)}
 										</Badge>
 									{:else if col.display === 'chip'}
-										<Badge variant={toneFor(col, value)} data-testid="{% endraw %}{{ module_name }}{% raw %}-chip">
+										<Badge variant={toneFor(col, value)} data-testid="{% endraw %}{{ tid.chip }}{% raw %}">
 											{formatValue(value)}
 										</Badge>
 									{:else if col.display === 'copy-chip'}
@@ -426,7 +419,7 @@
 											<Tooltip.Root>
 												<Tooltip.Trigger
 													class="inline-flex max-w-[12rem] items-center gap-1 rounded-md border bg-muted/40 px-1.5 py-0.5 font-mono text-xs"
-													data-testid="{% endraw %}{{ module_name }}{% raw %}-copy"
+													data-testid="{% endraw %}{{ tid.copy }}{% raw %}"
 													onclick={(e) => { e.stopPropagation(); copyValue(value); }}
 												>
 													{truncate(value, 8)}
@@ -436,7 +429,7 @@
 										{:else}
 											<button
 												class="inline-flex max-w-[12rem] items-center gap-1 rounded-md border bg-muted/40 px-1.5 py-0.5 font-mono text-xs"
-												data-testid="{% endraw %}{{ module_name }}{% raw %}-copy"
+												data-testid="{% endraw %}{{ tid.copy }}{% raw %}"
 												onclick={(e) => { e.stopPropagation(); copyValue(value); }}
 											>
 												{truncate(value, 8)}
@@ -484,7 +477,7 @@
 												{...props}
 												variant="ghost"
 												size="sm"
-												data-testid="{% endraw %}{{ module_name }}{% raw %}-actions"
+												data-testid="{% endraw %}{{ tid.actions }}{% raw %}"
 												onclick={(e) => { e.stopPropagation(); props.onclick?.(e); }}
 											>
 												{m.common_actions()}
@@ -492,19 +485,19 @@
 											{/snippet}
 										</DropdownMenu.Trigger>
 										<DropdownMenu.Portal>
-											<DropdownMenu.Content data-testid="{% endraw %}{{ module_name }}{% raw %}-actions-menu" class="w-40">
+											<DropdownMenu.Content data-testid="{% endraw %}{{ tid.actions_menu }}{% raw %}" class="w-40">
 												{#each ux_actions.menu as item}
 													{#if item.action === 'delete'}
 													<DropdownMenu.Item
 														class="text-destructive data-[highlighted]:text-destructive"
-														data-testid="{% endraw %}{{ module_name }}{% raw %}-action-delete"
+														data-testid="{% endraw %}{{ tid.action_delete }}{% raw %}"
 														onclick={(e) => { e.stopPropagation(); requestDelete(row as Record<string, unknown>); }}
 													>
 														{actionLabel(item.action, item.label)}
 													</DropdownMenu.Item>
 													{:else if item.action === 'edit'}
 													<DropdownMenu.Item
-														data-testid="{% endraw %}{{ module_name }}{% raw %}-action-edit"
+														data-testid="{% endraw %}{{ tid.action_edit }}{% raw %}"
 														onclick={(e) => { e.stopPropagation(); goto(`${basePath}/${row['id']}/edit`); }}
 													>
 														{actionLabel(item.action, item.label)}
@@ -551,7 +544,7 @@
 			</Table.Root>
 		</div>
 {% endraw %}{% endif %}{% raw %}
-		<div class="flex items-center justify-between text-sm text-muted-foreground" data-testid="{% endraw %}{{ module_name }}{% raw %}-pagination">
+		<div class="flex items-center justify-between text-sm text-muted-foreground" data-testid="{% endraw %}{{ tid.pagination }}{% raw %}">
 {% endraw %}
 {% if has_fts %}
 {% raw %}
@@ -592,7 +585,7 @@
 {% endraw %}
 </div>{% if ux_actions and has_delete %}{% raw %}
 <AlertDialog.Root open={deleteTarget !== null} onOpenChange={(v) => { if (!v) deleteTarget = null; }}>
-	<AlertDialog.Content data-testid="{% endraw %}{{ module_name }}{% raw %}-delete-confirm">
+	<AlertDialog.Content data-testid="{% endraw %}{{ tid.delete_dialog }}{% raw %}">
 		<AlertDialog.Header>
 			<AlertDialog.Title>{m.common_confirm_delete_title({ entity: '{% endraw %}{{ entity_name }}{% raw %}' })}</AlertDialog.Title>
 			<AlertDialog.Description>
@@ -604,7 +597,7 @@
 			<AlertDialog.Action
 				onclick={() => performDelete(deleteTarget as Record<string, unknown>)}
 				disabled={deleting}
-				data-testid="{% endraw %}{{ module_name }}{% raw %}-delete-confirm-confirm"
+				data-testid="{% endraw %}{{ tid.delete_dialog_confirm }}{% raw %}"
 				class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
 			>
 				{deleting ? m.common_deleting() : m.common_delete()}

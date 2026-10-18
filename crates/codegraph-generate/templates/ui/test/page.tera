@@ -22,6 +22,12 @@ import {
 } from '@playwright/test';
 
 import { BasePage{% if pom.ux %}, UxTable{% endif %} } from '../_support/pom';
+{%- if project.testid_module %}
+// One testid vocabulary (issue #468 W3): locators resolve through the
+// generated module — renaming an entry there fails `tsc`/`svelte-check`
+// here, instead of failing Playwright at runtime.
+import { shared, testids, tidFor } from '#lib/testids.js';
+{% endif %}
 
 export class {{ entity_name }}Page extends BasePage {
   /** Testid prefix family (the entity's snake_case module name). */
@@ -99,9 +105,9 @@ export class {{ entity_name }}Page extends BasePage {
    */
   async waitForListReady(): Promise<void> {
     await this.page.waitForSelector('body.hydrated');
-    const table = this.page.locator(`[data-testid="${this.module}-table"]`);
-    const empty = this.page.locator(`[data-testid="${this.module}-empty"]`);
-    const noResults = this.page.locator(`[data-testid="${this.module}-no-results"]`);
+    const table = this.page.locator({% if project.testid_module %}`[data-testid="${testids.{{ module_name }}.table}"]`{% else %}`[data-testid="${this.module}-table"]`{% endif %});
+    const empty = this.page.locator({% if project.testid_module %}`[data-testid="${testids.{{ module_name }}.empty}"]`{% else %}`[data-testid="${this.module}-empty"]`{% endif %});
+    const noResults = this.page.locator({% if project.testid_module %}`[data-testid="${testids.{{ module_name }}.noResults}"]`{% else %}`[data-testid="${this.module}-no-results"]`{% endif %});
     await table.or(empty).or(noResults).waitFor({ state: 'visible' });
   }
 
@@ -120,46 +126,46 @@ export class {{ entity_name }}Page extends BasePage {
   // ── List-page surface ───────────────────────────────────────────────
 
   tableRoot(): Locator {
-    return this.page.locator(`[data-testid="${this.module}-table"]`);
+    return this.page.locator({% if project.testid_module %}`[data-testid="${testids.{{ module_name }}.table}"]`{% else %}`[data-testid="${this.module}-table"]`{% endif %});
   }
 
   emptyState(): Locator {
-    return this.page.locator(`[data-testid="${this.module}-empty"]`);
+    return this.page.locator({% if project.testid_module %}`[data-testid="${testids.{{ module_name }}.empty}"]`{% else %}`[data-testid="${this.module}-empty"]`{% endif %});
   }
 
   noResults(): Locator {
-    return this.page.locator(`[data-testid="${this.module}-no-results"]`);
+    return this.page.locator({% if project.testid_module %}`[data-testid="${testids.{{ module_name }}.noResults}"]`{% else %}`[data-testid="${this.module}-no-results"]`{% endif %});
   }
 
   pagination(): Locator {
-    return this.page.locator(`[data-testid="${this.module}-pagination"]`);
+    return this.page.locator({% if project.testid_module %}`[data-testid="${testids.{{ module_name }}.pagination}"]`{% else %}`[data-testid="${this.module}-pagination"]`{% endif %});
   }
 
   createButton(): Locator {
-    return this.page.locator(`[data-testid="${this.module}-create-btn"]`);
+    return this.page.locator({% if project.testid_module %}`[data-testid="${testids.{{ module_name }}.createBtn}"]`{% else %}`[data-testid="${this.module}-create-btn"]`{% endif %});
   }
 
   searchInput(): Locator {
-    return this.page.locator(`[data-testid="${this.module}-search"] input`);
+    return this.page.locator({% if project.testid_module %}`[data-testid="${testids.{{ module_name }}.search}"] input`{% else %}`[data-testid="${this.module}-search"] input`{% endif %});
   }
 
   /** A detail-page child section (`child-section-{module}`). */
   childSection(module: string): Locator {
-    return this.page.locator(`[data-testid="child-section-${module}"]`);
+    return this.page.locator({% if project.testid_module %}`[data-testid="${tidFor(module).childSection}"]`{% else %}`[data-testid="child-section-${module}"]`{% endif %});
   }
 
   // ── Form surface ────────────────────────────────────────────────────
 
   formRoot(): Locator {
-    return this.page.locator(`[data-testid="${this.module}-form"]`);
+    return this.page.locator({% if project.testid_module %}`[data-testid="${testids.{{ module_name }}.form}"]`{% else %}`[data-testid="${this.module}-form"]`{% endif %});
   }
 
   submitButton(): Locator {
-    return this.page.locator(`[data-testid="${this.module}-submit-btn"]`);
+    return this.page.locator({% if project.testid_module %}`[data-testid="${testids.{{ module_name }}.submitBtn}"]`{% else %}`[data-testid="${this.module}-submit-btn"]`{% endif %});
   }
 
   cancelButton(): Locator {
-    return this.page.locator(`[data-testid="${this.module}-cancel-btn"]`);
+    return this.page.locator({% if project.testid_module %}`[data-testid="${testids.{{ module_name }}.cancelBtn}"]`{% else %}`[data-testid="${this.module}-cancel-btn"]`{% endif %});
   }
 
   /** A create/edit form input by field name (the `#name` convention). */
@@ -168,7 +174,7 @@ export class {{ entity_name }}Page extends BasePage {
   }
 
   async waitForForm(): Promise<void> {
-    await this.waitForHydration(`[data-testid="${this.module}-submit-btn"]`);
+    await this.waitForHydration({% if project.testid_module %}`[data-testid="${testids.{{ module_name }}.submitBtn}"]`{% else %}`[data-testid="${this.module}-submit-btn"]`{% endif %});
   }
 
   async submit(): Promise<void> {
@@ -291,7 +297,7 @@ export class {{ entity_name }}Page extends BasePage {
 
   /** `{module}-field-{name}` — a detail-page field value slot. */
   field(name: string): Locator {
-    return this.page.locator(`[data-testid="${this.module}-field-${name}"]`);
+    return this.page.locator({% if project.testid_module %}`[data-testid="${testids.{{ module_name }}.field(name)}"]`{% else %}`[data-testid="${this.module}-field-${name}"]`{% endif %});
   }
 
   detailHeading(): Locator {
@@ -299,11 +305,11 @@ export class {{ entity_name }}Page extends BasePage {
   }
 
   editButton(): Locator {
-    return this.page.locator(`[data-testid="${this.module}-edit-btn"]`);
+    return this.page.locator({% if project.testid_module %}`[data-testid="${testids.{{ module_name }}.editBtn}"]`{% else %}`[data-testid="${this.module}-edit-btn"]`{% endif %});
   }
 
   deleteButton(): Locator {
-    return this.page.locator(`[data-testid="${this.module}-delete-btn"]`);
+    return this.page.locator({% if project.testid_module %}`[data-testid="${testids.{{ module_name }}.deleteBtn}"]`{% else %}`[data-testid="${this.module}-delete-btn"]`{% endif %});
   }
 
   /** Enter the edit form from the detail page. */
@@ -313,25 +319,25 @@ export class {{ entity_name }}Page extends BasePage {
 
   /** Detail-page delete: open the dialog, confirm. */
   async delete(): Promise<void> {
-    await this.waitForHydration(`[data-testid="${this.module}-delete-btn"]`);
+    await this.waitForHydration({% if project.testid_module %}`[data-testid="${testids.{{ module_name }}.deleteBtn}"]`{% else %}`[data-testid="${this.module}-delete-btn"]`{% endif %});
     await this.deleteButton().click();
-    await expect(this.page.locator('[data-testid="confirm-dialog"]')).toBeVisible({ timeout: 20_000 });
-    await this.page.locator('[data-testid="confirm-dialog-confirm"]').click();
+    await expect(this.page.locator({% if project.testid_module %}`[data-testid="${shared.confirmDialog}"]`{% else %}'[data-testid="confirm-dialog"]'{% endif %})).toBeVisible({ timeout: 20_000 });
+    await this.page.locator({% if project.testid_module %}`[data-testid="${shared.confirmDialogConfirm}"]`{% else %}'[data-testid="confirm-dialog-confirm"]'{% endif %}).click();
   }
 
 {% if pom.workflow %}
   // ── Workflow (pom.workflow: states={{ pom.workflow.states | join(sep=",") }}) ──
 
   workflowPanel(): Locator {
-    return this.page.locator('[data-testid="workflow-panel"]');
+    return this.page.locator({% if project.testid_module %}`[data-testid="${shared.workflowPanel}"]`{% else %}'[data-testid="workflow-panel"]'{% endif %});
   }
 
   workflowState(): Locator {
-    return this.page.locator('[data-testid="workflow-state"]');
+    return this.page.locator({% if project.testid_module %}`[data-testid="${shared.workflowState}"]`{% else %}'[data-testid="workflow-state"]'{% endif %});
   }
 
   async waitForWorkflow(): Promise<void> {
-    await this.waitForHydration('[data-testid="workflow-panel"]');
+    await this.waitForHydration({% if project.testid_module %}`[data-testid="${shared.workflowPanel}"]`{% else %}'[data-testid="workflow-panel"]'{% endif %});
   }
 
   async expectState(state: string): Promise<void> {

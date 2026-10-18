@@ -6,6 +6,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateAmountRequest } from '#lib/api/types.ts';
+
 import { AmountPage } from './amount.page';
 
 
@@ -19,10 +22,10 @@ const BASE_PATH = '/common/amount';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreateAmountRequest | 'code', unknown>> {
   return {
     'currency': 'USD',
-    'value': 77,
+    'value': 42.5,
 
 
   };
@@ -30,7 +33,8 @@ function testData(): Record<string, unknown> {
 
 test.describe('Amount Cross-Org Isolation', () => {
   let acmeEntityId: string;
-  const data = testData();
+  // Widened read view: list-column reads may touch response-only fields.
+  const data: Record<string, unknown> = testData();
 
   test.beforeAll(async ({ orgContext }) => {
 

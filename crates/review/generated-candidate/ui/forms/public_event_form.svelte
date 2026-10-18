@@ -6,6 +6,7 @@
 	import Input from '@community-os/ui/Input.svelte';
 	import Select from '@community-os/ui/Select.svelte';
 	import { api } from '$lib/api';
+	import type { PublicEventResponse } from '#lib/api/types.ts';
 
 	type FormData = Record<string, unknown>;
 
@@ -14,11 +15,11 @@
 		apiPath: string;
 		routePath: string;
 		id?: string;
-		initialData?: Record<string, unknown>;
+		initialData?: PublicEventResponse;
 		submitting?: boolean;
 	}
 
-	let { mode, apiPath, routePath, id = '', initialData = {}, submitting = $bindable(false) }: Props = $props();
+	let { mode, apiPath, routePath, id = '', initialData = undefined, submitting = $bindable(false) }: Props = $props();
 
 	let error = $state('');
 	let loading = $state(mode === 'edit');
@@ -26,27 +27,27 @@
 	// Form state
 
 
-	let is_published = $state(Boolean(initialData['is_published'] ?? false));
+	let is_published = $state(Boolean(initialData?.is_published ?? false));
 
 
 
-	let capacity = $state<string>(initialData['capacity'] != null ? String(initialData['capacity']) : '');
+	let capacity = $state<string>(initialData?.capacity != null ? String(initialData?.capacity) : '');
 
 
 
-	let title = $state(String(initialData['title'] ?? ''));
+	let title = $state(String(initialData?.title ?? ''));
 
 
 
-	let birth_date = $state(String(initialData['birth_date'] ?? ''));
+	let birth_date = $state(String(initialData?.birth_date ?? ''));
 
 
 
-	let family_name = $state(String(initialData['family_name'] ?? ''));
+	let family_name = $state(String(initialData?.family_name ?? ''));
 
 
 
-	let given_name = $state(String(initialData['given_name'] ?? ''));
+	let given_name = $state(String(initialData?.given_name ?? ''));
 
 
 
@@ -54,13 +55,13 @@
 		const payload: Record<string, unknown> = {};
 
 
-		if (is_published !== Boolean(initialData['is_published'])) payload['is_published'] = is_published;
+		if (is_published !== Boolean(initialData?.is_published)) payload['is_published'] = is_published;
 
 
 
 		{
 			const current = capacity.trim();
-			const original = initialData['capacity'] != null ? String(initialData['capacity']) : '';
+			const original = initialData?.capacity != null ? String(initialData?.capacity) : '';
 			if (current !== original) payload['capacity'] = current !== '' ? Number(current) : undefined;
 		}
 
@@ -70,7 +71,7 @@
 
 
 
-		if (birth_date !== String(initialData['birth_date'] ?? '')) payload['birth_date'] = birth_date;
+		if (birth_date !== String(initialData?.birth_date ?? '')) payload['birth_date'] = birth_date;
 
 
 
