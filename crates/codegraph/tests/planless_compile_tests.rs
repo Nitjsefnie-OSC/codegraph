@@ -51,6 +51,7 @@ async fn run_planless(output_dir: &Path, codegraph_rev: Option<String>) {
         rosetta_files: &rosetta_files,
         ddd_files: &[],
         evt_files: &[],
+        deploy_files: &[],
         ifml_framework: &[],
         ifml_components: None,
         ifml_design_system: None,
