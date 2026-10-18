@@ -163,6 +163,9 @@ mod reassembly_tests {
 
     #[tokio::test]
     async fn nodes_ingested_out_of_ordinal_order_come_back_sorted() {
+        // Reads bump the process-global QUERY_COUNT: hold the counter lock
+        // so this test never lands inside the composition pin's window.
+        let _counter = super::super::query::COUNTER_LOCK.lock().await;
         let engine = GrafeoEngine::in_memory().unwrap();
 
         // Authored deliberately out of declaration order (1 before 0).

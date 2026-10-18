@@ -1,3 +1,4 @@
+use crate::ingestor::registry::NodeRegistry;
 use crate::schema_ddl;
 use codegraph_core::error::GraphError;
 use grafeo::GrafeoDB;
@@ -8,6 +9,10 @@ use std::time::Instant;
 pub struct GrafeoEngine {
     db: Arc<GrafeoDB>,
     start_time: Instant,
+    /// Natural-key → NodeId registry for the direct edge path (issue #482).
+    /// Populated only by this engine instance's node ingests; empty after a
+    /// persistent reopen, which sends every edge to the GQL fallback.
+    pub(crate) node_registry: NodeRegistry,
 }
 
 impl GrafeoEngine {
@@ -17,6 +22,7 @@ impl GrafeoEngine {
         let engine = Self {
             db: Arc::new(db),
             start_time: Instant::now(),
+            node_registry: NodeRegistry::new(),
         };
         engine.init_schema()?;
         Ok(engine)
@@ -29,6 +35,7 @@ impl GrafeoEngine {
         let engine = Self {
             db: Arc::new(db),
             start_time: Instant::now(),
+            node_registry: NodeRegistry::new(),
         };
         engine.init_schema()?;
         Ok(engine)
@@ -78,6 +85,7 @@ impl GrafeoEngine {
         Ok(Self {
             db: Arc::new(db),
             start_time: Instant::now(),
+            node_registry: NodeRegistry::new(),
         })
     }
 

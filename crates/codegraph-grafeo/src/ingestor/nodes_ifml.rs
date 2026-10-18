@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use codegraph_core::error::GraphError;
 use codegraph_core::types::{
     ActionNode, DataBindingNode, EventNode, ModuleDefinitionNode, ParameterDefinitionNode,
@@ -5,7 +7,8 @@ use codegraph_core::types::{
 };
 
 use super::gql::CountingSession;
-use super::gql::{escape_gql, opt_str};
+use super::gql::{escape_gql, opt_str, opt_to_grafeo_value};
+use super::registry;
 use crate::engine::GrafeoEngine;
 
 impl GrafeoEngine {
@@ -54,28 +57,40 @@ impl GrafeoEngine {
         &self,
         node: &ModuleDefinitionNode,
     ) -> Result<String, GraphError> {
-        let session = CountingSession::new(self.db().session());
         let id = format!("module:{}", node.name);
         let json = |v: &Option<String>| v.clone();
         let module_uses_json = node
             .module_uses
             .as_ref()
             .map(|u| serde_json::to_string(u).unwrap_or_default());
-        let gql = format!(
-            "INSERT (:ModuleDefinition {{ \
-                name: '{}', domain: {}, inputs_json: {}, outputs_json: {}, \
-                properties_json: {}, module_uses: {} \
-            }})",
-            escape_gql(&node.name),
-            opt_str(&node.domain),
-            opt_str(&json(&node.inputs_json)),
-            opt_str(&json(&node.outputs_json)),
-            opt_str(&json(&node.properties_json)),
-            opt_str(&module_uses_json),
-        );
-        session
-            .execute(&gql)
-            .map_err(|e| GraphError::Ingest(format!("ingest_module_definition failed: {e}")))?;
+        let props = HashMap::from([
+            (
+                "name".to_string(),
+                grafeo::Value::String(node.name.clone().into()),
+            ),
+            ("domain".to_string(), opt_to_grafeo_value(&node.domain)),
+            (
+                "inputs_json".to_string(),
+                opt_to_grafeo_value(&json(&node.inputs_json)),
+            ),
+            (
+                "outputs_json".to_string(),
+                opt_to_grafeo_value(&json(&node.outputs_json)),
+            ),
+            (
+                "properties_json".to_string(),
+                opt_to_grafeo_value(&json(&node.properties_json)),
+            ),
+            (
+                "module_uses".to_string(),
+                opt_to_grafeo_value(&module_uses_json),
+            ),
+        ]);
+        self.create_registered_node(
+            "ModuleDefinition",
+            &[registry::keys::module(&node.name)],
+            &props,
+        )?;
         Ok(id)
     }
 
@@ -83,37 +98,44 @@ impl GrafeoEngine {
         &self,
         node: &ViewComponentNode,
     ) -> Result<String, GraphError> {
-        let session = CountingSession::new(self.db().session());
         let id = format!("comp:{}", node.name);
         let fields_json = node
             .fields
             .as_ref()
             .map(|f| serde_json::to_string(f).unwrap_or_default());
-        let gql = format!(
-            "INSERT (:ViewComponent {{ \
-                name: '{}', component_type: '{}', mode: {}, \
-                entity: {}, fields: {}, filter: {}, api_operation: {}, \
-                spec: {}, conditional_expression: {}, domain: {} \
-            }})",
-            escape_gql(&node.name),
-            escape_gql(&node.component_type),
-            opt_str(&node.mode),
-            opt_str(&node.entity),
-            opt_str(&fields_json),
-            opt_str(&node.filter),
-            opt_str(&node.api_operation),
-            opt_str(&node.spec),
-            opt_str(&node.conditional_expression),
-            opt_str(&node.domain),
-        );
-        session
-            .execute(&gql)
-            .map_err(|e| GraphError::Ingest(format!("ingest_view_component failed: {e}")))?;
+        let props = HashMap::from([
+            (
+                "name".to_string(),
+                grafeo::Value::String(node.name.clone().into()),
+            ),
+            (
+                "component_type".to_string(),
+                grafeo::Value::String(node.component_type.clone().into()),
+            ),
+            ("mode".to_string(), opt_to_grafeo_value(&node.mode)),
+            ("entity".to_string(), opt_to_grafeo_value(&node.entity)),
+            ("fields".to_string(), opt_to_grafeo_value(&fields_json)),
+            ("filter".to_string(), opt_to_grafeo_value(&node.filter)),
+            (
+                "api_operation".to_string(),
+                opt_to_grafeo_value(&node.api_operation),
+            ),
+            ("spec".to_string(), opt_to_grafeo_value(&node.spec)),
+            (
+                "conditional_expression".to_string(),
+                opt_to_grafeo_value(&node.conditional_expression),
+            ),
+            ("domain".to_string(), opt_to_grafeo_value(&node.domain)),
+        ]);
+        self.create_registered_node(
+            "ViewComponent",
+            &[registry::keys::view_component(&node.name)],
+            &props,
+        )?;
         Ok(id)
     }
 
     pub(super) async fn insert_event(&self, node: &EventNode) -> Result<String, GraphError> {
-        let session = CountingSession::new(self.db().session());
         let id = format!("evt:{}", node.name);
         let params_json = node
             .params
@@ -124,34 +146,37 @@ impl GrafeoEngine {
         } else {
             Some(serde_json::to_string(&node.requires).unwrap_or_default())
         };
-        let gql = format!(
-            "INSERT (:Event {{ \
-                name: '{}', event_type: '{}', params: {}, conditional_expression: {}, requires: {}, domain: {} \
-            }})",
-            escape_gql(&node.name),
-            escape_gql(&node.event_type),
-            opt_str(&params_json),
-            opt_str(&node.conditional_expression),
-            opt_str(&requires_json),
-            opt_str(&node.domain),
-        );
-        session
-            .execute(&gql)
-            .map_err(|e| GraphError::Ingest(format!("ingest_event failed: {e}")))?;
+        let props = HashMap::from([
+            (
+                "name".to_string(),
+                grafeo::Value::String(node.name.clone().into()),
+            ),
+            (
+                "event_type".to_string(),
+                grafeo::Value::String(node.event_type.clone().into()),
+            ),
+            ("params".to_string(), opt_to_grafeo_value(&params_json)),
+            (
+                "conditional_expression".to_string(),
+                opt_to_grafeo_value(&node.conditional_expression),
+            ),
+            ("requires".to_string(), opt_to_grafeo_value(&requires_json)),
+            ("domain".to_string(), opt_to_grafeo_value(&node.domain)),
+        ]);
+        self.create_registered_node("Event", &[registry::keys::event(&node.name)], &props)?;
         Ok(id)
     }
 
     pub(super) async fn insert_action_node(&self, node: &ActionNode) -> Result<String, GraphError> {
-        let session = CountingSession::new(self.db().session());
         let id = format!("action:{}", node.name);
-        let gql = format!(
-            "INSERT (:ActionNode {{ name: '{}', domain: {} }})",
-            escape_gql(&node.name),
-            opt_str(&node.domain),
-        );
-        session
-            .execute(&gql)
-            .map_err(|e| GraphError::Ingest(format!("ingest_action_node failed: {e}")))?;
+        let props = HashMap::from([
+            (
+                "name".to_string(),
+                grafeo::Value::String(node.name.clone().into()),
+            ),
+            ("domain".to_string(), opt_to_grafeo_value(&node.domain)),
+        ]);
+        self.create_registered_node("ActionNode", &[registry::keys::action(&node.name)], &props)?;
         Ok(id)
     }
 
@@ -199,20 +224,27 @@ impl GrafeoEngine {
         &self,
         node: &DataBindingNode,
     ) -> Result<String, GraphError> {
-        let session = CountingSession::new(self.db().session());
         let id = format!("db:{}", node.name);
-        let gql = format!(
-            "INSERT (:DataBinding {{ \
-                name: '{}', conditional_expression: {}, expression_language: '{}', domain: {} \
-            }})",
-            escape_gql(&node.name),
-            opt_str(&node.conditional_expression),
-            escape_gql(&node.expression_language),
-            opt_str(&node.domain),
-        );
-        session
-            .execute(&gql)
-            .map_err(|e| GraphError::Ingest(format!("ingest_data_binding failed: {e}")))?;
+        let props = HashMap::from([
+            (
+                "name".to_string(),
+                grafeo::Value::String(node.name.clone().into()),
+            ),
+            (
+                "conditional_expression".to_string(),
+                opt_to_grafeo_value(&node.conditional_expression),
+            ),
+            (
+                "expression_language".to_string(),
+                grafeo::Value::String(node.expression_language.clone().into()),
+            ),
+            ("domain".to_string(), opt_to_grafeo_value(&node.domain)),
+        ]);
+        self.create_registered_node(
+            "DataBinding",
+            &[registry::keys::data_binding(&node.name)],
+            &props,
+        )?;
         Ok(id)
     }
 }
