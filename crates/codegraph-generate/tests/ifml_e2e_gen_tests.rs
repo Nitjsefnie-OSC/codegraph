@@ -1175,7 +1175,7 @@ async fn persona_tests_emitted_per_human_actor_with_policy() {
         "{spec}"
     );
     assert!(
-        spec.contains("(globalThis as any).__USER_ROLES__ = ['Admin'];"),
+        spec.contains("(globalThis as any).__USER_ROLES__ = ['Admin', 'admin'];"),
         "{spec}"
     );
     assert!(spec.contains("await ui.open();"), "{spec}");
@@ -1191,7 +1191,7 @@ async fn persona_tests_emitted_per_human_actor_with_policy() {
         "{spec}"
     );
     assert!(
-        spec.contains("(globalThis as any).__USER_ROLES__ = ['Intern'];"),
+        spec.contains("(globalThis as any).__USER_ROLES__ = ['Intern', 'intern'];"),
         "{spec}"
     );
     assert!(spec.contains("await ui.expectDenied();"), "{spec}");

@@ -2,6 +2,7 @@ use crate::ProjectConfig;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
 use codegraph_core::traits::GraphQuerier;
@@ -71,6 +72,12 @@ pub struct UiPageContext {
     /// context otherwise, so timeline/flag-off renders stay byte-identical.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ux_sort: Option<UxSortCtx>,
+    /// This entity's testid vocabulary, projected from `ux::plan::ids`
+    /// (issue #468 W3). Templates interpolate `tid.*` instead of carrying
+    /// literals, so page markup renders FROM the canonical table.
+    pub tid: crate::ui::testids::TidMap,
+    /// Unprefixed shared testids (`confirm-dialog`, workflow panel).
+    pub shared_tid: crate::ui::testids::SharedTids,
 }
 
 /// One consumer-owned panel mounted on a generated detail page.
@@ -245,7 +252,10 @@ pub struct ChildSection {
     pub path_segment: String,
     pub domain: String,
     pub has_children: bool,
+    pub display_field: Option<String>,
     pub fields: Vec<UiField>,
+    /// The child entity's testid vocabulary (issue #468 W3).
+    pub tid: crate::ui::testids::TidMap,
 }
 
 pub struct UiPageGenerator {
@@ -255,6 +265,13 @@ pub struct UiPageGenerator {
     /// per-entity warning channel so a run-wide finding (e.g. the
     /// `[actions] inline_max` accounting) prints once, not per entity.
     reported_ux_lines: Mutex<std::collections::HashSet<String>>,
+    /// The shared `ChildSection.svelte` component is entity-independent
+    /// content emitted ONCE per generation run: the first entity whose
+    /// detail page carries any child section renders it (the page
+    /// generator is Entity-kind, so this is the once-per-run hook — same
+    /// pattern as the e2e POM kernel; content is stable and the file is
+    /// regenerated every run).
+    child_section_component_emitted: AtomicBool,
 }
 
 impl UiPageGenerator {
@@ -263,6 +280,7 @@ impl UiPageGenerator {
             output_dir: output_dir.to_path_buf(),
             parent_candidates: Vec::new(),
             reported_ux_lines: Mutex::new(std::collections::HashSet::new()),
+            child_section_component_emitted: AtomicBool::new(false),
         }
     }
 
@@ -424,6 +442,7 @@ impl EntityGenerator for UiPageGenerator {
             .unwrap_or_default();
 
         let ctx = UiPageContext {
+            tid: crate::ui::testids::for_module(&module_name),
             entity_name,
             module_name,
             domain: domain.clone(),
@@ -450,6 +469,7 @@ impl EntityGenerator for UiPageGenerator {
             ux_actions,
             ux,
             ux_sort,
+            shared_tid: crate::ui::testids::shared(),
         };
 
         let routes_base = self
@@ -460,7 +480,37 @@ impl EntityGenerator for UiPageGenerator {
             .join("(app)");
         let routes_dir = routes_dir_for(&routes_base, parent.as_ref(), &domain, &path_segment);
 
-        emit_ui_pages(tera, &ctx, project, &routes_dir)
+        let mut files = emit_ui_pages(tera, &ctx, project, &routes_dir)?;
+
+        // Shared ChildSection component — prop-driven, entity-independent
+        // bytes, emitted once per run when ANY entity has child sections
+        // (issue #468 W4). The detail template renders `<ChildSection …>`
+        // tags per section; this file is the single implementation.
+        if has_child_sections
+            && self
+                .child_section_component_emitted
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+        {
+            let content = render_template_with_project(
+                tera,
+                "ui/child_section_component.tera",
+                &ctx,
+                project,
+            )?;
+            files.push(GeneratedFile {
+                path: self
+                    .output_dir
+                    .join("ui")
+                    .join("src")
+                    .join("lib")
+                    .join("components")
+                    .join("ChildSection.svelte"),
+                content,
+            });
+        }
+
+        Ok(files)
     }
 }
 
@@ -875,7 +925,7 @@ mod ux_list_template_tests {
     use serde_json::json;
 
     fn base_ctx() -> serde_json::Value {
-        json!({
+        let mut ctx = json!({
             "entity_name": "Task",
             "module_name": "task",
             "domain": "common",
@@ -896,7 +946,19 @@ mod ux_list_template_tests {
             "ux_columns": [],
             "ux_actions": null,
             "ux": null,
-        })
+        });
+        // The testid vocabulary rides the context like production renders
+        // it (issue #468 W3): projected from `ux::plan::ids` for the module.
+        let obj = ctx.as_object_mut().unwrap();
+        obj.insert(
+            "tid".into(),
+            serde_json::to_value(crate::ui::testids::for_module("task")).unwrap(),
+        );
+        obj.insert(
+            "shared_tid".into(),
+            serde_json::to_value(crate::ui::testids::shared()).unwrap(),
+        );
+        ctx
     }
 
     fn render(ctx: &serde_json::Value) -> String {
@@ -1006,10 +1068,7 @@ mod ux_list_template_tests {
         assert!(out.contains(r#"data-testid="task-actions""#), "{out}");
         assert!(out.contains(r#"data-testid="task-actions-menu""#), "{out}");
         assert!(out.contains("AlertDialog"), "{out}");
-        assert!(
-            out.contains(r#"data-testid="task-delete-confirm""#),
-            "{out}"
-        );
+        assert!(out.contains(r#"data-testid="task-delete-dialog""#), "{out}");
         // Tooltip wrapping for truncated cells.
         assert!(out.contains("Tooltip.Root"), "{out}");
         // Zebra rows + inactive-row branch.
@@ -1231,10 +1290,7 @@ mod ux_list_template_tests {
         // Row actions dropdown + confirm-guarded delete.
         assert!(out.contains(r#"data-testid="task-actions""#), "{out}");
         assert!(out.contains(r#"data-testid="task-actions-menu""#), "{out}");
-        assert!(
-            out.contains(r#"data-testid="task-delete-confirm""#),
-            "{out}"
-        );
+        assert!(out.contains(r#"data-testid="task-delete-dialog""#), "{out}");
         // Table markup absent in timeline mode.
         assert!(!out.contains(r#"data-testid="task-table""#), "{out}");
         assert!(!out.contains("<Table.Root"), "{out}");
@@ -1321,9 +1377,13 @@ mod ux_list_template_tests {
     }
 }
 
-/// Detail-page child-section template pins (issue #299): the per-item
-/// actions menu + confirmation dialog under the parent's ux plan, and the
-/// byte-identity golden for the flag-off render.
+/// Detail-page child-section pins (issue #299, extracted in #468 W4): the
+/// detail page renders one prop-driven `<ChildSection …>` tag per section
+/// and carries none of the per-section script state; the shared component
+/// file (rendered once per run from `ui/child_section_component.tera`)
+/// carries the accordion markup — per-item actions menu + confirmation
+/// dialog under the parent's ux plan, flat buttons without one — plus the
+/// byte-identity golden for the flag-off page render.
 #[cfg(test)]
 mod ux_child_section_template_tests {
     use super::*;
@@ -1331,15 +1391,22 @@ mod ux_child_section_template_tests {
 
     /// One child section attached to a `TaskType` detail page.
     fn child_sections() -> serde_json::Value {
-        json!([{
+        let mut section = json!([{
             "entity_name": "SubTaskType",
             "module_name": "sub_task",
             "label": "Sub Task",
             "path_segment": "sub-task",
             "domain": "common",
             "has_children": true,
+            "display_field": null,
             "fields": []
-        }])
+        }]);
+        // Per-section testid vocabulary, like collect_child_sections.
+        section[0].as_object_mut().unwrap().insert(
+            "tid".into(),
+            serde_json::to_value(crate::ui::testids::for_module("sub_task")).unwrap(),
+        );
+        section
     }
 
     /// Detail-page context with `ux` keys present only when `ux` is true.
@@ -1371,6 +1438,17 @@ mod ux_child_section_template_tests {
             "ux_actions": null,
             "ux": null,
         });
+        {
+            let obj = ctx.as_object_mut().unwrap();
+            obj.insert(
+                "tid".into(),
+                serde_json::to_value(crate::ui::testids::for_module("task")).unwrap(),
+            );
+            obj.insert(
+                "shared_tid".into(),
+                serde_json::to_value(crate::ui::testids::shared()).unwrap(),
+            );
+        }
         if ux {
             let obj = ctx.as_object_mut().unwrap();
             obj.insert(
@@ -1399,125 +1477,147 @@ mod ux_child_section_template_tests {
         .expect("detail page renders")
     }
 
+    /// The shared component file. The template is entity-independent
+    /// (props carry every per-section value), so the context only feeds
+    /// the generated-file header.
+    fn render_component() -> String {
+        let tera = crate::template_engine::create_tera(std::path::Path::new("."))
+            .expect("embedded templates");
+        crate::render_template_with_project(
+            &tera,
+            "ui/child_section_component.tera",
+            &detail_ctx(true),
+            &ProjectConfig::default(),
+        )
+        .expect("child section component renders")
+    }
+
     /// Byte-identity golden: the flag-off child-section detail render is
-    /// byte-for-byte the pre-#299 output (captured from the HEAD templates
-    /// before the child-section changes; see the testdata file header).
+    /// byte-for-byte the post-W4 component-tag shape (the file name is
+    /// historical — it pinned the pre-#299 include shape before the W4
+    /// extraction; re-capture by rendering `detail_ctx(false)`).
     #[test]
     fn flag_off_child_section_detail_render_is_byte_identical() {
         let golden = include_str!("testdata/pre299_flag_off_detail_render.txt");
         let out = render_detail(&detail_ctx(false));
-        assert_eq!(out, golden, "flag-off detail render drifted from pre-#299");
+        assert_eq!(out, golden, "flag-off detail render drifted");
     }
 
-    /// Flag-off: no ux markup leaks into the child section, and the flat
-    /// Edit/Delete buttons plus the inline Manage link stay.
+    /// Flag-off: the page renders the component tag with the full testid
+    /// vocabulary and empty action partitions, and NONE of the old
+    /// per-section script state leaks into it.
     #[test]
-    fn flag_off_child_section_keeps_flat_buttons() {
+    fn flag_off_detail_page_renders_flat_component_tag() {
         let out = render_detail(&detail_ctx(false));
+
+        // The component wiring.
+        assert!(
+            out.contains("import ChildSection from '#lib/components/ChildSection.svelte';"),
+            "{out}"
+        );
+        assert!(out.contains("<ChildSection"), "{out}");
+        assert!(out.contains("items={sub_taskItems}"), "{out}");
+        assert!(out.contains(r#"label="Sub Task""#), "{out}");
+        assert!(out.contains(r#"moduleName="sub_task""#), "{out}");
+        assert!(out.contains(r#"domain="common""#), "{out}");
+        assert!(out.contains(r#"pathSegment="sub-task""#), "{out}");
+        assert!(out.contains("parentId={item.id}"), "{out}");
+        assert!(out.contains("displayField={null}"), "{out}");
+        assert!(out.contains("onRefresh={loadChildren}"), "{out}");
+        assert!(out.contains("onManage={manageChild}"), "{out}");
+        // The testid props ride the tag (generation-time values).
+        assert!(
+            out.contains(r#"childSectionTid="child-section-sub_task""#),
+            "{out}"
+        );
+        assert!(
+            out.contains(r#"addBtnTid="child-section-sub_task-add-btn""#),
+            "{out}"
+        );
+        assert!(out.contains(r#"actionsTid="sub_task-actions""#), "{out}");
+        assert!(
+            out.contains(r#"actionsMenuTid="sub_task-actions-menu""#),
+            "{out}"
+        );
+        assert!(
+            out.contains(r#"actionEditTid="sub_task-action-edit""#),
+            "{out}"
+        );
+        assert!(
+            out.contains(r#"actionDeleteTid="sub_task-action-delete""#),
+            "{out}"
+        );
+        assert!(
+            out.contains(r#"manageBtnTid="manage-sub_task-btn""#),
+            "{out}"
+        );
+        assert!(
+            out.contains(r#"deleteDialogTid="sub_task-delete-dialog""#),
+            "{out}"
+        );
+        assert!(
+            out.contains(r#"deleteDialogConfirmTid="sub_task-delete-dialog-confirm""#),
+            "{out}"
+        );
+        // Flag-off partitions: flat buttons + direct delete in the component.
+        assert!(out.contains("menuActions={[]}"), "{out}");
+        assert!(out.contains("primaryActions={[]}"), "{out}");
+        assert!(out.contains("confirmDelete={false}"), "{out}");
+
+        // No per-section script state leaks into the page.
         for needle in [
-            "DropdownMenu",
-            "sub_task-actions",
-            "sub_task-action-edit",
-            "sub_task-action-delete",
-            "sub_task-delete-confirm",
+            "expandedSections",
+            "toggleSection",
             "DeleteId",
-            "confirmDelete",
+            "confirmDeleteSubTask",
+            "startAddChild",
+            "editChild",
+            "deleteChild",
+            "DropdownMenu",
+            "@const label",
+            "apiDelete",
+            "apiPost",
         ] {
             assert!(
                 !out.contains(needle),
-                "flag-off output has {needle:?}:\n{out}"
+                "flag-off page has {needle:?}:\n{out}"
             );
         }
+        // The typed per-module loads STAY in the parent (issue #468 W2).
         assert!(
-            out.contains(r#"onclick={() => editChild('common', 'sub-task', child.id)}"#),
+            out.contains("let sub_taskItems = $state<SubTaskTypeResponse[]>([]);"),
             "{out}"
         );
+        assert!(out.contains("async function loadChildren()"), "{out}");
+        assert!(out.contains("function manageChild("), "{out}");
         assert!(
-            out.contains(r#"onclick={() => deleteChild('common', 'sub-task', child.id)}"#),
-            "{out}"
-        );
-        assert!(
-            out.contains(r#"data-testid="manage-sub_task-btn""#),
+            out.contains("apiGet<SubTaskTypeResponse[]>('/common/sub-task'"),
             "{out}"
         );
     }
 
-    /// Flag-on: Edit/Delete tier into the per-item actions menu, Delete
-    /// sits behind the plan's AlertDialog confirmation, and the Manage →
-    /// link remains the inline affordance. The detail HEADER Edit/Delete
-    /// buttons stay primary (never moved into a menu).
+    /// Flag-on: the action partition moves into the tag props (issue #299),
+    /// the page imports no DropdownMenu, and the detail HEADER keeps its
+    /// primary Edit/Delete buttons.
     #[test]
-    fn flag_on_child_section_tiers_actions_behind_menu() {
+    fn flag_on_detail_page_partitions_actions_into_props() {
         let out = render_detail(&detail_ctx(true));
 
-        // Per-item menu trigger + content testids.
-        assert!(out.contains(r#"data-testid="sub_task-actions""#), "{out}");
-        assert!(
-            out.contains(r#"data-testid="sub_task-actions-menu""#),
-            "{out}"
-        );
-        assert!(
-            out.contains(r#"data-testid="sub_task-action-edit""#),
-            "{out}"
-        );
-        assert!(
-            out.contains(r#"data-testid="sub_task-action-delete""#),
-            "{out}"
-        );
-        // Menu items keep the exact legacy Edit/Delete behaviors.
-        assert!(
-            out.contains(r#"onclick={() => editChild('common', 'sub-task', child.id)}"#),
-            "{out}"
-        );
-        assert!(
-            out.contains("onclick={() => sub_taskDeleteId = child.id}"),
-            "{out}"
-        );
-        // Delete behind the per-section AlertDialog confirm.
-        assert!(out.contains("DropdownMenu.Root"), "{out}");
-        assert!(out.contains("open={sub_taskDeleteId !== null}"), "{out}");
-        assert!(out.contains("if (!v) sub_taskDeleteId = null;"), "{out}");
-        assert!(
-            out.contains(r#"data-testid="sub_task-delete-confirm""#),
-            "{out}"
-        );
-        assert!(
-            out.contains(r#"data-testid="sub_task-delete-confirm-confirm""#),
-            "{out}"
-        );
-        assert!(
-            out.contains("let sub_taskDeleteId = $state<string | null>(null);"),
-            "{out}"
-        );
-        assert!(
-            out.contains("function confirmDeleteSubTaskTypeChild() {"),
-            "{out}"
-        );
-        assert!(
-            out.contains("onclick={confirmDeleteSubTaskTypeChild}"),
-            "{out}"
-        );
-        assert!(
-            out.contains("void deleteChild('common', 'sub-task', childId);"),
-            "{out}"
-        );
-        // The flat legacy buttons are gone.
-        assert!(
-            !out.contains("onclick={() => deleteChild('common', 'sub-task', child.id)}"),
-            "{out}"
-        );
-        // The Manage → link stays inline (primary affordance).
-        assert!(
-            out.contains(r#"data-testid="manage-sub_task-btn""#),
-            "{out}"
-        );
-        assert!(out.contains("Manage →"), "{out}");
         assert!(
             out.contains(
-                "import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.js';"
+                "menuActions={[{ action: 'edit', label: 'Edit' }, { action: 'delete', label: 'Delete' }]}"
             ),
             "{out}"
         );
+        assert!(
+            out.contains("primaryActions={[{ action: 'open', label: 'Open' }]}"),
+            "{out}"
+        );
+        assert!(out.contains("confirmDelete={ true }"), "{out}");
+        // The page itself no longer carries any menu/dialog markup.
+        assert!(!out.contains("DropdownMenu"), "{out}");
+        assert!(!out.contains("sub_taskDeleteId"), "{out}");
+        assert!(!out.contains("confirmDeleteSubTaskTypeChild"), "{out}");
 
         // The detail HEADER keeps its primary Edit/Delete buttons.
         assert!(out.contains(r#"data-testid="task-edit-btn""#), "{out}");
@@ -1526,18 +1626,11 @@ mod ux_child_section_template_tests {
             out.contains(r#"onclick={() => deleteDialogOpen = true}"#),
             "{out}"
         );
-        // The header delete opens the header dialog, not the child one.
-        let header_delete = out.find(r#"task-delete-btn"#).unwrap();
-        let child_menu = out.find(r#"sub_task-actions""#).unwrap();
-        assert!(
-            header_delete < child_menu,
-            "header stays the primary surface"
-        );
     }
 
-    /// Non-confirming plans keep the direct delete: with `confirm` empty
-    /// the menu item calls deleteChild immediately and no child dialog is
-    /// emitted.
+    /// Non-confirming plans keep the direct delete: `confirm` empty flips
+    /// only the `confirmDelete` prop — the menu partition itself is
+    /// unchanged and no child dialog prop flips.
     #[test]
     fn flag_on_non_confirm_delete_stays_direct() {
         let mut ctx = detail_ctx(true);
@@ -1552,35 +1645,229 @@ mod ux_child_section_template_tests {
             }),
         );
         let out = render_detail(&ctx);
+        assert!(out.contains("confirmDelete={ false }"), "{out}");
         assert!(
-            out.contains(r#"onclick={() =>  void deleteChild('common', 'sub-task', child.id)}"#,),
+            out.contains(
+                "menuActions={[{ action: 'edit', label: 'Edit' }, { action: 'delete', label: 'Delete' }]}"
+            ),
             "{out}"
         );
-        assert!(!out.contains("sub_task-delete-confirm"), "{out}");
-        assert!(!out.contains("DeleteId = $state"), "{out}");
     }
 
-    /// Empty `child_menu` (the parent's ops cannot serve edit/delete)
-    /// falls back to the flat legacy buttons rather than emitting a dead
-    /// empty menu.
+    /// A resolved display field rides the tag as a string prop; the row
+    /// label resolution itself lives in the component's `labelFor`.
     #[test]
-    fn flag_on_empty_child_menu_falls_back_to_flat_buttons() {
-        let mut ctx = detail_ctx(true);
-        ctx.as_object_mut().unwrap().insert(
-            "ux_actions".into(),
-            json!({
-                "primary": [{"action": "open", "label": "Open"}],
-                "menu": [],
-                "confirm": [],
-                "confirm_delete": false,
-                "child_menu": []
-            }),
-        );
+    fn display_field_rides_the_tag() {
+        let mut ctx = detail_ctx(false);
+        let sections = ctx
+            .as_object_mut()
+            .unwrap()
+            .get_mut("child_sections")
+            .unwrap()
+            .as_array_mut()
+            .unwrap();
+        sections[0]
+            .as_object_mut()
+            .unwrap()
+            .insert("display_field".into(), json!("title"));
         let out = render_detail(&ctx);
+        assert!(out.contains(r#"displayField="title""#), "{out}");
+    }
+
+    /// The component is typed and prop-driven: generics constraint, the
+    /// full prop list, and zero composition — every testid renders from a
+    /// passed prop.
+    #[test]
+    fn component_declares_the_contract_props() {
+        let out = render_component();
+
         assert!(
-            out.contains(r#"onclick={() => editChild('common', 'sub-task', child.id)}"#),
+            out.contains(r#"<script lang="ts" generics="T extends { id: string }">"#),
             "{out}"
         );
-        assert!(!out.contains("DropdownMenu.Root"), "{out}");
+        for prop in [
+            "items: T[];",
+            "label: string;",
+            "moduleName: string;",
+            "domain: string;",
+            "pathSegment: string;",
+            "parentId: string;",
+            "displayField: string | null;",
+            "childSectionTid: string;",
+            "addBtnTid: string;",
+            "actionsTid: string;",
+            "actionsMenuTid: string;",
+            "actionEditTid: string;",
+            "actionDeleteTid: string;",
+            "manageBtnTid: string;",
+            "deleteDialogTid: string;",
+            "deleteDialogConfirmTid: string;",
+            "menuActions: { action: string; label: string }[];",
+            "primaryActions: { action: string; label: string }[];",
+            "confirmDelete: boolean;",
+            "onRefresh: () => Promise<void>;",
+            "onManage: (domain: string, pathSegment: string, childId: string) => void;",
+        ] {
+            assert!(out.contains(prop), "component props miss {prop:?}:\n{out}");
+        }
+        // Destructure covers every prop.
+        for name in [
+            "items",
+            "label",
+            "moduleName",
+            "domain",
+            "pathSegment",
+            "parentId",
+            "displayField",
+            "childSectionTid",
+            "addBtnTid",
+            "actionsTid",
+            "actionsMenuTid",
+            "actionEditTid",
+            "actionDeleteTid",
+            "manageBtnTid",
+            "deleteDialogTid",
+            "deleteDialogConfirmTid",
+            "menuActions",
+            "primaryActions",
+            "confirmDelete",
+            "onRefresh",
+            "onManage",
+        ] {
+            assert!(out.contains(&format!("\t\t{name},\n")), "{out}");
+        }
+        assert!(out.contains("}: Props<T> = $props();"), "{out}");
+    }
+
+    /// The component owns ALL of the per-section state and behavior the
+    /// parent script used to leak: local expanded (default CLOSED) +
+    /// deleteId, the row-label resolution, the delete flow with refresh,
+    /// and the direct add/edit navigation.
+    #[test]
+    fn component_owns_local_state_and_behavior() {
+        let out = render_component();
+
+        // Local state only — sections start closed, exactly as before.
+        assert!(out.contains("let expanded = $state(false);"), "{out}");
+        assert!(
+            out.contains("let deleteId = $state<string | null>(null);"),
+            "{out}"
+        );
+        assert!(!out.contains("expandedSections"), "{out}");
+
+        // Row-label resolution (moved from the page's {@const} branch).
+        assert!(
+            out.contains(
+                "const labelFor = (item: T): string =>\n\t\tdisplayField\n\t\t\t? ((item as Record<string, unknown>)[displayField] as string | undefined) ?? item.id\n\t\t\t: item.id;"
+            ),
+            "{out}"
+        );
+
+        // Delete flow: component performs it, then refreshes through the
+        // parent's loadChildren.
+        assert!(
+            out.contains("import { apiDelete } from '#lib/api/client.ts';"),
+            "{out}"
+        );
+        assert!(
+            out.contains("await apiDelete(`/${domain}/${pathSegment}/${childId}`);"),
+            "{out}"
+        );
+        assert!(
+            out.contains("toast.success(m.common_child_deleted());"),
+            "{out}"
+        );
+        assert!(out.contains("await onRefresh();"), "{out}");
+
+        // Direct navigation for add/edit.
+        assert!(
+            out.contains(
+                "onclick={() => goto(`/${domain}/${pathSegment}/new?parent_id=${parentId}`)}"
+            ),
+            "{out}"
+        );
+        assert!(
+            out.contains("onclick={() => goto(`/${domain}/${pathSegment}/${child.id}/edit`)}"),
+            "{out}"
+        );
+
+        // Manage stays the parent's callback (it touches navigation state).
+        assert!(
+            out.contains("onclick={() => onManage(domain, pathSegment, child.id)}"),
+            "{out}"
+        );
+    }
+
+    /// The component markup preserves every child-section testid — now
+    /// rendered from the passed props — and both action tiers: the #299
+    /// dropdown partition when menu actions exist, the flat legacy buttons
+    /// otherwise, and the confirm dialog exactly under `confirmDelete`.
+    #[test]
+    fn component_preserves_testids_and_both_action_tiers() {
+        let out = render_component();
+
+        for (attr, prop) in [
+            ("data-testid={childSectionTid}", "child-section-{module}"),
+            ("data-testid={addBtnTid}", "-add-btn"),
+            ("data-testid={actionsTid}", "-actions"),
+            ("data-testid={actionsMenuTid}", "-actions-menu"),
+            ("data-testid={actionEditTid}", "-action-edit"),
+            ("data-testid={actionDeleteTid}", "-action-delete"),
+            ("data-testid={manageBtnTid}", "manage-{module}-btn"),
+            ("data-testid={deleteDialogTid}", "-delete-dialog"),
+            (
+                "data-testid={deleteDialogConfirmTid}",
+                "-delete-dialog-confirm",
+            ),
+        ] {
+            assert!(out.contains(attr), "missing {prop} ({attr}):\n{out}");
+        }
+
+        // Tier dispatch is runtime over the passed partition.
+        assert!(out.contains("{#if menuActions.length > 0}"), "{out}");
+        assert!(out.contains("<DropdownMenu.Root>"), "{out}");
+        assert!(out.contains("{:else}"), "{out}");
+        assert!(
+            out.contains(">\n\t\t\t\t\t\t\t\t\tEdit\n\t\t\t\t\t\t\t\t</button>"),
+            "{out}"
+        );
+        assert!(
+            out.contains(">\n\t\t\t\t\t\t\t\t\tDelete\n\t\t\t\t\t\t\t\t</button>"),
+            "{out}"
+        );
+        assert!(out.contains("Manage →"), "{out}");
+
+        // Delete behind the plan's confirmation.
+        assert!(
+            out.contains(
+                "import * as AlertDialog from '#lib/components/ui/alert-dialog/index.js';"
+            ),
+            "{out}"
+        );
+        assert!(
+            out.contains(
+                "import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.js';"
+            ),
+            "{out}"
+        );
+        assert!(
+            out.contains(
+                "open={deleteId !== null} onOpenChange={(v) => { if (!v) deleteId = null; }}"
+            ),
+            "{out}"
+        );
+        assert!(out.contains("onclick={confirmDeleteItem}"), "{out}");
+        // Menu delete branches on the same flag the dialog gates on.
+        assert!(
+            out.contains(
+                "onclick={() => { if (confirmDelete) { deleteId = child.id; } else { void performDelete(child.id); } }}"
+            ),
+            "{out}"
+        );
+        // Flat-tier delete is direct (no confirmation), as before.
+        assert!(
+            out.contains("onclick={() => performDelete(child.id)}"),
+            "{out}"
+        );
     }
 }

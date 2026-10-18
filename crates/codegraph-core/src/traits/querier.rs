@@ -3,13 +3,14 @@ use crate::types::{
     ActionNode, ActorNode, ActorPolicyNode, ApiOperationNode, ApiResourceNode,
     AtprotoNamespaceNode, CapabilityNode, CodeList, CollectionNode, CompositeColumn,
     CompositeRange, CompositionTree, ConditionNode, DataBindingResolution, DddModelGraph,
-    EnumValue, ErrorDefinitionNode, EventNode, EvtModelGraph, Extension, FunctionNode, GrantEdge,
-    HttpEndpointNode, InteractionNode, LexiconNode, MembershipNode, ModuleDefinitionNode,
-    MoxDerivedFeatureNode, MoxOperationNode, MoxVocabularyNode, NamespaceImport, NamespaceNode,
-    NavigationFlowRecord, ParameterDefinitionNode, ParentCandidate, PermissionNode, Permit,
-    PipelineNode, PolicyNode, PropertyNode, RegulatoryNode, RegulatoryRefRecord, RelationshipNode,
-    RepositoryNode, RuleNode, RuleRefRecord, SchemaClassificationData, SchemaNode,
-    SecurityIdentityNode, StructuredSubField, TenantNode, ViewComponentNode, ViewContainerNode,
+    DeployModelGraph, EnumValue, ErrorDefinitionNode, EventNode, EvtModelGraph, Extension,
+    FunctionNode, GrantEdge, HttpEndpointNode, InteractionNode, LexiconNode, MembershipNode,
+    ModuleDefinitionNode, MoxDerivedFeatureNode, MoxOperationNode, MoxVocabularyNode,
+    NamespaceImport, NamespaceNode, NavigationFlowRecord, ParameterDefinitionNode, ParentCandidate,
+    PermissionNode, Permit, PipelineNode, PolicyNode, PropertyNode, RegulatoryNode,
+    RegulatoryRefRecord, RelationshipNode, RepositoryNode, RuleNode, RuleRefRecord,
+    SchemaClassificationData, SchemaNode, SecurityIdentityNode, StructuredSubField, TenantNode,
+    ViewComponentNode, ViewContainerNode,
 };
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -513,6 +514,33 @@ pub trait GraphQuerier: Send + Sync {
     /// by their `ordinal`.
     async fn get_evt_models(&self) -> Result<Vec<EvtModelGraph>, GraphError> {
         Ok(Vec::new())
+    }
+
+    // ── Deployment plane query methods (rexlang #49) ─────────────────
+
+    /// Every ingested `.deploy` deployment model, reassembled to the exact
+    /// ingest shape: models grouped by `source_path` (sorted
+    /// lexicographically), applications/profiles/deployments within each
+    /// model by their declaration order.
+    async fn get_deploy_models(&self) -> Result<Vec<DeployModelGraph>, GraphError> {
+        Ok(Vec::new())
+    }
+
+    /// When a composition parent projects a `{parent}_{feature}` child
+    /// table whose name COLLIDES with this schema's own `pg_table_name`,
+    /// returns `(parent_title, projected_table)`: the parent's child-table
+    /// projection must win (it carries the parent FK + audit columns —
+    /// cornucopia's build-time SQL validation type-checks queries against
+    /// the LIVE database), so the DDL plane emits the child-shaped table as
+    /// the standalone migration and the parent skips its duplicate block.
+    /// `None` when nothing collides: contains-only VOs keep BOTH surfaces
+    /// (their standalone title-based table AND the parent's child table).
+    /// `$title` matches a schema by title or pg_table_name.
+    async fn composition_table_conflict(
+        &self,
+        _schema_title: &str,
+    ) -> Result<Option<(String, String)>, GraphError> {
+        Ok(None)
     }
 
     // ── mox domain query methods (default: no mox data) ──────────────

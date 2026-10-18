@@ -6,6 +6,7 @@
 	import Input from '@community-os/ui/Input.svelte';
 	import Select from '@community-os/ui/Select.svelte';
 	import { api } from '$lib/api';
+	import type { ProcessHistoryItemResponse } from '#lib/api/types.ts';
 
 	type FormData = Record<string, unknown>;
 
@@ -14,11 +15,11 @@
 		apiPath: string;
 		routePath: string;
 		id?: string;
-		initialData?: Record<string, unknown>;
+		initialData?: ProcessHistoryItemResponse;
 		submitting?: boolean;
 	}
 
-	let { mode, apiPath, routePath, id = '', initialData = {}, submitting = $bindable(false) }: Props = $props();
+	let { mode, apiPath, routePath, id = '', initialData = undefined, submitting = $bindable(false) }: Props = $props();
 
 	let error = $state('');
 	let loading = $state(mode === 'edit');
@@ -26,19 +27,19 @@
 	// Form state
 
 
-	let action_date = $state(String(initialData['action_date'] ?? ''));
+	let action_date = $state(String(initialData?.action_date ?? ''));
 
 
 
 	let descriptions = $state<string[]>(
-		Array.isArray(initialData['descriptions'])
-			? initialData['descriptions'] as string[]
-			: ['']
+		Array.isArray(initialData?.descriptions)
+			? initialData?.descriptions as string[]
+			: []
 	);
 
 
 
-	let id = $state(String(initialData['id'] ?? ''));
+	let id = $state(String(initialData?.id ?? ''));
 
 
 
@@ -46,19 +47,19 @@
 		const payload: Record<string, unknown> = {};
 
 
-		if (action_date !== String(initialData['action_date'] ?? '')) payload['action_date'] = action_date.includes('Z') ? action_date : action_date + ':00Z';
+		if (action_date !== String(initialData?.action_date ?? '')) payload['action_date'] = action_date.includes('Z') ? action_date : action_date + ':00Z';
 
 
 
 		{
 			const filtered = descriptions.filter((v: string) => v.trim() !== '');
-			const original = Array.isArray(initialData['descriptions']) ? initialData['descriptions'] : [];
+			const original = Array.isArray(initialData?.descriptions) ? initialData?.descriptions : [];
 			if (JSON.stringify(filtered) !== JSON.stringify(original)) payload['descriptions'] = filtered;
 		}
 
 
 
-		if (id !== String(initialData['id'] ?? '')) payload['id'] = id;
+		if (id !== String(initialData?.id ?? '')) payload['id'] = id;
 
 
 		return payload;

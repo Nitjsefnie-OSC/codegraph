@@ -6,6 +6,7 @@
 	import Input from '@community-os/ui/Input.svelte';
 	import Select from '@community-os/ui/Select.svelte';
 	import { api } from '$lib/api';
+	import type { RsvpResponse } from '#lib/api/types.ts';
 
 	type FormData = Record<string, unknown>;
 
@@ -14,11 +15,11 @@
 		apiPath: string;
 		routePath: string;
 		id?: string;
-		initialData?: Record<string, unknown>;
+		initialData?: RsvpResponse;
 		submitting?: boolean;
 	}
 
-	let { mode, apiPath, routePath, id = '', initialData = {}, submitting = $bindable(false) }: Props = $props();
+	let { mode, apiPath, routePath, id = '', initialData = undefined, submitting = $bindable(false) }: Props = $props();
 
 	let error = $state('');
 	let loading = $state(mode === 'edit');
@@ -27,18 +28,18 @@
 
 
 	let event = $state<Record<string, unknown>>(
-		typeof initialData['event'] === 'object' && initialData['event'] !== null && !Array.isArray(initialData['event'])
-			? (initialData['event'] as Record<string, unknown>)
+		typeof initialData?.event === 'object' && initialData?.event !== null && !Array.isArray(initialData?.event)
+			? (initialData?.event as Record<string, unknown>)
 			: {}
 	);
 
 
 
-	let status = $state(String(initialData['status'] ?? ''));
+	let status = $state(String(initialData?.status ?? ''));
 
 
 
-	let timestamp = $state(String(initialData['timestamp'] ?? ''));
+	let timestamp = $state(String(initialData?.timestamp ?? ''));
 
 
 
@@ -46,7 +47,7 @@
 		const payload: Record<string, unknown> = {};
 
 
-		if (JSON.stringify(event) !== JSON.stringify(initialData['event'] ?? {})) payload['event'] = event;
+		if (JSON.stringify(event) !== JSON.stringify(initialData?.event ?? {})) payload['event'] = event;
 
 
 
@@ -54,7 +55,7 @@
 
 
 
-		if (timestamp !== String(initialData['timestamp'] ?? '')) payload['timestamp'] = timestamp.includes('Z') ? timestamp : timestamp + ':00Z';
+		if (timestamp !== String(initialData?.timestamp ?? '')) payload['timestamp'] = timestamp.includes('Z') ? timestamp : timestamp + ':00Z';
 
 
 		return payload;

@@ -50,6 +50,8 @@ async fn run_routing_generators(
         ux_rules: false,
         expr_ir: false,
         ifml_e2e_auth: false,
+        testid_module: false,
+        structural_gates: false,
         public_operations_rls: false,
         features: toml::Table::new(),
     };
@@ -171,16 +173,25 @@ async fn workers_topology_routes_domain_files_into_worker_crates() {
     );
 
     // The monolith scaffold is gated off entirely in workers topology.
+    // Worker crates legitimately carry src/main.rs / Cargo.toml under
+    // workers/{domain}/ (and the workers/ workspace manifest) — the
+    // monolith shapes are the ones outside workers/.
     assert!(
-        !any("/src/main.rs"),
+        !paths
+            .iter()
+            .any(|p| !p.contains("/workers/") && p.contains("/src/main.rs")),
         "monolith src/main.rs must not be generated in workers topology"
     );
     assert!(
-        !any("/src/server.rs"),
+        !paths
+            .iter()
+            .any(|p| !p.contains("/workers/") && p.contains("/src/server.rs")),
         "monolith src/server.rs must not be generated in workers topology"
     );
     assert!(
-        !any("/Cargo.toml"),
+        !paths
+            .iter()
+            .any(|p| !p.contains("/workers/") && p.ends_with("/Cargo.toml")),
         "root monolith Cargo.toml must not be generated in workers topology"
     );
 

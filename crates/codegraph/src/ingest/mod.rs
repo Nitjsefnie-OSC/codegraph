@@ -3,6 +3,7 @@ pub mod async_ingest;
 pub mod atproto_projection;
 pub mod ddd_ingest;
 pub mod dependencies;
+pub mod deploy_ingest;
 pub mod evt_ingest;
 pub mod ifml_ingest;
 pub mod mox_ingest;

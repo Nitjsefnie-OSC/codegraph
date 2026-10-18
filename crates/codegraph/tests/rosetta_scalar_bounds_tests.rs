@@ -136,6 +136,7 @@ async fn persisted_bounds_un_dead_the_garde_branches_in_dto_create() {
         rosetta_files: &[],
         ddd_files: &[],
         evt_files: &[],
+        deploy_files: &[],
         ifml_framework: &[],
         ifml_components: None,
         ifml_design_system: None,

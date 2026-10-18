@@ -53,7 +53,7 @@ export const {{ entity_name }}Descriptor: EntityDescriptor = {
       list: { visible: true{% if field.is_sortable %}, sortable: true{% endif %}{% if field.is_badge %}, badge: true{% endif %} },
 {% endif %}
 {% if field.is_entity_ref %}
-      ref: { entity: '{{ field.ref_entity }}', domain: '{{ field.ref_domain }}', displayField: 'display_name' },
+      ref: { entity: '{{ field.ref_entity }}', domain: '{{ field.ref_domain }}', displayField: '{% if field.ref_display_field %}{{ field.ref_display_field }}{% else %}id{% endif %}' },
 {% endif %}
 {% if field.is_codelist %}
       options: {
@@ -105,6 +105,7 @@ export const {{ entity_name }}Descriptor: EntityDescriptor = {
       entity: '{{ child.entity_name }}',
       relationship: '{{ child.relationship }}',
       inline: {{ child.inline }},
+      displayField: '{% if child.display_field %}{{ child.display_field }}{% else %}id{% endif %}',
     },
 {% endfor %}
   ],

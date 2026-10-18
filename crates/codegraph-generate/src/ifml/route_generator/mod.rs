@@ -18,6 +18,7 @@ use self::workflow::js_quote;
 use super::querier::{IfmlGraphQuerier, IfmlQuerier};
 
 mod context;
+mod hydration;
 mod load;
 mod render;
 mod roles;
@@ -25,6 +26,8 @@ mod roles;
 mod tests;
 mod ux;
 mod workflow;
+
+pub(crate) use hydration::{actor_role_tokens, role_token_matches};
 
 pub use context::{
     ControlGateContext, LayoutSvelteContext, PageComponentContext, PageLoadComponentContext,
@@ -43,6 +46,12 @@ pub(crate) use workflow::workflow_for_entity;
 /// (`fields_with_types`), re-exported for conformance testing (issue #201).
 pub use super::control_core::control_for_field;
 
+/// The SvelteKit route group the view pages live under in integrated mode
+/// (issue #468 W1b): a sibling of the entity ui app's `(app)`/`(auth)`
+/// groups, so the entity auth-guard layout does not wrap views — views gate
+/// themselves via their +page.ts guards. Route groups never appear in URLs.
+pub const ROUTE_GROUP: &str = "(views)";
+
 pub struct IfmlRouteGenerator {
     output_dir: PathBuf,
     framework: String,
@@ -60,18 +69,54 @@ impl IfmlRouteGenerator {
         }
     }
 
+    /// Integrated-mode layout (issue #468 W1b): view pages land under the
+    /// SvelteKit route group (`src/routes/(views)/{view}/+page.svelte`).
+    /// URL routes, the navigation map, and the `$lib` helpers are unchanged.
+    pub fn with_route_root(mut self, route_root: &str) -> Self {
+        self.output_paths = super::output_paths::OutputPaths::for_framework_with_route_root(
+            &self.framework,
+            Some(route_root),
+        );
+        self
+    }
+
     pub fn with_mappings(mut self, mappings: Option<IfmlComponentMappings>) -> Self {
         self.mappings = mappings;
         self
     }
 
     /// Framework layout path for the landmark shell; `None` for frameworks
-    /// without a layout convention in this slice.
+    /// without a layout convention in this slice. Integrated mode scopes the
+    /// shell layout to the route group (`src/routes/(views)/+layout.svelte`)
+    /// so it never wraps — or collides with — the entity app's own layouts.
     fn route_layout(&self) -> Option<PathBuf> {
         match self.framework.as_str() {
-            "svelte" => Some(PathBuf::from("src/routes/+layout.svelte")),
+            "svelte" => Some(match self.output_paths.route_root() {
+                Some(group) => PathBuf::from(format!("src/routes/{group}/+layout.svelte")),
+                None => PathBuf::from("src/routes/+layout.svelte"),
+            }),
             _ => None,
         }
+    }
+
+    /// Integrated mode (issue #468 W1b): the registry scopes the route
+    /// generator to the `(views)` route group exactly when the IFML tree
+    /// integrates into the entity ui app; standalone plans keep the default
+    /// route root. The generator therefore derives the mode from its own
+    /// paths — no builder threading needed.
+    pub(crate) fn integrated(&self) -> bool {
+        self.output_paths.route_root() == Some(ROUTE_GROUP)
+    }
+
+    /// The role-hydration layouts (issue #468): integrated mode only, and
+    /// only when at least one view is guarded (something must read the
+    /// role surface). Standalone stays byte-identical.
+    fn hydration(&self, model: &super::context::IfmlModel) -> Option<Vec<GeneratedFile>> {
+        if !self.integrated() {
+            return None;
+        }
+        let group = self.output_paths.route_root()?;
+        hydration::hydration_files(&self.output_dir, group, model)
     }
 
     /// Layout render context when a landmark view exists and a `shell`
@@ -135,6 +180,13 @@ impl GlobalGenerator for IfmlRouteGenerator {
             .map_err(crate::error::Error::Graph)?;
 
         if model.view_containers.is_empty() {
+            // Issue #468 finding 1: an enabled route generator over an
+            // empty IFML model used to exit silently — the profile looked
+            // wired while emitting nothing. Say so instead.
+            eprintln!(
+                "warning: ifml_route: no IFML model in the graph \
+                 (pass --ifml-files); no view routes emitted"
+            );
             return Ok(vec![]);
         }
 
@@ -179,23 +231,36 @@ impl GlobalGenerator for IfmlRouteGenerator {
             )
             .await?;
 
-            if let Ok(content) = render_template(tera, &page_template, &ctx) {
-                files.push(GeneratedFile {
+            match render_template(tera, &page_template, &ctx) {
+                Ok(content) => files.push(GeneratedFile {
                     path: self
                         .output_dir
                         .join((self.output_paths.route_page)(&vc.name)),
                     content,
-                });
+                }),
+                Err(e) => eprintln!(
+                    "warning: ifml_route: {} render failed for view '{}': {e}",
+                    page_template, vc.name
+                ),
             }
 
             if let Some(ref route_load_fn) = self.output_paths.route_load {
-                let load_ctx =
-                    build_load_context(&project.identity.api_version, vc, &ctx.components, &denial);
-                if let Ok(content) = render_template(tera, &load_template, &load_ctx) {
-                    files.push(GeneratedFile {
+                let load_ctx = build_load_context(
+                    &project.identity.api_version,
+                    vc,
+                    &ctx.components,
+                    &denial,
+                    self.output_paths.route_root() == Some(ROUTE_GROUP),
+                );
+                match render_template(tera, &load_template, &load_ctx) {
+                    Ok(content) => files.push(GeneratedFile {
                         path: self.output_dir.join(route_load_fn(&vc.name)),
                         content,
-                    });
+                    }),
+                    Err(e) => eprintln!(
+                        "warning: ifml_route: {} render failed for view '{}': {e}",
+                        load_template, vc.name
+                    ),
                 }
             }
         }
@@ -204,15 +269,22 @@ impl GlobalGenerator for IfmlRouteGenerator {
             files.push(roles_helper);
         }
 
+        if let Some(hydration) = self.hydration(&model) {
+            files.extend(hydration);
+        }
+
         if let Some(ctx) = self.layout_context(&model) {
             let layout_template = format!("ifml/{}/layout.tera", self.framework);
-            if let Ok(content) = render_template(tera, &layout_template, &ctx)
-                && let Some(rel) = self.route_layout()
-            {
-                files.push(GeneratedFile {
-                    path: self.output_dir.join(rel),
-                    content,
-                });
+            match render_template(tera, &layout_template, &ctx) {
+                Ok(content) => {
+                    if let Some(rel) = self.route_layout() {
+                        files.push(GeneratedFile {
+                            path: self.output_dir.join(rel),
+                            content,
+                        });
+                    }
+                }
+                Err(e) => eprintln!("warning: ifml_route: {layout_template} render failed: {e}"),
             }
         }
 

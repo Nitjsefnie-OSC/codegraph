@@ -16,26 +16,14 @@
 
 	import { onMount } from 'svelte';
 	import { entityNavigation, pushChild, popTo, resetNavigation, markDirty, clearDirty } from '#lib/stores/entity-navigation.ts';
-	import { apiGet, apiPost, apiDelete } from '#lib/api/client.ts';
+	import { apiGet } from '#lib/api/client.ts';
+	import ChildSection from '#lib/components/ChildSection.svelte';
 
 	import { TimeAgo } from '@crewbase/entities';
 	import { toast } from 'svelte-sonner';
 	import * as m from '#lib/paraglide/messages.js';
-	import type { TaskTypeResponse } from '#lib/api/types.ts';
-
-	function formatRange(range: unknown): string {
-		if (!range || typeof range !== 'string') return '—';
-		const inner = range.slice(1, -1);
-		const [start, end] = inner.split(',');
-		const fmt = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' });
-		try {
-			const startStr = start && start.trim() ? fmt.format(new Date(start.trim())) : '';
-			if (!end || end.trim() === '') return `${startStr} — Ongoing`;
-			return `${startStr} — ${fmt.format(new Date(end.trim()))}`;
-		} catch {
-			return String(range);
-		}
-	}
+	import * as fmt from '#lib/format.ts';
+	import type { TaskTypeResponse, SubTaskTypeResponse } from '#lib/api/types.ts';
 
 	interface Props {
 		data: {
@@ -54,37 +42,19 @@
 
 
 
-	let expandedSections = $state(new Set<string>());
 
-	let sub_taskItems = $state<any[]>([]);
+	let sub_taskItems = $state<SubTaskTypeResponse[]>([]);
 
-
-	function toggleSection(name: string) {
-		expandedSections = new Set(expandedSections);
-		if (expandedSections.has(name)) {
-			expandedSections.delete(name);
-		} else {
-			expandedSections.add(name);
-		}
-	}
 
 	async function loadChildren() {
 
 		try {
-			const res = await apiGet<any[]>('/common/sub-task', { parent_id: item.id });
+			const res = await apiGet<SubTaskTypeResponse[]>('/common/sub-task', { parent_id: item.id });
 			sub_taskItems = res ?? [];
 		} catch {
 			sub_taskItems = [];
 		}
 
-	}
-
-	function startAddChild(domain: string, pathSegment: string) {
-		goto(`/${domain}/${pathSegment}/new?parent_id=${item.id}`);
-	}
-
-	function editChild(domain: string, pathSegment: string, childId: string) {
-		goto(`/${domain}/${pathSegment}/${childId}/edit`);
 	}
 
 	function manageChild(domain: string, pathSegment: string, childId: string) {
@@ -102,16 +72,6 @@
 			}
 		);
 		goto(`/${domain}/${pathSegment}/${childId}`);
-	}
-
-	async function deleteChild(domain: string, pathSegment: string, childId: string) {
-		try {
-			await apiDelete(`/${domain}/${pathSegment}/${childId}`);
-			toast.success(m.common_child_deleted());
-			await loadChildren();
-		} catch (e) {
-			toast.error(m.common_delete_failed({ error: (e as Error).message }));
-		}
 	}
 
 	onMount(() => {
@@ -218,88 +178,32 @@
 		</Card.Header>
 		<Card.Content class="space-y-2">
 
-			<!-- Child section accordion for Sub Task (SubTaskType) -->
-<!-- Included from detail_page.tera inside the child_sections loop -->
+			<ChildSection
+				items={sub_taskItems}
+				label="Sub Task"
+				moduleName="sub_task"
+				domain="common"
+				pathSegment="sub-task"
+				parentId={item.id}
+				displayField={null}
+				childSectionTid="child-section-sub_task"
+				addBtnTid="child-section-sub_task-add-btn"
+				actionsTid="sub_task-actions"
+				actionsMenuTid="sub_task-actions-menu"
+				actionEditTid="sub_task-action-edit"
+				actionDeleteTid="sub_task-action-delete"
+				manageBtnTid="manage-sub_task-btn"
+				hasChildren=true
+				deleteDialogTid="sub_task-delete-dialog"
+				deleteDialogConfirmTid="sub_task-delete-dialog-confirm"
 
-<div class="border rounded-lg overflow-hidden">
-	<!-- Collapsible header -->
-	<button
-		class="flex w-full items-center justify-between px-4 py-3 text-sm font-medium bg-muted/50 hover:bg-muted transition-colors"
-		onclick={() => toggleSection('sub_task')}
-		data-testid="child-section-sub_task"
-		type="button"
-	>
-		<span class="flex items-center gap-2">
-			<span>Sub Task</span>
-			<span class="text-xs text-muted-foreground font-normal">
-				({sub_taskItems.length})
-			</span>
-		</span>
-		<span class="text-muted-foreground">
-			{expandedSections.has('sub_task') ? '▼' : '▶'}
-		</span>
-	</button>
+				menuActions={[]}
+				primaryActions={[]}
+				confirmDelete={false}
 
-	<!-- Expanded content -->
-	{#if expandedSections.has('sub_task')}
-		<div class="p-4 space-y-3">
-			<!-- Add button -->
-			<div class="flex justify-end">
-				<button
-					class="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-accent transition-colors"
-					onclick={() => startAddChild('common', 'sub-task')}
-					data-testid="child-section-sub_task-add-btn"
-					type="button"
-				>
-					+ Add
-				</button>
-			</div>
-
-			<!-- Items list -->
-			{#if sub_taskItems.length === 0}
-				<p class="text-sm text-muted-foreground text-center py-4">No items yet.</p>
-			{:else}
-				<ul class="divide-y divide-border rounded-md border">
-					{#each sub_taskItems as child (child.id)}
-						<li class="flex items-center justify-between px-3 py-2 text-sm">
-							<span class="truncate text-foreground">
-								{child.id}
-							</span>
-							<div class="flex shrink-0 items-center gap-1 ml-2">
-								<button
-									class="rounded px-2 py-1 text-xs hover:bg-accent transition-colors"
-									onclick={() => editChild('common', 'sub-task', child.id)}
-									type="button"
-								>
-									Edit
-								</button>
-								<button
-									class="rounded px-2 py-1 text-xs text-destructive hover:bg-destructive/10 transition-colors"
-									onclick={() => deleteChild('common', 'sub-task', child.id)}
-									type="button"
-								>
-									Delete
-								</button>
-								
-								<button
-									class="rounded px-2 py-1 text-xs hover:bg-accent transition-colors"
-									onclick={() => manageChild('common', 'sub-task', child.id)}
-									data-testid="manage-sub_task-btn"
-									type="button"
-								>
-									Manage →
-								</button>
-								
-							</div>
-						</li>
-					{/each}
-				</ul>
-			{/if}
-		</div>
-	{/if}
-</div>
-
-
+				onRefresh={loadChildren}
+				onManage={manageChild}
+			/>
 
 		</Card.Content>
 	</Card.Root>

@@ -108,6 +108,7 @@ fn run_args<'a>(fixture: &'a Fixture, output: &'a Path) -> codegraph::driver::Ru
         rosetta_files: &[],
         ddd_files: &[],
         evt_files: &[],
+        deploy_files: &[],
         ifml_framework: &[],
         ifml_components: None,
         ifml_design_system: None,

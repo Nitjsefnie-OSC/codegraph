@@ -4,7 +4,9 @@ import { error } from '@sveltejs/kit';
 {% endif %}
 {%- if view_roles or view_requires %}
 import { redirect } from '@sveltejs/kit';
+{%- if not integrated %}
 import { browser } from '$app/environment';
+{%- endif %}
 {%- if view_roles %}
 import { currentRoles } from '$lib/roles';
 {%- endif %}
@@ -16,8 +18,30 @@ import { can } from '$lib/roles';
 {{ guard_consts }}
 {%- endif %}
 {%- endif %}
-export const load: PageLoad = async ({ params, url, fetch }) => {
+export const load: PageLoad = async ({ params, url, fetch{% if integrated and (view_roles or view_requires) %}, parent{% endif %} }) => {
 {%- if view_roles or view_requires %}
+{%- if integrated %}
+	// Server-decided gating (issue #468 W-a): the (views)/+layout.server.ts
+	// load resolves the session's role tokens — null when sessionless — so
+	// the redirect fires DURING SSR, before any data fetch. A denied
+	// persona never sees the guarded page; an allowed one hydrates with
+	// the data already loaded. currentRoles() (the hydrated global, seeded
+	// by persona init scripts) is the client-side fallback.
+{%- if view_roles %}
+	const parentData = (await parent()) as { roles?: string[] | null } | undefined;
+	const roles: string[] = parentData?.roles ?? currentRoles();
+{%- endif %}
+{%- if view_requires %}
+	if (viewRequires.length && !viewRequires.some((c) => can(c))) {
+		throw redirect(303, '{{ denial_target }}');
+	}
+{%- endif %}
+{%- if view_roles %}
+	if (viewRoles.length && !roles.some((r) => viewRoles.includes(r))) {
+		throw redirect(303, '{{ denial_target }}');
+	}
+{%- endif %}
+{%- else %}
 {%- if view_roles %}
 	const roles = currentRoles();
 {%- endif %}
@@ -30,6 +54,7 @@ export const load: PageLoad = async ({ params, url, fetch }) => {
 	if (browser && viewRoles.length && !roles.some((r) => viewRoles.includes(r))) {
 		throw redirect(303, '{{ denial_target }}');
 	}
+{%- endif %}
 {%- endif %}
 {%- endif %}
 	const result: Record<string, {% if has_workflow %}any{% else %}unknown{% endif %}> = {};

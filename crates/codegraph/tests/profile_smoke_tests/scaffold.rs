@@ -185,6 +185,8 @@ async fn workers_topology_generates_worker_scaffold_and_gateway() {
         ux_rules: false,
         expr_ir: false,
         ifml_e2e_auth: false,
+        testid_module: false,
+        structural_gates: false,
         public_operations_rls: false,
         features: toml::Table::new(),
     };
@@ -265,9 +267,22 @@ async fn workers_topology_generates_worker_scaffold_and_gateway() {
     assert!(any("/workers/gateway/src/main.rs"), "gateway main.rs");
     assert!(any("/workers/gateway/src/lib.rs"), "gateway lib.rs");
     assert!(any("/workers/gateway/src/worker.rs"), "gateway worker.rs");
+    assert!(any("/workers/gateway/src/cors.rs"), "gateway cors.rs");
     assert!(
         any("/workers/gateway/wrangler.toml"),
         "gateway wrangler.toml"
+    );
+    // The CORS layer rides both runtimes and honors CORS_ALLOWED_ORIGINS.
+    let gateway_main = report
+        .files
+        .iter()
+        .find(|f| f.path.ends_with("workers/gateway/src/main.rs"))
+        .map(|f| f.content.clone())
+        .unwrap_or_default();
+    assert!(
+        gateway_main.contains("CORS_ALLOWED_ORIGINS")
+            && gateway_main.contains("crate::cors::Cors::resolve"),
+        "native gateway must wire the CORS layer"
     );
 
     // Workspace manifest lists gateway + one member per domain.

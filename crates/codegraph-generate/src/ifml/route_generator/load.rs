@@ -81,6 +81,7 @@ pub(super) fn build_load_context(
     vc: &IfmlViewContainer,
     components: &[PageComponentContext],
     denial_target: &str,
+    integrated: bool,
 ) -> PageLoadContext {
     let id_param = id_param_from(&vc.params);
     // The graph may carry duplicate HasParameter edges (see
@@ -139,6 +140,7 @@ pub(super) fn build_load_context(
         view_roles: vc.roles.clone(),
         view_requires: vc.requires.clone(),
         guard_consts: guard_consts(vc),
+        integrated,
         denial_target: denial_target.to_string(),
     }
 }

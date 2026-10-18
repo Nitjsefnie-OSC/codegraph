@@ -6,6 +6,9 @@
 import { test, expect } from '../../e2e/fixtures/personas';
 import { createEntityAsAcme, createEntityViaApi, deleteEntityViaApi } from '../../e2e/helpers';
 import type { OrgContext } from '../../e2e/fixtures/personas';
+
+import type { CreateStringTypeArrayRequest } from '#lib/api/types.ts';
+
 import { StringTypeArrayPage } from './string-type-array.page';
 
 
@@ -19,7 +22,7 @@ const BASE_PATH = '/common/string-type-array';
 const depIds: Record<string, string | string[]> = {};
 
 
-function testData(): Record<string, unknown> {
+function testData(): Partial<Record<keyof CreateStringTypeArrayRequest | 'code', unknown>> {
   return {
 
 
@@ -28,7 +31,8 @@ function testData(): Record<string, unknown> {
 
 test.describe('StringTypeArray Cross-Org Isolation', () => {
   let acmeEntityId: string;
-  const data = testData();
+  // Widened read view: list-column reads may touch response-only fields.
+  const data: Record<string, unknown> = testData();
 
   test.beforeAll(async ({ orgContext }) => {
 

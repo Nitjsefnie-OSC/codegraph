@@ -151,6 +151,9 @@ pub struct UiFormContext {
     pub has_create: bool,
     pub has_update: bool,
     pub has_child_sections: bool,
+    /// This entity's testid vocabulary, projected from `ux::plan::ids`
+    /// (issue #468 W3).
+    pub tid: crate::ui::testids::TidMap,
 }
 
 pub struct UiFormGenerator {
@@ -243,6 +246,7 @@ impl EntityGenerator for UiFormGenerator {
         let has_child_sections = !child_sections.is_empty();
 
         let ctx = UiFormContext {
+            tid: crate::ui::testids::for_module(&module_name.clone()),
             entity_name: entity_name.clone(),
             module_name,
             domain,
