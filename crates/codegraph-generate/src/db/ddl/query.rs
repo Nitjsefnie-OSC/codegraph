@@ -429,8 +429,10 @@ static PG_RESERVED_WORDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     .collect()
 });
 
-/// Wrap a column name in double quotes if it's a PostgreSQL reserved word.
-fn quote_if_reserved(name: &str) -> String {
+/// Spell an identifier for direct embedding in a SQL fragment (check
+/// expressions) and for the render-time quoting pass. Identifier fields
+/// on the DDL model stay bare (#451) — quoting happens at render time.
+pub(super) fn quote_if_reserved(name: &str) -> String {
     if PG_RESERVED_WORDS.contains(name.to_lowercase().as_str()) {
         format!("\"{}\"", name)
     } else {
@@ -469,7 +471,7 @@ type DdlArtifacts = (
 /// `CompositionNode`s in the tree, not as columns.
 pub(crate) fn column_info_to_ddl(col: &ColumnInfo, table_name: &str) -> Option<DdlArtifacts> {
     let raw_name = &col.name;
-    let prop_name = quote_if_reserved(raw_name);
+    let prop_name = raw_name.clone();
     let description = col.description.as_deref().unwrap_or("");
 
     let mut columns = Vec::new();
@@ -629,7 +631,7 @@ pub(crate) fn column_info_to_ddl(col: &ColumnInfo, table_name: &str) -> Option<D
                         table_name, raw_name
                     )),
                     column: prop_name.clone(),
-                    expression: format!("{} IN ({})", prop_name, expr),
+                    expression: format!("{} IN ({})", quote_if_reserved(raw_name), expr),
                 });
             }
         }
@@ -638,8 +640,7 @@ pub(crate) fn column_info_to_ddl(col: &ColumnInfo, table_name: &str) -> Option<D
             let is_media = col.classification == Some(RefClassificationKind::MediaWrapper);
             let mut col_names_for_check = Vec::new();
             for comp_col in &col.composite_columns {
-                let composite_col_name =
-                    quote_if_reserved(&format!("{}{}", raw_name, comp_col.suffix));
+                let composite_col_name = format!("{}{}", raw_name, comp_col.suffix);
                 if !description.is_empty() {
                     comments.push(ColumnComment {
                         column: composite_col_name.clone(),
@@ -647,7 +648,7 @@ pub(crate) fn column_info_to_ddl(col: &ColumnInfo, table_name: &str) -> Option<D
                     });
                 }
                 if is_media {
-                    col_names_for_check.push(composite_col_name.clone());
+                    col_names_for_check.push(quote_if_reserved(&composite_col_name));
                 }
                 columns.push(ColumnDef {
                     name: composite_col_name,
@@ -1721,12 +1722,7 @@ pub(crate) fn ddl_dto_gap_fields(
     ddl_columns: &[ColumnDef],
     dto_fields: &[crate::ddd::dto::DtoField],
 ) -> Vec<String> {
-    // Reserved-word columns are double-quoted in the DDL context
-    // (`"name"`) — compare on the bare identifier.
-    let column_names: HashSet<&str> = ddl_columns
-        .iter()
-        .map(|c| c.name.trim_matches('"'))
-        .collect();
+    let column_names: HashSet<&str> = ddl_columns.iter().map(|c| c.name.as_str()).collect();
     let mut gaps = Vec::new();
     for field in dto_fields {
         if field.name == "id" || field.is_hierarchy_field {

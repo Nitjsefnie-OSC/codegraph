@@ -596,3 +596,47 @@ fn gap_fields_skips_hierarchy_fields() {
     hierarchy.is_hierarchy_field = true;
     assert!(ddl_dto_gap_fields(&ddl, &[hierarchy]).is_empty());
 }
+
+// ── issue #451: ColumnDef.name is the bare identifier; quoting is render-time ──
+
+#[test]
+fn reserved_word_column_def_name_is_bare() {
+    let (cols, _, _, _) =
+        column_info_to_ddl(&info_col("name", "TEXT"), "store_order").expect("plain column");
+    assert_eq!(cols[0].name, "name");
+}
+
+#[test]
+fn reserved_word_fk_and_check_identifiers_are_bare() {
+    let mut col = info_col("order", "TEXT");
+    col.classification = Some(codegraph_type_contracts::RefClassificationKind::InlineEnum);
+    col.check_values = vec!["asc".to_string(), "desc".to_string()];
+    let (cols, _, checks, _) = column_info_to_ddl(&col, "store_order").expect("check column");
+    assert_eq!(cols[0].name, "order");
+    assert_eq!(checks[0].column, "order");
+    assert_eq!(checks[0].expression, "\"order\" IN ($$asc$$, $$desc$$)");
+}
+
+#[test]
+fn rendered_table_ddl_quotes_reserved_column_names() {
+    let template_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+    let tera = crate::template_engine::create_tera(&template_dir).unwrap();
+    let project = crate::ProjectConfig::default();
+
+    let mut ctx = test_context();
+    ctx.columns.push(ColumnDef {
+        name: "name".to_string(),
+        pg_type: "TEXT".to_string(),
+        nullable: false,
+        default: None,
+        is_primary_key: false,
+        is_array: false,
+    });
+    let mut render_ctx = ctx.clone();
+    super::accumulators::quote_ddl_identifiers(&mut render_ctx);
+    let sql = render_template_with_project(&tera, "db/table.tera", &render_ctx, &project).unwrap();
+    assert!(
+        sql.contains("\n    \"name\" TEXT NOT NULL"),
+        "rendered migration must quote reserved-word columns: {sql}"
+    );
+}
