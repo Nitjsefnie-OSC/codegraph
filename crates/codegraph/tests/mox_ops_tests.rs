@@ -368,7 +368,11 @@ async fn mox_op_body_emitted_with_fixed_signature() {
         "module must carry the documented Resource placeholder:\n{ops_rs}"
     );
     assert!(
-        ops_rs.contains("impl CandidateType {"),
+        ops_rs.contains("use crate::entity::candidate::Model as Candidate;"),
+        "ops must alias the entity's SeaORM Model under its rust type name:\n{ops_rs}"
+    );
+    assert!(
+        ops_rs.contains("impl Candidate {"),
         "ops must be emitted as an inherent impl on the entity model:\n{ops_rs}"
     );
 

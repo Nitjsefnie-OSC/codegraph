@@ -204,6 +204,7 @@ fn base_capabilities() -> HashMap<String, GeneratorCapability> {
         // hurl contract tests (issue #463): per-entity hurl API contracts +
         // the generated authn/authz suite the ops api suite runs.
         cap("hurl_contract",        Domain, Api,  &[], &[]),
+        cap("mox_ops",              Domain, Api,  &[], &[]),
         cap("ui-domain-layout",     Domain, Ui,   &[], &[]),
         cap("cli_domain",           Domain, Cli,  &[], &[]),
 

@@ -5,6 +5,7 @@ pub mod dto;
 pub mod errors;
 pub mod event;
 pub mod functions;
+pub mod mox_ops;
 pub mod query;
 pub mod regulatory_report;
 pub mod repository;

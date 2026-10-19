@@ -101,6 +101,9 @@ generators = [
     # hurl API contract tests (issue #463) — per-entity contracts + the
     # authn/authz suite, run by the ops api suite
     "hurl_contract",
+    # mox operation codegen (issue #501) — presence-gated: emits
+    # src/domain/<domain>/mox_ops.rs only when the graph carries mox ops
+    "mox_ops",
     # Global
     "openapi", "scaffold", "basejump_setup", "pgmq_setup",
     "platform_schema", "workflow_seed", "hook_registry", "domain_types_scaffold",
@@ -157,7 +160,7 @@ generators = [
     "ddl", "sea_orm_entity", "codelist", "dto", "repository", "command",
     "query", "event", "handler", "workflow_action", "media_route", "test",
     "lifecycle_trait", "domain_types_dto", "domain_types_query_service",
-    "router", "links",
+    "router", "links", "mox_ops",
     "openapi", "scaffold", "basejump_setup", "pgmq_setup",
     "platform_schema", "workflow_seed", "hook_registry", "domain_types_scaffold",
     "report_views",
@@ -171,7 +174,7 @@ scripts.post_gen = ["echo post-gen check skipped"]
 [profiles.api.variants.lite.api]
 generators = [
     "ddl", "sea_orm_entity", "codelist", "dto", "repository", "command",
-    "query", "event", "handler", "router", "links",
+    "query", "event", "handler", "router", "links", "mox_ops",
     "openapi", "scaffold", "basejump_setup", "pgmq_setup",
     "platform_schema", "workflow_seed",
 ]
@@ -241,7 +244,7 @@ generators = [
     "ddl", "sea_orm_entity", "codelist", "dto", "repository", "command",
     "query", "event", "handler", "workflow_action", "media_route", "test",
     "lifecycle_trait", "domain_types_dto", "domain_types_query_service",
-    "router", "links", "hurl_contract",
+    "router", "links", "hurl_contract", "mox_ops",
     "openapi", "scaffold", "basejump_setup", "pgmq_setup",
     "platform_schema", "workflow_seed", "hook_registry", "domain_types_scaffold",
     "report_views",
@@ -267,7 +270,7 @@ generators = [
     "ddl", "sea_orm_entity", "codelist", "dto", "repository", "command",
     "query", "event", "handler", "workflow_action", "media_route", "test",
     "lifecycle_trait", "domain_types_dto", "domain_types_query_service",
-    "router", "links", "hurl_contract",
+    "router", "links", "hurl_contract", "mox_ops",
     "openapi", "scaffold", "basejump_setup", "pgmq_setup",
     "platform_schema", "workflow_seed", "hook_registry",
     "domain_types_scaffold",
@@ -353,7 +356,7 @@ generators = [
     "ddl", "sea_orm_entity", "codelist", "dto", "repository", "command",
     "query", "event", "handler", "workflow_action", "media_route", "test",
     "lifecycle_trait", "domain_types_dto", "domain_types_query_service",
-    "router", "links",
+    "router", "links", "mox_ops",
     "openapi", "scaffold", "basejump_setup", "pgmq_setup",
     "platform_schema", "workflow_seed", "hook_registry", "domain_types_scaffold",
     "report_views",
