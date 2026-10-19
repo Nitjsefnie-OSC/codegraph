@@ -125,7 +125,15 @@ pub(super) async fn build_required_dependencies(
         // Every resolved target stays marked here regardless of creatability:
         // targets without a create route become tolerant `optional` dep steps.
         let mut dep_fields = dep_fields;
-        apply_convention_refs(db, config, &target_domain, &props, &mut dep_fields).await;
+        apply_convention_refs(
+            db,
+            config,
+            &target_domain,
+            &target.title,
+            &props,
+            &mut dep_fields,
+        )
+        .await;
 
         // Required entity refs on this dep become child steps.
         let mut children: Vec<(String, String)> = Vec::new();

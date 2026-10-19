@@ -48,8 +48,9 @@ function testData(): Partial<Record<keyof CreateCandidateRequest | 'code', unkno
     // 'application_process_history': ValueObject — omit, serde default
 
 
+    // fixture: convention ref 'candidate_id' has no creatable target
 
-    // 'candidate_id': entity ref — emitted by _dep_setup.tera
+    'candidate_id': 'Test Candidate Id',
 
 
 
@@ -102,8 +103,6 @@ function testData(): Partial<Record<keyof CreateCandidateRequest | 'code', unkno
 
 
 
-    ...(depIds['candidate_id'] ? { 'candidate_id': depIds['candidate_id'] } : {}),
-
   };
 }
 
@@ -127,7 +126,7 @@ function updatedData(): Partial<Record<keyof CreateCandidateRequest | 'code', un
 
 
 
-    // 'candidate_id': entity ref — emitted by _dep_setup.tera
+    'candidate_id': 'Updated Candidate Id',
 
 
 
@@ -180,27 +179,11 @@ function updatedData(): Partial<Record<keyof CreateCandidateRequest | 'code', un
 
 
 
-    ...(depIds['candidate_id'] ? { 'candidate_id': depIds['candidate_id'] } : {}),
-
   };
 }
 
 test.describe('Candidate CRUD', () => {
 
-
-  test.beforeAll(async ({ orgContext }) => {
-
-
-
-
-  });
-
-  test.afterAll(async ({ orgContext }) => {
-
-const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
-
-
-  });
 
 
   test('list page loads with table', async ({ ownerPage: page }) => {
@@ -240,7 +223,7 @@ const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
 
 
 
-    await ui.fillCandidateId(String(data['candidate_id'] ?? ''));
+    await ui.fillCandidateId(String(data['candidate_id']));
 
 
 
@@ -524,7 +507,7 @@ const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
 
 
 
-    await ui.fillCandidateId(String(data['candidate_id'] ?? ''));
+    await ui.fillCandidateId(String(data['candidate_id']));
 
 
 

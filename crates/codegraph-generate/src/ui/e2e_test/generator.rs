@@ -215,9 +215,10 @@ impl EntityGenerator for UiE2eTestGenerator {
         };
         // Required plain-uuid FK columns without a `$ref`/graph edge (e.g.
         // `party.case_id`) resolve to their entity by naming convention and
-        // must be marked before create/update fields are derived.
+        // must be marked before create/update fields are derived. The
+        // subject entity is never a convention target (#479).
         let convention_refs =
-            apply_convention_refs(db, config, &domain, &all_props, &mut fields).await;
+            apply_convention_refs(db, config, &domain, schema_title, &all_props, &mut fields).await;
 
         // A convention ref is only dep-created when its target entity has a
         // create API (the schema-ref path). Otherwise the field is unmarked —

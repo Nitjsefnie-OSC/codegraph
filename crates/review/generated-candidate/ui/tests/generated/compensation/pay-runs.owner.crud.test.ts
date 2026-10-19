@@ -22,46 +22,28 @@ const depIds: Record<string, string | string[]> = {};
 
 function testData(): Partial<Record<keyof CreatePayRunRequest | 'code', unknown>> {
   return {
-    // 'pay_run_id': entity ref — emitted by _dep_setup.tera
+    // fixture: convention ref 'pay_run_id' has no creatable target
+    'pay_run_id': 'Test Pay Run Id',
     'run_date': '2026-01-15',
     'total_amount': 42.5,
     'total_amount_currency': 'USD',
 
-
-    ...(depIds['pay_run_id'] ? { 'pay_run_id': depIds['pay_run_id'] } : {}),
 
   };
 }
 
 function updatedData(): Partial<Record<keyof CreatePayRunRequest | 'code', unknown>> {
   return {
-    // 'pay_run_id': entity ref — emitted by _dep_setup.tera
+    'pay_run_id': 'Updated Pay Run Id',
     'run_date': '2026-06-20',
     'total_amount': 99.5,
     'total_amount_currency': 'AUD',
 
 
-    ...(depIds['pay_run_id'] ? { 'pay_run_id': depIds['pay_run_id'] } : {}),
-
   };
 }
 
 test.describe('PayRun Owner CRUD', () => {
-
-
-  test.beforeAll(async ({ orgContext }) => {
-
-
-
-
-  });
-
-
-  test.afterAll(async ({ orgContext }) => {
-
-const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
-
-  });
 
 
 
@@ -77,7 +59,7 @@ const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
     await ui.gotoCreate();
     // Wait for Svelte 5 to hydrate the form's submit handler.
     await ui.waitForForm();
-    await ui.fillPayRunId(String(data['pay_run_id'] ?? ''));
+    await ui.fillPayRunId(String(data['pay_run_id']));
     await ui.fillRunDate(String(data['run_date']));
     await ui.fillTotalAmount(String(data['total_amount']));
     await ui.fillTotalAmountCurrency(String(data['total_amount_currency']));
@@ -116,7 +98,7 @@ const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
     await ui.gotoEdit(myId);
     // Wait for Svelte 5 to hydrate the form's submit handler.
     await ui.waitForForm();
-    await ui.fillPayRunId(String(updated['pay_run_id'] ?? ''));
+    await ui.fillPayRunId(String(updated['pay_run_id']));
     await ui.fillRunDate(String(updated['run_date']));
     await ui.fillTotalAmount(String(updated['total_amount']));
     await ui.fillTotalAmountCurrency(String(updated['total_amount_currency']));

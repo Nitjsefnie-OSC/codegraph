@@ -52,9 +52,10 @@ pub(super) async fn resolve_ref_schema(
     }
     // Final fallback: a required plain `format: uuid` scalar ending in `_id`
     // with no `$ref`/graph edge (e.g. `party.case_id`) resolves to an entity by
-    // naming convention.
+    // naming convention. The subject entity itself is never a convention
+    // target (#479).
     if resolved.is_none() {
-        resolved = resolve_convention_ref(db, prop, current_domain).await;
+        resolved = resolve_convention_ref(db, prop, current_domain, schema_title).await;
     }
     // Prefer a same-domain schema when the resolved one lives elsewhere.
     if let (Some(cur_domain), Some(found)) = (current_domain, &resolved)
@@ -99,11 +100,18 @@ fn is_convention_shape(prop: &PropertyNode) -> bool {
 /// `case_id`) to its entity by naming convention: strip the `_id` suffix,
 /// normalize, and find the unique `is_entity` schema whose normalized
 /// `pg_table_name` or `rust_type_name` equals the stem. On multiple matches,
-/// prefer a same-domain schema; return `None` if still ambiguous.
+/// prefer a same-domain schema; return `None` if still ambiguous. The
+/// subject entity itself is never a convention target (#479): a required
+/// business field merely NAMED `*_id` on its own entity (e.g. VendorOrder's
+/// `String vendorOrderId`) would otherwise resolve to its carrier, get
+/// deferred to dep-setup, never emitted, and 422 every create. True
+/// self-FKs are explicit `refers` edges (they arrive via `ref_target`,
+/// not this path).
 async fn resolve_convention_ref(
     db: &dyn GraphQuerier,
     prop: &PropertyNode,
     current_domain: Option<&str>,
+    subject_title: &str,
 ) -> Option<SchemaNode> {
     if !is_convention_shape(prop) {
         return None;
@@ -121,6 +129,7 @@ async fn resolve_convention_ref(
         .into_iter()
         .filter(|s| {
             s.is_entity
+                && s.title != subject_title
                 && (normalize_convention_stem(&s.pg_table_name) == stem_norm
                     || normalize_convention_stem(&s.rust_type_name) == stem_norm)
         })
@@ -160,6 +169,7 @@ pub(super) async fn apply_convention_refs(
     db: &dyn GraphQuerier,
     config: &DomainConfig,
     domain: &str,
+    subject_title: &str,
     props: &[PropertyNode],
     fields: &mut [UiField],
 ) -> Vec<ConventionRefResolution> {
@@ -171,7 +181,7 @@ pub(super) async fn apply_convention_refs(
         let Some(prop) = find_ref_property(props, &field.name) else {
             continue;
         };
-        if let Some(target) = resolve_convention_ref(db, prop, Some(domain)).await {
+        if let Some(target) = resolve_convention_ref(db, prop, Some(domain), subject_title).await {
             field.is_entity_ref = true;
             field.ref_api_path = Some(api_path_for_schema(&target, config));
             resolved.push(ConventionRefResolution {

@@ -24,13 +24,11 @@ const depIds: Record<string, string | string[]> = {};
 
 function testData(): Partial<Record<keyof CreateApplicationRequest | 'code', unknown>> {
   return {
-    // 'application_id': entity ref — emitted by _dep_setup.tera
+    'application_id': 'ACME Isolation Application Id',
     'applied_date': '2026-01-15',
     // 'candidate_id': entity ref — emitted by _dep_setup.tera
     'status': 'Applied',
 
-
-    ...(depIds['application_id'] ? { 'application_id': depIds['application_id'] } : {}),
 
   };
 }
@@ -54,12 +52,6 @@ test.describe('Application Cross-Org Isolation', () => {
     acmeEntityId = entity.id as string;
 });
 
-
-  test.afterAll(async ({ orgContext }) => {
-
-const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
-
-  });
 
 
 
