@@ -766,6 +766,56 @@ would silently lose their policy), so doctor makes that a hard failure
 instead. `.mox` imports on `.ifml` files are checked for existence but are
 not policy business.
 
+### #468 quality pass — integrated UI, structural gates, hydration guards
+
+Residue-of-the-pass notes that postdate the sections above:
+
+- **Integrated route-tree mode (W1b)**: when the SAME plan builds the
+  entity ui app (`ui_scaffold` or `ui_page`) AND `ifml_route_svelte`,
+  the IFML artifacts land INSIDE the entity tree — view pages under
+  `ui/src/routes/(views)/{view}/+page.svelte`, e2e specs/journeys/
+  bootstrap under `ui/tests/ifml/` (support under `ui/tests/ifml/support`)
+  so one app and one Playwright run cover entity CRUD and the modeled
+  views (`ifml_integrated` in `crates/codegraph-generate/src/registry.rs`).
+  `(views)` is a SvelteKit route GROUP — filesystem organization only,
+  never in URLs — chosen as a sibling of the entity `(app)`/`(auth)`
+  groups so the entity auth-guard layout does not wrap the views; views
+  gate themselves via their own `+page.ts` guards. Standalone plans
+  (ifml-only profiles, plan-less runs, non-svelte frameworks) keep the
+  disjoint `{fw}/` tree. Navigation map, POM routes, and the denial
+  target are unaffected by the group (`ifml/output_paths.rs`).
+- **Hydration layouts (W1b follow-up)**: integrated mode emits
+  `(views)/+layout.server.ts` + `(views)/+layout.ts`
+  (`ifml/route_generator/hydration.rs`). The server layout derives role
+  tokens from the session's BaseJump account and returns them as `roles`
+  (NO redirect — persona test contexts seed `__USER_ROLES__` via init
+  scripts and must reach guarded pages); the universal layout publishes
+  non-null roles onto `globalThis.__USER_ROLES__` before the child
+  `+page.ts` guards run (SvelteKit resolves parent loads first, on
+  hydration AND client navigations — this is the server-decided-guard
+  follow-up: a denied persona is redirected during SSR, before any
+  fetch). BaseJump mapping convention: `'owner'` → the actor whose
+  snake_case name is `owner` (else FIRST actor in sorted order);
+  `'member'` → `member` (else LAST). No policy ⇒ `roles: null` ⇒ deny.
+- **`structural_gates` (W3)**: post-generation structural gate
+  (`quality_gates.rs`, run from `pipeline.rs`) — scans the emitted tree
+  and HARD-FAILS on retired vocabulary (`confirm-confirm` double-confirm;
+  `${this.module}-` POM compositions when `testid_module` is on) and
+  verifies `ui/src/lib/testids.ts` exists when `testid_module` is on.
+  Profile features under `[features]` in profiles.toml, default OFF =
+  zero behavior (byte-identity discipline).
+- **`testid_module` (W3)**: ONE testid vocabulary — POM locators resolve
+  through `ui/src/lib/testids.js` instead of `${this.module}-…`
+  compositions (`ui/testids.rs`, `ui/testids_gen.rs`).
+- **Identity-PK dep payloads (#479)**: entities whose PRIMARY KEY is a
+  required create-body member (e.g. `Worker.worker_id` — no serde
+  default) 422'd whenever the e2e generator dep-created them, because
+  `build_test_data_json` skipped every `*_id` field. Identity and
+  plain-UUID `_id` columns now carry the same runtime UUID literal the
+  JS testData path emits; true refs still dep-create, non-UUID `_id`
+  columns keep the omission (`ui/e2e_test/fixtures.rs`, unit-testable
+  via the pub fixtures export).
+
 ## Generated integration testing (#463)
 
 Every generated app ships its integration tests: hurl API contracts +
