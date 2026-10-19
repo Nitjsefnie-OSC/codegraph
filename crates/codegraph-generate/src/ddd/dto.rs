@@ -47,6 +47,25 @@ pub struct DtoContext {
     /// (computed). They are marked read-only in the response DTO and
     /// excluded from the create/update DTOs (issue #218, #195 decision).
     pub derived_fields: Vec<String>,
+    /// Mox derived features that name NO stored field: exposed as read-only
+    /// response fields with computed accessors (issue #501 slice 1). Empty
+    /// when no mox was ingested — output stays byte-identical.
+    pub mox_derived_extras: Vec<MoxDerivedExtra>,
+}
+
+/// One non-stored mox derived feature, ready for response-DTO emission.
+#[derive(Debug, Clone, Serialize)]
+pub struct MoxDerivedExtra {
+    /// The mox feature name as written (for diagnostics).
+    pub source_name: String,
+    /// snake_case Rust field / accessor name.
+    pub name: String,
+    /// Rust field type; `None` when the mox type has no primitive Rust
+    /// mapping (the accessor is then a `todo!` stub and no field is exposed).
+    pub rust_type: Option<String>,
+    /// Lowered accessor body — a Rust expression, or a `todo!(...)` stub
+    /// naming what did not lower (the module is the record, never a guess).
+    pub body: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -930,17 +949,23 @@ pub async fn build_dto_context(
         .map(|t| format!("use {import_prefix}::{t};"))
         .collect();
 
-    // Mox derived features (issue #218): fields the domain model marks as
-    // computed are read-only response fields, omitted from create/update
-    // inputs. Matched by class NAME against this schema (title or entity
-    // name) and by field NAME against the assembled DTO fields. When no mox
-    // was ingested the list is empty and output is byte-identical.
-    let mut derived_fields: Vec<String> = db
+    // Mox derived features (issues #218, #501): features the domain model
+    // marks as computed are read-only response fields, omitted from
+    // create/update inputs. Matched by class NAME against this schema
+    // (title or entity name). Features naming an existing stored field
+    // annotate that field (the #218 behavior); features naming NO stored
+    // field are exposed as new read-only response fields with computed
+    // accessors (#501 slice 1). When no mox was ingested both lists are
+    // empty and output is byte-identical.
+    let derived_all: Vec<codegraph_core::types::MoxDerivedFeatureNode> = db
         .get_mox_derived_features()
         .await
         .unwrap_or_default()
-        .iter()
+        .into_iter()
         .filter(|d| d.class == schema_title || d.class == entity_name)
+        .collect();
+    let mut derived_fields: Vec<String> = derived_all
+        .iter()
         .map(|d| codegraph_naming::to_snake_case(&d.name))
         .filter(|name| fields.iter().any(|f| f.name == *name))
         .collect();
@@ -954,6 +979,51 @@ pub async fn build_dto_context(
             immutable_fields.push(name.clone());
         }
     }
+
+    // Non-stored derived features (#501 slice 1): a read-only response
+    // field plus a fixed-signature accessor lowered from the `expr` body.
+    // Unsupported constructs and non-primitive types carry `todo!` stubs —
+    // never guesses.
+    let field_bindings: std::collections::HashMap<String, crate::mox_expr::FieldBinding> = fields
+        .iter()
+        .map(|f| {
+            (
+                f.name.clone(),
+                crate::mox_expr::FieldBinding {
+                    recv: format!("self.{}", f.name),
+                    clone: !crate::mox_expr::is_copy_rust_type(&f.rust_type),
+                },
+            )
+        })
+        .collect();
+    let mut mox_derived_extras: Vec<MoxDerivedExtra> = Vec::new();
+    for feature in &derived_all {
+        let name =
+            codegraph_naming::escape_rust_keyword(&codegraph_naming::to_snake_case(&feature.name));
+        if fields.iter().any(|f| f.name == name) || derived_fields.contains(&name) {
+            continue;
+        }
+        let rust_type =
+            crate::mox_expr::mox_primitive_rust_type(&feature.type_ref).map(str::to_string);
+        let body = match feature.expr.as_deref() {
+            Some(expr) => match crate::mox_expr::lower_expr_to_rust(expr, &field_bindings) {
+                Ok(code) => code,
+                Err(e) => todo_stub(&format!("transpile derived feature '{}'", feature.name), &e),
+            },
+            None => format!(
+                "todo!(\"body-less derived feature '{}' — declare an expr body\")",
+                feature.name
+            ),
+        };
+        mox_derived_extras.push(MoxDerivedExtra {
+            source_name: feature.name.clone(),
+            name,
+            rust_type,
+            body,
+        });
+    }
+    mox_derived_extras.sort_by(|a, b| a.name.cmp(&b.name));
+    mox_derived_extras.dedup_by(|a, b| a.name == b.name);
 
     Ok(DtoContext {
         module_name,
@@ -975,7 +1045,19 @@ pub async fn build_dto_context(
         structured_imports,
         has_validate: true,
         derived_fields,
+        mox_derived_extras,
     })
+}
+
+/// The `todo!` stub text for a construct outside the lowered subset —
+/// naming the feature and the refusal (the marker convention).
+fn todo_stub(what: &str, e: &crate::mox_expr::Unsupported) -> String {
+    let what = what.replace('"', "'");
+    let detail = e.detail.replace('"', "'");
+    format!(
+        "todo!(\"TODO(#501): {what} (unsupported: {}: {detail})\")",
+        e.kind
+    )
 }
 
 pub struct DtoGenerator {

@@ -123,7 +123,10 @@ async fn ingest_mox(engine: &GrafeoEngine, mox: &Path) {
     .await
     .unwrap()
     .stats;
-    assert_eq!(stats.skipped, 0, "fixture class must match the schema entity");
+    assert_eq!(
+        stats.skipped, 0,
+        "fixture class must match the schema entity"
+    );
 }
 
 fn profiles_path() -> std::path::PathBuf {
@@ -457,10 +460,22 @@ async fn without_mox_ops_output_is_unchanged() {
     ingest_fixture_schemas(&engine, &config).await;
 
     let hooks_tmp = tempfile::tempdir().unwrap();
-    run_generation(&engine, None, &domain_types_dir, &output_dir, hooks_tmp.path()).await;
+    run_generation(
+        &engine,
+        None,
+        &domain_types_dir,
+        &output_dir,
+        hooks_tmp.path(),
+    )
+    .await;
 
     assert!(
-        !output_dir.join("src").join("domain").join("recruiting").join("mox_ops.rs").exists(),
+        !output_dir
+            .join("src")
+            .join("domain")
+            .join("recruiting")
+            .join("mox_ops.rs")
+            .exists(),
         "no mox_ops.rs may be generated without ingested operations"
     );
 
