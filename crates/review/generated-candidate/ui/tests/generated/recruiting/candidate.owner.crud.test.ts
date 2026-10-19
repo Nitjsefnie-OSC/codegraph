@@ -26,7 +26,8 @@ function testData(): Partial<Record<keyof CreateCandidateRequest | 'code', unkno
     'family_name': 'Test Family Name',
     'given_name': 'Test Given Name',
     // 'application_process_history': ValueObject — omit, serde default
-    // 'candidate_id': entity ref — emitted by _dep_setup.tera
+    // fixture: convention ref 'candidate_id' has no creatable target
+    'candidate_id': 'Test Candidate Id',
     'compensation_expectation': 42.5,
     'compensation_expectation_currency': 'USD',
     // 'distribution_guidelines': ValueObject — omit, serde default
@@ -41,8 +42,6 @@ function testData(): Partial<Record<keyof CreateCandidateRequest | 'code', unkno
     'uri': 'Test Uri',
 
 
-    ...(depIds['candidate_id'] ? { 'candidate_id': depIds['candidate_id'] } : {}),
-
   };
 }
 
@@ -52,7 +51,7 @@ function updatedData(): Partial<Record<keyof CreateCandidateRequest | 'code', un
     'family_name': 'Updated Family Name',
     'given_name': 'Updated Given Name',
     // 'application_process_history': ValueObject — omit, serde default
-    // 'candidate_id': entity ref — emitted by _dep_setup.tera
+    'candidate_id': 'Updated Candidate Id',
     'compensation_expectation': 99.5,
     'compensation_expectation_currency': 'AUD',
     // 'distribution_guidelines': ValueObject — omit, serde default
@@ -67,27 +66,10 @@ function updatedData(): Partial<Record<keyof CreateCandidateRequest | 'code', un
     'uri': 'Updated Uri',
 
 
-    ...(depIds['candidate_id'] ? { 'candidate_id': depIds['candidate_id'] } : {}),
-
   };
 }
 
 test.describe('Candidate Owner CRUD', () => {
-
-
-  test.beforeAll(async ({ orgContext }) => {
-
-
-
-
-  });
-
-
-  test.afterAll(async ({ orgContext }) => {
-
-const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
-
-  });
 
 
 
@@ -107,7 +89,7 @@ const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
     await ui.fillFamilyName(String(data['family_name']));
     await ui.fillGivenName(String(data['given_name']));
     // 'application_process_history' is a ValueObject — provide nested structure in testData()
-    await ui.fillCandidateId(String(data['candidate_id'] ?? ''));
+    await ui.fillCandidateId(String(data['candidate_id']));
     await ui.fillCompensationExpectation(String(data['compensation_expectation']));
     await ui.fillCompensationExpectationCurrency(String(data['compensation_expectation_currency']));
     // 'distribution_guidelines' is a ValueObject — provide nested structure in testData()
@@ -172,7 +154,7 @@ const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
     await ui.fillFamilyName(String(updated['family_name']));
     await ui.fillGivenName(String(updated['given_name']));
     // 'application_process_history' is a ValueObject — provide nested structure in testData()
-    await ui.fillCandidateId(String(updated['candidate_id'] ?? ''));
+    await ui.fillCandidateId(String(updated['candidate_id']));
     await ui.fillCompensationExpectation(String(updated['compensation_expectation']));
     await ui.fillCompensationExpectationCurrency(String(updated['compensation_expectation_currency']));
     // 'distribution_guidelines' is a ValueObject — provide nested structure in testData()

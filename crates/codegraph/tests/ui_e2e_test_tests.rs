@@ -1928,3 +1928,47 @@ async fn non_uuid_id_columns_stay_omitted() {
         "non-UUID `_id` columns keep the omission: {payload}"
     );
 }
+
+// ── Self-named convention refs (issue #479) ─────────────────────────────
+
+#[test]
+fn self_named_id_field_stays_a_test_data_literal() {
+    // VendorOrder.vendor_order_id: a required TEXT business field whose
+    // name claims its OWN entity by convention. It used to resolve to its
+    // carrier, get deferred to dep-setup, never be emitted, and 422 every
+    // create with "missing field `vendor_order_id`". The subject entity is
+    // never a convention target, so testData keeps the text sentinel.
+    let order = schema(
+        "VendorOrderType",
+        "vendor_order",
+        "VendorOrder",
+        "vendors",
+        "vendor_order",
+    );
+    let engine = MockEngine::builder()
+        .with_schema(order)
+        .with_properties(
+            "VendorOrderType",
+            vec![
+                scalar("external_order_id", "TEXT", true),
+                scalar("vendor_order_id", "TEXT", true),
+            ],
+        )
+        .build();
+    let config = config(&[("vendors", "VendorOrderType")]);
+
+    let content = generate(&engine, &config, "VendorOrderType", "vendors");
+    assert!(
+        content.contains("'vendor_order_id': 'Test Vendor Order Id'"),
+        "the self-named field must ride testData as a literal: {content}"
+    );
+    assert!(
+        !content.contains("// 'vendor_order_id': entity ref"),
+        "the subject entity is never a convention ref: {content}"
+    );
+    // sanity: a genuinely-foreign stem keeps the no-target gap comment.
+    assert!(
+        content.contains("// fixture: convention ref 'external_order_id' has no creatable target"),
+        "{content}"
+    );
+}

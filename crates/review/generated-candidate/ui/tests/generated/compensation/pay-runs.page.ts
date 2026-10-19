@@ -161,11 +161,7 @@ export class PayRunPage extends BasePage {
 
 
 
-  /** Entity refs are filled from the created dependency id. */
   async fillPayRunId(value: string): Promise<void> {
-    if (!value) {
-      return;
-    }
     const el = this.formInput('pay_run_id');
     if (await el.isVisible()) {
       await el.clear();

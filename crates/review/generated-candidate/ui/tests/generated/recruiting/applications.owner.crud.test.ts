@@ -22,46 +22,28 @@ const depIds: Record<string, string | string[]> = {};
 
 function testData(): Partial<Record<keyof CreateApplicationRequest | 'code', unknown>> {
   return {
-    // 'application_id': entity ref — emitted by _dep_setup.tera
+    // fixture: convention ref 'application_id' has no creatable target
+    'application_id': 'Test Application Id',
     'applied_date': '2026-01-15',
     // 'candidate_id': entity ref — emitted by _dep_setup.tera
     'status': 'Applied',
 
-
-    ...(depIds['application_id'] ? { 'application_id': depIds['application_id'] } : {}),
 
   };
 }
 
 function updatedData(): Partial<Record<keyof CreateApplicationRequest | 'code', unknown>> {
   return {
-    // 'application_id': entity ref — emitted by _dep_setup.tera
+    'application_id': 'Updated Application Id',
     'applied_date': '2026-06-20',
     // 'candidate_id': entity ref — emitted by _dep_setup.tera
     'status': 'Rejected',
 
 
-    ...(depIds['application_id'] ? { 'application_id': depIds['application_id'] } : {}),
-
   };
 }
 
 test.describe('Application Owner CRUD', () => {
-
-
-  test.beforeAll(async ({ orgContext }) => {
-
-
-
-
-  });
-
-
-  test.afterAll(async ({ orgContext }) => {
-
-const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
-
-  });
 
 
 
@@ -77,7 +59,7 @@ const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
     await ui.gotoCreate();
     // Wait for Svelte 5 to hydrate the form's submit handler.
     await ui.waitForForm();
-    await ui.fillApplicationId(String(data['application_id'] ?? ''));
+    await ui.fillApplicationId(String(data['application_id']));
     await ui.fillAppliedDate(String(data['applied_date']));
     await ui.fillCandidateId(String(data['candidate_id'] ?? ''));
     await ui.fillStatus(String(data['status']));
@@ -116,7 +98,7 @@ const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
     await ui.gotoEdit(myId);
     // Wait for Svelte 5 to hydrate the form's submit handler.
     await ui.waitForForm();
-    await ui.fillApplicationId(String(updated['application_id'] ?? ''));
+    await ui.fillApplicationId(String(updated['application_id']));
     await ui.fillAppliedDate(String(updated['applied_date']));
     await ui.fillCandidateId(String(updated['candidate_id'] ?? ''));
     await ui.fillStatus(String(updated['status']));

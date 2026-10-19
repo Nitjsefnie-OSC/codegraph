@@ -32,8 +32,9 @@ const depIds: Record<string, string | string[]> = {};
 function testData(): Partial<Record<keyof CreateApplicationRequest | 'code', unknown>> {
   return {
 
+    // fixture: convention ref 'application_id' has no creatable target
 
-    // 'application_id': entity ref — emitted by _dep_setup.tera
+    'application_id': 'Test Application Id',
 
 
 
@@ -50,8 +51,6 @@ function testData(): Partial<Record<keyof CreateApplicationRequest | 'code', unk
 
 
 
-    ...(depIds['application_id'] ? { 'application_id': depIds['application_id'] } : {}),
-
   };
 }
 
@@ -59,7 +58,7 @@ function updatedData(): Partial<Record<keyof CreateApplicationRequest | 'code', 
   return {
 
 
-    // 'application_id': entity ref — emitted by _dep_setup.tera
+    'application_id': 'Updated Application Id',
 
 
 
@@ -76,27 +75,11 @@ function updatedData(): Partial<Record<keyof CreateApplicationRequest | 'code', 
 
 
 
-    ...(depIds['application_id'] ? { 'application_id': depIds['application_id'] } : {}),
-
   };
 }
 
 test.describe('Application CRUD', () => {
 
-
-  test.beforeAll(async ({ orgContext }) => {
-
-
-
-
-  });
-
-  test.afterAll(async ({ orgContext }) => {
-
-const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
-
-
-  });
 
 
   test('list page loads with table', async ({ ownerPage: page }) => {
@@ -120,7 +103,7 @@ const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
 
 
 
-    await ui.fillApplicationId(String(data['application_id'] ?? ''));
+    await ui.fillApplicationId(String(data['application_id']));
 
 
 
@@ -248,7 +231,7 @@ const baseUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3000';
 
 
 
-    await ui.fillApplicationId(String(data['application_id'] ?? ''));
+    await ui.fillApplicationId(String(data['application_id']));
 
 
 
