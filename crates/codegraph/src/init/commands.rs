@@ -534,7 +534,40 @@ fn check_mox_files(
             println!("     hint: add a [domains.<name>] entry or rename the package");
         }
     }
+    // Body-less ops (issue #501 slice 3): name every abstract-hook seam.
+    // INFO only — a body-less op is a legitimate authoring choice, not a
+    // misconfiguration, so the mox-first zero-warning doctor matrix holds.
+    if let Some(model) = &model {
+        for seam in bodyless_op_seams(model) {
+            println!(
+                "INFO mox — body-less op {seam}: abstract hook, implement by hand \
+                 (seam generated in src/domain/<domain>/mox_ops.rs)"
+            );
+        }
+    }
     (hard, soft)
+}
+
+/// The body-less mox operations of a compiled model — the rexlang
+/// "abstract hook" gap class (rexlang `docs/DDD.md`): a body-less `op`
+/// stays an abstract hook implemented by hand in target code. `codegraph
+/// doctor --mox-files` prints each seam as an INFO line so the gap is
+/// visible instead of silent (issue #501 slice 3). The generated
+/// `src/domain/<domain>/mox_ops.rs` carries the matching signature-complete
+/// stub. Sorted (package, class, op) for deterministic output.
+pub fn bodyless_op_seams(model: &rex_ir::Model) -> Vec<String> {
+    let mut seams = Vec::new();
+    for package in &model.packages {
+        for class in &package.classes {
+            for op in &class.operations {
+                if op.bodies.is_empty() {
+                    seams.push(format!("{}::{}::{}", package.name, class.name, op.name));
+                }
+            }
+        }
+    }
+    seams.sort();
+    seams
 }
 
 /// The `package` declaration of a `.mox` source (the parser requires it at

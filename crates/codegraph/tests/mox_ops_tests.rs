@@ -446,6 +446,42 @@ async fn mox_bodyless_op_seam_is_visible() {
     );
 }
 
+/// The doctor half of slice 3: `codegraph doctor --mox-files` names every
+/// body-less op (package, class, op) as an unimplemented seam, via the
+/// seam-list helper the doctor prints. Pure INFO — never a warning (a
+/// body-less op is a legitimate abstract hook, not a misconfiguration).
+#[tokio::test]
+async fn mox_bodyless_op_doctor_names_the_seam() {
+    let sources = vec![("model.mox".to_string(), BODYLESS_OP_MOX.to_string())];
+    let compilation = rex_driver::compile_files(
+        &sources,
+        &rex_driver::DomainImports {
+            schemas: rex_driver::SchemaImports::new(),
+            sigil: rex_driver::SigilImports::new(),
+        },
+    );
+    let model = compilation.model.expect("fixture mox must compile");
+    let seams = codegraph::init::commands::bodyless_op_seams(&model);
+    assert_eq!(
+        seams,
+        vec!["recruiting::CandidateType::auditCount".to_string()],
+        "doctor seam list must name the body-less op"
+    );
+
+    // A model without body-less ops contributes no seams (the doctor mox
+    // matrix stays zero-warning).
+    let sources = vec![("model.mox".to_string(), RUST_AND_EXPR_OPS_MOX.to_string())];
+    let compilation = rex_driver::compile_files(
+        &sources,
+        &rex_driver::DomainImports {
+            schemas: rex_driver::SchemaImports::new(),
+            sigil: rex_driver::SigilImports::new(),
+        },
+    );
+    let model = compilation.model.expect("fixture mox must compile");
+    assert!(codegraph::init::commands::bodyless_op_seams(&model).is_empty());
+}
+
 // ── Presence gating (the byte-identity contract) ──
 
 /// With NO mox ingested the pipeline is unchanged: no mox_ops.rs anywhere,
