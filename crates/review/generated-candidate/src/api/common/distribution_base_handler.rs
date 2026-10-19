@@ -44,6 +44,97 @@ fn extract_correlation_id(headers: &HeaderMap) -> Uuid {
         .unwrap_or_else(Uuid::new_v4)
 }
 
+/// Map a `serde_path_to_error` failure onto the 422 envelope, naming the
+/// failing field: `path.to.field: cause` (#479 — axum's `Json` extractor
+/// used to reject bodies with an opaque "data did not match any variant").
+fn json_body_rejection(e: serde_path_to_error::Error<serde_json::Error>) -> AppError {
+    AppError::validation(
+        "Invalid JSON body",
+        vec![crate::error::FieldError {
+            field: e.path().to_string(),
+            message: e.inner().to_string(),
+        }],
+    )
+}
+
+/// Read the body as UTF-8 text, enforcing the JSON content-type contract
+/// axum's `Json` extractor enforced (415 on anything else).
+async fn json_body_text(req: axum::extract::Request) -> Result<String, AppError> {
+    let is_json = req
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|ct| ct.starts_with("application/json") || ct.ends_with("+json"))
+        .unwrap_or(false);
+    if !is_json {
+        return Err(AppError {
+            status: axum::http::StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            code: "UNSUPPORTED_MEDIA_TYPE",
+            message: "Expected Content-Type: application/json".to_string(),
+            details: None,
+            correlation_id: None,
+        });
+    }
+    let bytes = axum::body::to_bytes(req.into_body(), 2 * 1024 * 1024)
+        .await
+        .map_err(|e| AppError::bad_request(format!("Failed to read request body: {e}")))?;
+    String::from_utf8(bytes.to_vec())
+        .map_err(|_| AppError::bad_request("Request body is not valid UTF-8"))
+}
+
+
+/// JSON extractor that names the failing field on rejection: the body is
+/// deserialized through `serde_path_to_error` (see `json_body_rejection`).
+pub struct JsonPathBody<T>(pub T);
+
+impl<S, T> axum::extract::FromRequest<S> for JsonPathBody<T>
+where
+    S: Send + Sync,
+    T: serde::de::DeserializeOwned,
+{
+    type Rejection = AppError;
+
+    async fn from_request(req: axum::extract::Request, _state: &S) -> Result<Self, Self::Rejection> {
+        let text = json_body_text(req).await?;
+        let mut deserializer = serde_json::Deserializer::from_str(&text);
+        serde_path_to_error::deserialize(&mut deserializer)
+            .map(JsonPathBody)
+            .map_err(json_body_rejection)
+    }
+}
+
+
+/// Extractor for the create body (#479). The `#[serde(untagged)]` enum
+/// DISCARDS each variant's serde error, so even a path-tracking wrapper
+/// only ever sees "data did not match any variant" at the root. Branch on
+/// the payload shape first (array → Bulk, anything else → Single — the
+/// exact wire semantics of the untagged order) and path-track EACH
+/// attempt, so 422 bodies name `path.to.field: cause` per failed attempt.
+pub struct CreateBody(pub CreateDistributionBaseBody);
+
+impl<S> axum::extract::FromRequest<S> for CreateBody
+where
+    S: Send + Sync,
+{
+    type Rejection = AppError;
+
+    async fn from_request(req: axum::extract::Request, _state: &S) -> Result<Self, Self::Rejection> {
+        let text = json_body_text(req).await?;
+        let mut deserializer = serde_json::Deserializer::from_str(&text);
+        let value: serde_json::Value =
+            serde_path_to_error::deserialize(&mut deserializer).map_err(json_body_rejection)?;
+        let body = if value.is_array() {
+            let items: Vec<CreateDistributionBaseRequest> =
+                serde_path_to_error::deserialize(value).map_err(json_body_rejection)?;
+            CreateDistributionBaseBody::Bulk(items)
+        } else {
+            let item: CreateDistributionBaseRequest =
+                serde_path_to_error::deserialize(value).map_err(json_body_rejection)?;
+            CreateDistributionBaseBody::Single(item)
+        };
+        Ok(CreateBody(body))
+    }
+}
 
 /// Create one or more DistributionBase records.
 ///
@@ -73,7 +164,7 @@ pub async fn create(
     Extension(api_key_info): Extension<ApiKeyInfo>,
     headers: HeaderMap,
 
-    Json(body): Json<CreateDistributionBaseBody>,
+    CreateBody(body): CreateBody,
 ) -> Result<axum::response::Response, AppError> {
     use axum::response::IntoResponse;
     let correlation_id = extract_correlation_id(&headers);
@@ -230,7 +321,7 @@ pub async fn update(
 
     Path(id): Path<Uuid>,
 
-    Json(body): Json<UpdateDistributionBaseRequest>,
+    JsonPathBody(body): JsonPathBody<UpdateDistributionBaseRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let correlation_id = extract_correlation_id(&headers);
 

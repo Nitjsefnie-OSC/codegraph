@@ -23,6 +23,7 @@ cloudflare-worker = ["dep:worker", "worker/axum", "worker/http", "worker/tokio-p
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_path_to_error = { workspace = true }
 serde_qs = { workspace = true }
 percent-encoding = { workspace = true }
 uuid = { workspace = true }
