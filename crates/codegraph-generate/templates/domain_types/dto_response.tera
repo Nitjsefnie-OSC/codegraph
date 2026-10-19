@@ -64,6 +64,13 @@ pub struct {{ entity_name }}Response {
 {%- endif %}
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+{%- for extra in mox_derived_extras %}
+{%- if extra.rust_type %}
+    /// Computed by the mox domain model (derived) — read-only.
+    #[serde(default)]
+    pub {{ extra.name }}: {{ extra.rust_type }},
+{%- endif %}
+{%- endfor %}
 }
 {%- for child in all_child_dtos %}
 
@@ -105,5 +112,22 @@ pub struct {{ entity_name }}WorkflowState {
     pub is_terminal: bool,
     /// Valid target states from the current state.
     pub available_transitions: Vec<String>,
+}
+{%- endif %}
+{%- if mox_derived_extras | length > 0 %}
+
+/// Placeholder for the rexlang `res: &Resource` slot of the fixed
+/// operation signature (issue #501) — codegraph's generated app has no
+/// resource bag; bodies referencing `res.` fail to compile until wired by
+/// hand. Present only when a derived feature needs the accessor.
+pub struct Resource;
+
+impl {{ entity_name }}Response {
+{%- for extra in mox_derived_extras %}
+    /// Computed accessor for the mox derived feature `{{ extra.source_name }}`.
+    pub fn {{ extra.name }}(&self, res: &Resource) -> {{ extra.rust_type | default(value="()") }} {
+        {{ extra.body }}
+    }
+{%- endfor %}
 }
 {%- endif %}

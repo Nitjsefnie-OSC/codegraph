@@ -97,6 +97,54 @@ bridged, auto-scored): integration guide at `docs/rosetta.md`, construct
 matrix + defects ledger at `docs/rosetta-gap-analysis.md`.
 
 
+## mox op/derived consuming generator (issue #501)
+
+The #218 ingest surface (`MoxOperationNode`/`MoxDerivedFeatureNode`) now
+has its B5 consumer — the mox behavior surface generates code, not just
+graph nodes:
+
+- **Derived `expr` features** (`ddd/dto.rs` + `dto_response.tera`): a
+  derived feature naming an existing stored field annotates that field
+  read-only (the #218 behavior). A feature naming NO stored field becomes
+  a `#[serde(default)]` read-only response field plus a computed accessor
+  `pub fn name(&self, res: &Resource) -> T` in an impl block, with a
+  documented module-local `pub struct Resource;` placeholder. Bodies
+  lower through `codegraph-generate/src/mox_expr.rs` (rex-expr parse →
+  Rust closed subset: feature refs → `self.<field>` with Copy-aware
+  `.clone()`, literals, comparisons, boolean/arithmetic, fully
+  parenthesized — third target alongside `expr_sql`/`expr_ts`).
+  Never-located constructs and non-primitive types carry `todo!` stubs +
+  `TODO(#501)` markers. Create/update DTOs never see derived features.
+  SELECT-time population of the exposed fields is deferred.
+- **`mox_ops` DomainGenerator** (`ddd/mox_ops.rs`, the `functions.rs`
+  #263 shape): `src/domain/<domain>/mox_ops.rs` — one inherent impl per
+  mox class on the entity's SeaORM `Model` (aliased under its rust type
+  name), with the rex-backend-rust FIXED signature
+  `pub fn <snake>(&self, res: &Resource, params) -> Ret` (`int→i32`,
+  `string→String`, `boolean→bool`, `number→f64`, non-primitives
+  verbatim). `rust` bodies embed VERBATIM (byte-identical, own line —
+  the Tier 1 contract); `expr` bodies lower via `mox_expr` or marker +
+  `todo!`; body-less ops emit the signature-complete
+  `todo!("body-less mox op 'x' — implement by hand")` seam. The
+  `res: &Resource` slot is faithful to the rexlang contract — bodies
+  using `res.` fail to compile until hand-wired; that IS the seam.
+  Worker-routed (lands in `workers/{domain}/`); `"mox_ops"` rides the
+  six SeaORM-band `[api]` profiles (workers-cornucopia excluded — no
+  SeaORM Model exists there).
+- **Doctor seam section**: `codegraph doctor --mox-files` prints every
+  body-less op via `bodyless_op_seams()` (pub, in `init/commands.rs`) as
+  `INFO mox — body-less op <pkg>::<Class>::<op>` — INFO only, never a
+  warning (the mox-first zero-warning doctor matrix holds).
+- **Presence gating**: no ops/derived features in the graph ⇒ no files,
+  no markers, byte-identical output. Gate:
+  `cargo test -p codegraph --test mox_ops_tests` (5, node-free;
+  `mox_dto_tests` pins the stored-field annotation path).
+- **Deferred**: SELECT-time population of derived response fields;
+  class-typed signature slots (`{Class}Id`); mox_ops for cornucopia
+  profiles; `res.`-bag semantics (a real Resource type); runner wiring
+  (the ops/repo planes never CALL the generated methods — same
+  "generated but not yet invoked" class as #338).
+
 ## DDD design models as generator input (issue #449)
 
 rexlang's Sculptor-style design layer: `.ddd` files compile — against their

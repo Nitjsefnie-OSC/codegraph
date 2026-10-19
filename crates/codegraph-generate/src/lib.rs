@@ -6,6 +6,7 @@ pub mod error;
 pub mod filter_fields;
 pub mod ifml;
 pub mod manifest;
+pub mod mox_expr;
 pub mod persistence;
 pub mod profile;
 pub mod quality_gates;

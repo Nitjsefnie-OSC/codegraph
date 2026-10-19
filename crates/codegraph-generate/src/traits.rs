@@ -207,6 +207,7 @@ pub enum DomainGeneratorKind {
     Functions,
     Rules,
     HurlContract,
+    MoxOps,
 }
 
 impl DomainGeneratorKind {
@@ -228,6 +229,7 @@ impl DomainGeneratorKind {
             Self::Functions => "functions",
             Self::Rules => "rules",
             Self::HurlContract => "hurl_contract",
+            Self::MoxOps => "mox_ops",
         }
     }
 
@@ -249,6 +251,7 @@ impl DomainGeneratorKind {
             "functions" => Self::Functions,
             "rules" => Self::Rules,
             "hurl_contract" => Self::HurlContract,
+            "mox_ops" => Self::MoxOps,
             _ => return None,
         })
     }
@@ -257,7 +260,10 @@ impl DomainGeneratorKind {
     /// backend crate. Mirrors the former
     /// `is_worker_routed_domain_generator` string list exactly.
     pub fn is_worker_routed(self) -> bool {
-        matches!(self, Self::Errors | Self::Router | Self::Links)
+        matches!(
+            self,
+            Self::Errors | Self::Router | Self::Links | Self::MoxOps
+        )
     }
 }
 
