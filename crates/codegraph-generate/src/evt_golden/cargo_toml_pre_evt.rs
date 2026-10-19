@@ -52,6 +52,7 @@ sea-orm = { version = "2", features = ["sqlx-postgres", "runtime-tokio-rustls"] 
 tower-http = { version = "0.6", features = ["cors", "limit", "set-header"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_path_to_error = "0.1"
 serde_qs = "0.13"
 percent-encoding = "2"
 tokio = { version = "1", features = ["full"] }

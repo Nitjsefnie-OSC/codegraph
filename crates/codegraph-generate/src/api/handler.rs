@@ -1060,4 +1060,59 @@ mod ux_sort_handler_template_tests {
             "{out}"
         );
     }
+
+    /// Issue #479: create/update bodies extract through a
+    /// `serde_path_to_error`-wrapped extractor so 422s name
+    /// `path.to.field: cause` instead of axum's opaque untagged-enum
+    /// rejection. The create body branches on the payload shape BEFORE
+    /// deserializing (the untagged enum discards per-variant serde
+    /// errors, so path-tracking the enum is not enough); the extractor is
+    /// emitted only when a write body exists.
+    #[test]
+    fn write_bodies_extract_through_serde_path_to_error() {
+        // has_create renders the extractor + the create signature.
+        let mut ctx = base_ctx(Vec::new());
+        ctx["has_create"] = json!(true);
+        let out = render(&ctx);
+        for needle in [
+            // The shared rejection mapper names the failing path + cause.
+            "fn json_body_rejection(e: serde_path_to_error::Error<serde_json::Error>) -> AppError {",
+            "field: e.path().to_string(),",
+            "message: e.inner().to_string(),",
+            // Non-JSON content types keep the 415 contract axum's Json had.
+            "StatusCode::UNSUPPORTED_MEDIA_TYPE",
+            "code: \"UNSUPPORTED_MEDIA_TYPE\"",
+            // The create extractor branches on the payload shape and
+            // path-tracks EACH attempt (Bulk|Single semantics preserved).
+            "pub struct CreateBody(pub CreateTaskBody);",
+            "let body = if value.is_array() {",
+            "Vec<CreateTaskRequest> =\n                serde_path_to_error::deserialize(value)",
+            "CreateTaskBody::Bulk(items)",
+            "CreateTaskBody::Single(item)",
+            "CreateBody(body): CreateBody,",
+            "#[serde(untagged)]",
+        ] {
+            assert!(
+                out.contains(needle),
+                "handler must contain {needle:?}:\n{out}"
+            );
+        }
+        // Update rides the generic path-tracked extractor.
+        let mut ctx = base_ctx(Vec::new());
+        ctx["has_update"] = json!(true);
+        let out = render(&ctx);
+        assert!(out.contains("pub struct JsonPathBody<T>(pub T);"), "{out}");
+        assert!(
+            out.contains("JsonPathBody(body): JsonPathBody<UpdateTaskRequest>,"),
+            "{out}"
+        );
+        // Read-only entities emit neither extractor nor wrapper noise.
+        let out = render(&base_ctx(Vec::new()));
+        for needle in ["JsonPathBody", "CreateBody", "json_body_rejection"] {
+            assert!(
+                !out.contains(needle),
+                "read-only handler must not emit {needle:?}:\n{out}"
+            );
+        }
+    }
 }
