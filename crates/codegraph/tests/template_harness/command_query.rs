@@ -599,3 +599,118 @@ async fn child_query_has_find_by_id_scoped() {
         "Child query must include find_by_id_scoped method. Got:\n{content}"
     );
 }
+
+// === Lifecycle hooks × persistence provider (issue #502) ===
+
+fn hooks_project_config(
+    provider: codegraph::generate::profile::PersistenceProvider,
+) -> codegraph::generate::ProjectConfig {
+    codegraph::generate::ProjectConfig {
+        identity: codegraph::generate::IdentityConfig {
+            hooks_api_crate: "my_hooks".into(),
+            ..Default::default()
+        },
+        database: codegraph::generate::DatabaseConfig {
+            persistence_provider: provider,
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// Under cornucopia the command layer must contain NO transactional hook
+/// call site (they are sea_orm-gated) while the post-commit hooks remain
+/// (native-only in the worker slice behind the wasm32 cfg — the honest,
+/// documented shape; the typed-consumer event plane under workers is
+/// #505).
+#[tokio::test]
+async fn cornucopia_command_skips_transactional_hooks_and_keeps_post_commit() {
+    let mock = setup_mock().await;
+    let config = test_domain_config();
+    let tera = test_tera();
+    let output_dir = std::path::PathBuf::from("/tmp/hr-graph-test-harness-cmd-cornucopia-hooks");
+
+    let generator = generate::ddd::command::CommandGenerator::new(&output_dir);
+    let files = generator
+        .generate(
+            &mock,
+            "CandidateType",
+            "recruiting",
+            &config,
+            &tera,
+            &hooks_project_config(codegraph::generate::profile::PersistenceProvider::Cornucopia),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(files.len(), 1);
+    let content = &files[0].content;
+
+    // Transactional hooks: sea_orm-gated — none under cornucopia.
+    for tx_site in [
+        "hooks.before_create(",
+        "after_create_tx",
+        "hooks.before_update(",
+        "after_update_tx",
+        "TxContext::new(",
+    ] {
+        assert!(
+            !content.contains(tx_site),
+            "cornucopia command must not carry the transactional hook site `{tx_site}`:\n{content}"
+        );
+    }
+
+    // Post-commit hooks: present, but wasm32-gated (native-only in the
+    // worker slice) — the documented contract the refusal (#502) makes
+    // visible.
+    assert!(
+        content.contains("after_create_commit(&post_ctx)"),
+        "post-commit hook call site must remain:\n{content}"
+    );
+    assert!(
+        content.contains("PostCommitContext::new("),
+        "post-commit context construction must remain:\n{content}"
+    );
+    assert!(
+        content.contains("#[cfg(not(target_arch = \"wasm32\"))]"),
+        "post-commit hooks must stay wasm32-gated under cornucopia:\n{content}"
+    );
+}
+
+/// Contrast: the SeaORM monolith keeps its transactional hooks — the
+/// refusal (#502) and the sea_orm gate must never disable them.
+#[tokio::test]
+async fn sea_orm_command_keeps_transactional_hooks() {
+    let mock = setup_mock().await;
+    let config = test_domain_config();
+    let tera = test_tera();
+    let output_dir = std::path::PathBuf::from("/tmp/hr-graph-test-harness-cmd-seaorm-hooks");
+
+    let generator = generate::ddd::command::CommandGenerator::new(&output_dir);
+    let files = generator
+        .generate(
+            &mock,
+            "CandidateType",
+            "recruiting",
+            &config,
+            &tera,
+            &hooks_project_config(codegraph::generate::profile::PersistenceProvider::SeaOrm),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(files.len(), 1);
+    let content = &files[0].content;
+    for tx_site in [
+        "hooks.before_create(",
+        "after_create_tx",
+        "hooks.before_update(",
+        "after_update_tx",
+        "TxContext::new(",
+    ] {
+        assert!(
+            content.contains(tx_site),
+            "sea_orm command must keep the transactional hook site `{tx_site}`:\n{content}"
+        );
+    }
+}

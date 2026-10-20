@@ -700,6 +700,105 @@ generators = ["ddl"]
         );
     }
 
+    /// Issue #502: `hooks_api_crate` under `deployment_topology = "workers"`
+    /// would generate a lifecycle-hooks surface that never fires —
+    /// transactional hooks require SeaORM transactions (workers run
+    /// cornucopia) and post-commit hooks are compiled out of wasm32
+    /// workers. Refused at plan time (the topology×provider precedent);
+    /// the error must name the dead surface and the event-plane
+    /// alternative (#505).
+    #[test]
+    fn build_plan_hooks_api_crate_under_workers_topology_errors() {
+        let registry = CapabilityRegistry::new();
+
+        let toml = r#"
+[profiles.workers-hooks.meta]
+name = "workers-hooks"
+version = "1.0.0"
+description = ""
+hooks_api_crate = "my_hooks"
+
+[profiles.workers-hooks.features]
+deployment_topology = "workers"
+persistence_provider = "cornucopia"
+
+[profiles.workers-hooks.api]
+generators = ["ddl"]
+"#;
+        let config: ProfilesConfig = toml::from_str(toml).unwrap();
+        let def = &config.profiles["workers-hooks"];
+        let resolved = resolve_profile(def, None).unwrap();
+
+        let err = BuildPlan::from_profile(&resolved, &registry).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("hooks_api_crate"),
+            "error must name hooks_api_crate, got: {msg}"
+        );
+        assert!(
+            msg.contains("workers"),
+            "error must name the workers topology, got: {msg}"
+        );
+        assert!(
+            msg.contains("event plane") && msg.contains("#505"),
+            "error must point at the event plane alternative (#505), got: {msg}"
+        );
+    }
+
+    /// Control: workers topology WITHOUT hooks stays supported (the
+    /// crewbase shape — hooks_api_crate unset).
+    #[test]
+    fn build_plan_workers_without_hooks_api_crate_is_supported() {
+        let registry = CapabilityRegistry::new();
+
+        let toml = r#"
+[profiles.workers-clean.meta]
+name = "workers-clean"
+version = "1.0.0"
+description = ""
+
+[profiles.workers-clean.features]
+deployment_topology = "workers"
+persistence_provider = "cornucopia"
+
+[profiles.workers-clean.api]
+generators = ["ddl"]
+"#;
+        let config: ProfilesConfig = toml::from_str(toml).unwrap();
+        let def = &config.profiles["workers-clean"];
+        let resolved = resolve_profile(def, None).unwrap();
+
+        let plan = BuildPlan::from_profile(&resolved, &registry).unwrap();
+        assert_eq!(plan.deployment_topology(), DeploymentTopology::Workers);
+    }
+
+    /// Control: the SeaORM monolith keeps its hooks surface — the refusal
+    /// is scoped to the workers topology only.
+    #[test]
+    fn build_plan_monolith_sea_orm_with_hooks_api_crate_is_supported() {
+        let registry = CapabilityRegistry::new();
+
+        let toml = r#"
+[profiles.monolith-hooks.meta]
+name = "monolith-hooks"
+version = "1.0.0"
+description = ""
+hooks_api_crate = "my_hooks"
+
+[profiles.monolith-hooks.features]
+persistence_provider = "sea_orm"
+
+[profiles.monolith-hooks.api]
+generators = ["ddl"]
+"#;
+        let config: ProfilesConfig = toml::from_str(toml).unwrap();
+        let def = &config.profiles["monolith-hooks"];
+        let resolved = resolve_profile(def, None).unwrap();
+
+        let plan = BuildPlan::from_profile(&resolved, &registry).unwrap();
+        assert_eq!(plan.deployment_topology(), DeploymentTopology::Monolith);
+    }
+
     #[test]
     fn build_plan_deployment_topology_invalid_value_errors() {
         let registry = CapabilityRegistry::new();

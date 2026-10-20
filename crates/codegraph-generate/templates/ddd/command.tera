@@ -323,7 +323,9 @@ impl {{ entity_name }}CommandHandler {
 {% if project.persistence_provider == "cornucopia" %}
         // Post-commit hooks carry a SeaORM handle in their PostCommitContext;
         // they are native-only in the worker slice (no wasm32 SeaORM).
-        // TODO(worker-hooks): cornucopia hook parity (later epic step).
+        // Under workers topology the hooks surface is refused at plan time
+        // (issue #502); the cross-topology post-commit seam is the event
+        // plane (typed event consumers under workers: #505).
         #[cfg(not(target_arch = "wasm32"))]
         {
 {% endif %}
