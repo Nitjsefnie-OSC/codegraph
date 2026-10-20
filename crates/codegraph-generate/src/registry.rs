@@ -18,6 +18,22 @@ pub(crate) fn build_entity_generators(
     worker_base: Option<&Path>,
 ) -> Vec<Box<dyn EntityGenerator>> {
     let output_dir = ctx.output_dir;
+    // Push-covered entity refs (issue #503): the entities whose command
+    // module and workflow transition handler carry dispatcher.notify call
+    // sites. Empty without extension points — output byte-identical.
+    let push_covered: std::collections::HashSet<String> = ctx
+        .ext_points
+        .map(|ext| {
+            ext.points
+                .values()
+                .filter(|def| {
+                    def.directions
+                        .contains(&codegraph_ext_points::Direction::Push)
+                })
+                .flat_map(|def| def.entities.iter().cloned())
+                .collect()
+        })
+        .unwrap_or_default();
     // Routed generators (backend Rust source for one domain) get the
     // per-domain worker crate directory; all others stay at the root.
     let base = |name: &str| {
@@ -52,7 +68,8 @@ pub(crate) fn build_entity_generators(
         ) as Box<dyn EntityGenerator>,
         Box::new(
             ddd::command::CommandGenerator::new(base("command"))
-                .with_parent_candidates(parent_candidates.to_vec()),
+                .with_parent_candidates(parent_candidates.to_vec())
+                .with_extension_points(push_covered.clone()),
         ) as Box<dyn EntityGenerator>,
         Box::new(
             ddd::query::QueryGenerator::new(base("query"))
@@ -66,7 +83,8 @@ pub(crate) fn build_entity_generators(
         ) as Box<dyn EntityGenerator>,
         Box::new(
             api::workflow_action::WorkflowActionGenerator::new(base("workflow_action"))
-                .with_parent_candidates(parent_candidates.to_vec()),
+                .with_parent_candidates(parent_candidates.to_vec())
+                .with_extension_points(push_covered.clone()),
         ) as Box<dyn EntityGenerator>,
         Box::new(api::media::MediaRouteGenerator::new(base("media_route")))
             as Box<dyn EntityGenerator>,
@@ -533,6 +551,31 @@ pub(crate) fn build_global_generators(ctx: &GeneratorContext<'_>) -> Vec<Box<dyn
     }
 
     if let Some(ext) = ctx.ext_points {
+        // Push-covered entity refs ("domain.table") — the entities whose
+        // command layer carries notify call sites (issue #503). Pull-only
+        // points never notify.
+        let push_covered: std::collections::HashSet<String> = ext
+            .points
+            .values()
+            .filter(|def| {
+                def.directions
+                    .contains(&codegraph_ext_points::Direction::Push)
+            })
+            .flat_map(|def| def.entities.iter().cloned())
+            .collect();
+        // Under workers topology each covered domain's worker crate gets a
+        // local copy of the dispatcher module.
+        let worker_domains: Vec<String> = if ctx.workers_topology {
+            let mut domains: Vec<String> = push_covered
+                .iter()
+                .filter_map(|entity| entity.split('.').next().map(str::to_string))
+                .collect();
+            domains.sort();
+            domains.dedup();
+            domains
+        } else {
+            Vec::new()
+        };
         let integration_gens: [Box<dyn GlobalGenerator>; 4] = [
             Box::new(integration::tables::IntegrationTablesGenerator::new(
                 output_dir,
@@ -542,9 +585,10 @@ pub(crate) fn build_global_generators(ctx: &GeneratorContext<'_>) -> Vec<Box<dyn
                 output_dir,
                 ext.clone(),
             )),
-            Box::new(integration::dispatch::IntegrationDispatchGenerator::new(
-                output_dir,
-            )),
+            Box::new(
+                integration::dispatch::IntegrationDispatchGenerator::new(output_dir)
+                    .with_worker_domains(worker_domains),
+            ),
             Box::new(integration::catalog::IntegrationCatalogGenerator::new(
                 output_dir,
             )),

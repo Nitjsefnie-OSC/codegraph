@@ -104,6 +104,10 @@ generators = [
     # mox operation codegen (issue #501) — presence-gated: emits
     # src/domain/<domain>/mox_ops.rs only when the graph carries mox ops
     "mox_ops",
+    # Push-integration plane (issue #503) — presence-gated on the parsed
+    # --extension-points config; plan membership is required for profiled
+    # runs to emit the catalog/tables/config/dispatcher surface at all
+    "integration_tables", "integration_config", "integration_dispatch", "integration_catalog",
     # Global
     "openapi", "scaffold", "basejump_setup", "pgmq_setup",
     "platform_schema", "workflow_seed", "hook_registry", "domain_types_scaffold",

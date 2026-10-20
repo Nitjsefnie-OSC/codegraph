@@ -2072,6 +2072,56 @@ unknown `deployment_topology` values are a hard configuration error in
 to generators via `ProjectConfig.deployment.deployment_topology` (available in Tera
 templates as `project.deployment_topology`).
 
+## Push integration plane (issue #503)
+
+`--extension-points` now generates a plane that FIRES: the command layer
+calls `dispatcher.notify(organization_id, "<domain>.<table>", "<event>",
+id, correlation_id)` after each successful create/update/delete, and the
+workflow transition handler (`workflow_action.tera`) emits
+`state_changed` after a successful `workflow_service.transition`. The
+event vocabulary is CLOSED (`created`/`updated`/`deleted`/
+`state_changed`) and `entity_type` is the full `domain.table` ref the
+installations SQL matches against `ep.allowed_entities` (POSTed event =
+`"{entity_type}.{event}"` — pinned by the payload snapshot in
+`extension_points_tests`).
+
+- **Coverage**: `build_entity_generators` computes the push-covered set
+  (entities of points whose `directions` contain `push`) from the parsed
+  config and injects it via `CommandGenerator::with_extension_points` /
+  `WorkflowActionGenerator::with_extension_points` (constructor
+  injection, no trait change). Absent config ⇒ no call sites ⇒
+  byte-identical output.
+- **Project flag**: `IntegrationFlags.has_extension_points` (driver sets
+  it from the parsed config on both run paths; plan-less runs pass an
+  explicit ProjectConfig when config is present). Gates the AppState
+  `integration_dispatcher: Option<Arc<..>>` field and the
+  `CommandHandler::new` dispatcher param (project-level — signatures stay
+  uniform across entities; per-entity call sites gate on the covered
+  set).
+- **Dispatcher legs** (`integration/dispatcher.tera`): SeaORM
+  `DatabaseConnection` (monolith) vs cornucopia `ClientSource` +
+  `GenericClient` raw SQL (cornucopia); reqwest native vs `worker::Fetch`
+  wasm32 HTTP legs. Under workers topology the generator emits
+  `workers/{domain}/src/integration_dispatch.rs` per covered domain and
+  `worker_app_state.tera` constructs the dispatcher from the
+  `ClientSource` — the monolith (SeaORM) constructs from `app_db`; a
+  cornucopia MONOLITH carries `None` (cornucopia is de-facto
+  workers-only). Fire-and-forget with a 10s timeout is a documented v1
+  decision (#340 is the queue-backed path).
+- **Profile lists**: the four integration generators are
+  `plan_has_global`-gated but were listed in NO profile — profiled runs
+  never emitted the plane at all (only plan-less did). They now ride the
+  default `[api]` list; `ctx.ext_points.is_some()` remains the
+  presence gate.
+- **Doctor**: `--extension-points` parse-validates (unknown
+  cardinality/direction are parse errors) and cross-checks entity refs —
+  domain segment vs domains.toml (hard), entity segment vs model-derived
+  tables when a model source is available (hard). Deferred: the
+  covered-domain-without-deploy-component WARN (needs deploy models
+  threaded out of `check_deploy_files`).
+- Gate: `cargo test -p codegraph --test extension_points_tests` (4,
+  node-free) + `doctor_validates_extension_points` in `init_tests`.
+
 ### Hooks × topology refusal (issue #502)
 
 `hooks_api_crate` under `deployment_topology = "workers"` is refused at

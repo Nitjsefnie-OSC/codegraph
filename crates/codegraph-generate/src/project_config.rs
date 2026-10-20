@@ -223,6 +223,12 @@ pub struct IntegrationFlags {
     /// Whether EmDash plugin generation is enabled via profile feature flag.
     #[serde(default)]
     pub has_emdash: bool,
+    /// Whether a parsed `--extension-points` config is in effect (issue
+    /// #503): the integration plane is generated and the command layer /
+    /// workflow transition handler carry dispatcher.notify call sites for
+    /// covered entities. Absent config ⇒ false ⇒ byte-identical output.
+    #[serde(default)]
+    pub has_extension_points: bool,
     /// Public-operations consumer (issue #279): schemas carrying
     /// `access = Public` whose entity config declares `public_operations`
     /// emit `TO PUBLIC` RLS policies and mount routes without permission
@@ -251,6 +257,7 @@ impl Default for IntegrationFlags {
             has_fern: false,
             fern_sdk_languages: vec!["typescript".into()],
             has_emdash: false,
+            has_extension_points: false,
             public_operations_rls: false,
             has_function_postconditions: false,
             emdash_site_pages_base: default_emdash_site_pages_base(),
@@ -443,6 +450,7 @@ mod tests {
             ("has_fern", serde_json::json!(false)),
             ("fern_sdk_languages", serde_json::json!(["typescript"])),
             ("has_emdash", serde_json::json!(false)),
+            ("has_extension_points", serde_json::json!(false)),
             ("has_function_postconditions", serde_json::json!(false)),
             (
                 "emdash_site_pages_base",
