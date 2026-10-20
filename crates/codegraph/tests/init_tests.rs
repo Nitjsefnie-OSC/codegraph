@@ -558,7 +558,7 @@ generators = ["ddl"]
     )
     .unwrap();
 
-    let summary = cmd_doctor(&DoctorArgs {
+    let err = cmd_doctor(&DoctorArgs {
         config: project.join("domains.toml"),
         schemas: None,
         classifier: None,
@@ -570,10 +570,10 @@ generators = ["ddl"]
         deploy_files: vec![],
         ifml_files: vec![],
     })
-    .unwrap();
-    assert_eq!(
-        summary.hard_failures, 1,
-        "hooks_api_crate + workers topology must be the single hard failure"
+    .unwrap_err();
+    assert!(
+        format!("{err}").contains("hard check"),
+        "hooks_api_crate + workers topology must be a hard doctor failure: {err}"
     );
 }
 

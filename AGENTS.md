@@ -2072,6 +2072,22 @@ unknown `deployment_topology` values are a hard configuration error in
 to generators via `ProjectConfig.deployment.deployment_topology` (available in Tera
 templates as `project.deployment_topology`).
 
+### Hooks × topology refusal (issue #502)
+
+`hooks_api_crate` under `deployment_topology = "workers"` is refused at
+`BuildPlan::from_profile` (the topology×provider precedent): the
+lifecycle-hooks surface is SeaORM/monolith-native by construction —
+transactional hooks need a `sea_orm::DatabaseTransaction` (workers run
+cornucopia) and post-commit hooks are `#[cfg(not(target_arch =
+"wasm32"))]`-ed out of the worker slice — so under workers it compiles
+but never fires. The refusal names the event-plane alternative; the
+persistence-agnostic events epic (#505) tracks making the typed event
+consumers real under workers. The SeaORM monolith keeps its hooks
+surface untouched (pinned by the template guards in
+`template_harness/command_query.rs` — cornucopia renders no tx-hook
+call site and keeps the wasm32-gated post-commit; sea_orm keeps them
+all).
+
 ### Per-domain worker config (domains.toml)
 
 All keys on `DomainEntry` in `crates/codegraph-config/src/config/domain.rs` are
