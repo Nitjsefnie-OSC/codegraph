@@ -299,6 +299,91 @@ fn render_dispatcher(provider: &str) -> String {
     .expect("dispatcher.tera must render")
 }
 
+/// Issue #511: both provider legs select the installation's
+/// signing_secret, and both HTTP legs (native reqwest, wasm
+/// `worker::Fetch`) carry the HMAC headers. The verification helper and
+/// the replay window ride the same module.
+#[test]
+fn dispatcher_signs_events_with_the_installation_secret_on_both_legs() {
+    for dispatcher in [
+        render_dispatcher("sea_orm"),
+        render_dispatcher("cornucopia"),
+    ] {
+        // Shared signing machinery.
+        for fragment in [
+            "use hmac::{Hmac, Mac};",
+            "type HmacSha256 = Hmac<Sha256>;",
+            "fn event_signature(secret: &str, timestamp: i64, body: &[u8]) -> String",
+            "pub fn verify_event_signature(",
+            "pub const EVENT_SIGNATURE_MAX_AGE_SECS: i64 = 300;",
+            // Both provider legs select + thread the secret.
+            "i.signing_secret",
+            "signing_secret: Option<&str>",
+            "signing_secret.as_deref()",
+            // Signature header shape matches the webhook plane.
+            "X-Webhook-Signature",
+            "X-Webhook-Timestamp",
+        ] {
+            assert!(
+                dispatcher.contains(fragment),
+                "dispatcher must carry `{fragment}`:\n{dispatcher}"
+            );
+        }
+        // Native leg signs the exact reqwest body bytes.
+        let native_idx = dispatcher
+            .find("#[cfg(not(target_arch = \"wasm32\"))]")
+            .expect("native leg must exist");
+        let native = &dispatcher[native_idx..];
+        assert!(
+            native.contains("event_signature(secret, timestamp, &body)"),
+            "native leg must sign the exact body bytes:\n{native}"
+        );
+        assert!(
+            native.contains(".header(\n                    \"X-Webhook-Signature\","),
+            "native leg must set the signature header:\n{native}"
+        );
+        // wasm leg signs before the Fetch request.
+        let wasm_idx = dispatcher
+            .find("#[cfg(target_arch = \"wasm32\")]")
+            .expect("wasm leg must exist");
+        let wasm = &dispatcher[wasm_idx..];
+        assert!(
+            wasm.contains("event_signature(secret, timestamp, &body)"),
+            "wasm leg must sign the exact body bytes:\n{wasm}"
+        );
+        assert!(
+            wasm.contains("headers.set(\n                    \"X-Webhook-Signature\","),
+            "wasm leg must set the signature header:\n{wasm}"
+        );
+    }
+}
+
+/// The installations table carries the nullable signing_secret column —
+/// the documented back-compat shape (NULL ⇒ unsigned delivery).
+#[test]
+fn installation_table_carries_signing_secret() {
+    let tera = codegraph::generate::template_engine::create_tera(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("templates"),
+    )
+    .unwrap();
+    let ctx: HashMap<String, String> = HashMap::new();
+    let tables = codegraph::generate::render_template_with_project(
+        &tera,
+        "integration/tables.tera",
+        &ctx,
+        &test_project("sea_orm"),
+    )
+    .expect("tables.tera must render");
+    assert!(
+        tables.contains("signing_secret TEXT,"),
+        "installations must carry the signing_secret column:\n{tables}"
+    );
+    assert!(
+        tables.contains("CREATE TABLE platform_integrations.installations"),
+        "tables must declare the installations table:\n{tables}"
+    );
+}
+
 /// The POST payload is the documented contract: event namespaced by the
 /// full `domain.table` entity_type, plus the four identity fields.
 #[test]

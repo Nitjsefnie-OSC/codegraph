@@ -9,11 +9,70 @@
 //! matches against `ep.allowed_entities`; the POSTed event is
 //! `"{entity_type}.{event}"`.
 //!
+//! Signing (issue #511): when the installation row carries a
+//! `signing_secret`, every event is HMAC-SHA256-signed over
+//! `"{timestamp}.{body}"` and delivered with `X-Webhook-Signature`
+//! (`sha256=`-prefixed hex, the webhook plane's header shape) plus
+//! `X-Webhook-Timestamp` (unix seconds). The timestamp is INSIDE the MAC,
+//! so receivers enforce the replay window with
+//! `verify_event_signature`. Installations without a secret are
+//! delivered unsigned — the documented back-compat shape.
+//!
 //! Reliability: dispatch is fire-and-forget with a 10s per-target timeout
 //! — errors are logged, never propagated. That is a deliberate v1
 //! decision; the queue-backed path (pgmq) is tracked in issue #340.
 
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 use uuid::Uuid;
+
+type HmacSha256 = Hmac<Sha256>;
+
+/// Replay window enforced by `verify_event_signature` (5 minutes).
+pub const EVENT_SIGNATURE_MAX_AGE_SECS: i64 = 300;
+
+/// HMAC-SHA256 over `"{timestamp}.{body}"`, hex-encoded with the
+/// `sha256=` prefix (issue #511).
+fn event_signature(secret: &str, timestamp: i64, body: &[u8]) -> String {
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+        .expect("HMAC accepts any key length");
+    mac.update(timestamp.to_string().as_bytes());
+    mac.update(b".");
+    mac.update(body);
+    format!("sha256={}", hex::encode(mac.finalize().into_bytes()))
+}
+
+/// Receiver-side verification for `/events` endpoints: constant-time MAC
+/// check plus the replay window (timestamps older than
+/// `EVENT_SIGNATURE_MAX_AGE_SECS`, or more than 60s in the future, are
+/// rejected). `now` is the receiver's unix time in seconds.
+pub fn verify_event_signature(
+    secret: &str,
+    timestamp: i64,
+    body: &[u8],
+    signature: &str,
+    now: i64,
+) -> Result<(), String> {
+    let age = now - timestamp;
+    if !(-60..=EVENT_SIGNATURE_MAX_AGE_SECS).contains(&age) {
+        return Err(format!(
+            "event timestamp outside the replay window (age {age}s)"
+        ));
+    }
+    let sig_hex = signature
+        .strip_prefix("sha256=")
+        .ok_or_else(|| "signature missing the sha256= prefix".to_string())?;
+    let sig_bytes = hex::decode(sig_hex)
+        .map_err(|_| "signature is not valid hex".to_string())?;
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+        .map_err(|_| "invalid signing secret".to_string())?;
+    mac.update(timestamp.to_string().as_bytes());
+    mac.update(b".");
+    mac.update(body);
+    mac.verify_slice(&sig_bytes)
+        .map_err(|_| "event signature mismatch".to_string())
+}
+
 {% if project.persistence_provider == "cornucopia" %}
 use std::sync::Arc;
 
@@ -77,7 +136,7 @@ impl IntegrationDispatcher {
         let client = self.client_source.client().await.map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.to_string().into() })?;
         let rows = client
             .query(
-                "SELECT c.worker_url, i.id as installation_id
+                "SELECT c.worker_url, i.id as installation_id, i.signing_secret
                  FROM platform_integrations.installations i
                  JOIN platform_integrations.catalog c ON c.id = i.catalog_id
                  JOIN platform_integrations.extension_points ep ON ep.id = i.extension_point_id
@@ -91,6 +150,7 @@ impl IntegrationDispatcher {
         for row in &rows {
             let worker_url: String = row.try_get(0)?;
             let installation_id: Uuid = row.try_get(1)?;
+            let signing_secret: Option<String> = row.try_get(2)?;
 
             let payload = serde_json::json!({
                 "event": format!("{}.{}", entity_type, event),
@@ -100,7 +160,8 @@ impl IntegrationDispatcher {
                 "correlation_id": correlation_id.to_string(),
             });
 
-            self.post_event(&worker_url, &payload, &installation_id).await;
+            self.post_event(&worker_url, &payload, &installation_id, signing_secret.as_deref())
+                .await;
         }
 
         Ok(())
@@ -108,7 +169,7 @@ impl IntegrationDispatcher {
         let rows = self.db
             .query_all_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "SELECT c.worker_url, i.id as installation_id
+                "SELECT c.worker_url, i.id as installation_id, i.signing_secret
                  FROM platform_integrations.installations i
                  JOIN platform_integrations.catalog c ON c.id = i.catalog_id
                  JOIN platform_integrations.extension_points ep ON ep.id = i.extension_point_id
@@ -122,6 +183,7 @@ impl IntegrationDispatcher {
         for row in rows {
             let worker_url: String = row.try_get_by_index(0)?;
             let installation_id: Uuid = row.try_get_by_index(1)?;
+            let signing_secret: Option<String> = row.try_get_by_index(2)?;
 
             let payload = serde_json::json!({
                 "event": format!("{}.{}", entity_type, event),
@@ -131,7 +193,8 @@ impl IntegrationDispatcher {
                 "correlation_id": correlation_id.to_string(),
             });
 
-            self.post_event(&worker_url, &payload, &installation_id).await;
+            self.post_event(&worker_url, &payload, &installation_id, signing_secret.as_deref())
+                .await;
         }
 
         Ok(())
@@ -140,12 +203,33 @@ impl IntegrationDispatcher {
 
     /// POST one event to an integration worker. Fire-and-forget per
     /// installation: success and failure are logged, never propagated.
+    /// Signed with the installation's HMAC secret when it carries one
+    /// (issue #511); the signature covers the exact bytes sent.
     #[cfg(not(target_arch = "wasm32"))]
-    async fn post_event(&self, worker_url: &str, payload: &serde_json::Value, installation_id: &Uuid) {
+    async fn post_event(
+        &self,
+        worker_url: &str,
+        payload: &serde_json::Value,
+        installation_id: &Uuid,
+        signing_secret: Option<&str>,
+    ) {
         // TODO: wire RetryConfig from integration manifest into dispatch retry logic
-        let resp = self.http_client
+        let body = serde_json::to_vec(payload).unwrap_or_default();
+        let timestamp = chrono::Utc::now().timestamp();
+        let mut req = self
+            .http_client
             .post(&format!("{worker_url}/events"))
-            .json(payload)
+            .header("content-type", "application/json");
+        if let Some(secret) = signing_secret {
+            req = req
+                .header(
+                    "X-Webhook-Signature",
+                    event_signature(secret, timestamp, &body),
+                )
+                .header("X-Webhook-Timestamp", timestamp.to_string());
+        }
+        let resp = req
+            .body(body)
             .timeout(std::time::Duration::from_secs(10))
             .send()
             .await;
@@ -171,16 +255,33 @@ impl IntegrationDispatcher {
     }
 
     /// wasm32 worker slice: outbound POST via `worker::Fetch` (reqwest
-    /// does not link to wasm32-unknown-unknown).
+    /// does not link to wasm32-unknown-unknown). Same signing contract as
+    /// the native leg.
     #[cfg(target_arch = "wasm32")]
-    async fn post_event(&self, worker_url: &str, payload: &serde_json::Value, installation_id: &Uuid) {
+    async fn post_event(
+        &self,
+        worker_url: &str,
+        payload: &serde_json::Value,
+        installation_id: &Uuid,
+        signing_secret: Option<&str>,
+    ) {
         let outcome = (|| async {
+            let body = serde_json::to_vec(payload)
+                .map_err(|e| worker::Error::from(format!("payload serialize: {e}")))?;
             let mut headers = worker::Headers::new();
             headers.set("content-type", "application/json")?;
+            if let Some(secret) = signing_secret {
+                let timestamp = chrono::Utc::now().timestamp();
+                headers.set(
+                    "X-Webhook-Signature",
+                    &event_signature(secret, timestamp, &body),
+                )?;
+                headers.set("X-Webhook-Timestamp", &timestamp.to_string())?;
+            }
             let mut init = worker::RequestInit::new();
             init.method = worker::Method::Post;
             init.headers = headers;
-            init.body = Some(serde_json::to_string(payload).map_err(|e| worker::Error::from(format!("payload serialize: {e}")))?.into());
+            init.body = Some(body.into());
             let req = worker::Fetch::Request(
                 worker::Request::new_with_init(&format!("{worker_url}/events"), &init)?,
             );

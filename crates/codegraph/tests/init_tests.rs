@@ -1829,6 +1829,41 @@ fn doctor_validates_extension_points() {
     );
 }
 
+/// Issue #511: every doctor run carrying the push plane hears the
+/// signing advisory once — installations without `signing_secret`
+/// deliver unsigned events until provisioned.
+#[test]
+fn doctor_ext_points_advises_signing_secret_provisioning() {
+    let dir = TempDir::new().unwrap();
+    cmd_init(&init_args(dir.path(), "demo-app", None, false)).unwrap();
+    let project = dir.path().join("demo-app");
+    let ext_path = project.join("extension-points.toml");
+    fs::write(&ext_path, EXT_POINTS_HAPPY).unwrap();
+
+    let summary = cmd_doctor(&DoctorArgs {
+        config: project.join("domains.toml"),
+        schemas: None,
+        classifier: None,
+        profiles_config: Some(project.join("profiles.toml")),
+        mox_files: vec![project.join("model/common.mox")],
+        rosetta_files: vec![],
+        ddd_files: vec![],
+        evt_files: vec![],
+        deploy_files: vec![],
+        ifml_files: vec![],
+        extension_points: Some(ext_path),
+    })
+    .unwrap();
+    assert_eq!(
+        summary.hard_failures, 0,
+        "the signing advisory is advisory, never a hard failure"
+    );
+    assert!(
+        summary.soft_warnings >= 1,
+        "the signing advisory must warn (soft)"
+    );
+}
+
 const WORKERS_DEPLOY_NO_COMMON_COMPONENT: &str = concat!(
     "application Shop {\n",
     "    component api: api { replicas: 2 }\n",
@@ -1950,7 +1985,9 @@ fn doctor_ext_points_push_covered_domain_with_matching_component_no_extra_warn()
         "the matching-component deploy must agree with the workers plan"
     );
     assert_eq!(
-        with_points.soft_warnings, baseline.soft_warnings,
-        "a covered domain with a matching api/worker component must add no warning"
+        with_points.soft_warnings,
+        baseline.soft_warnings + 1,
+        "a covered domain with a matching api/worker component must add no warning \
+         beyond the #511 signing advisory (+1)"
     );
 }

@@ -2116,10 +2116,23 @@ installations SQL matches against `ep.allowed_entities` (POSTed event =
 - **Doctor**: `--extension-points` parse-validates (unknown
   cardinality/direction are parse errors) and cross-checks entity refs —
   domain segment vs domains.toml (hard), entity segment vs model-derived
-  tables when a model source is available (hard). Deferred: the
-  covered-domain-without-deploy-component WARN (needs deploy models
-  threaded out of `check_deploy_files`).
-- Gate: `cargo test -p codegraph --test extension_points_tests` (4,
+  tables when a model source is available (hard). `.deploy` compilation
+  is hoisted into `cmd_doctor` so both checks share one parse; a
+  push-covered domain with no api/worker deploy component in the resolved
+  `DeployShape` WARNs (soft, issue #510 — the #503 deferral retired), and
+  the signing advisory warns once per run (issue #511).
+- **Signing (issue #511)**: `platform_integrations.installations`
+  carries a nullable `signing_secret`; when set, `dispatcher.tera`
+  HMAC-SHA256-signs `"{timestamp}.{body}"` (timestamp INSIDE the MAC) and
+  sends `X-Webhook-Signature: sha256=<hex>` + `X-Webhook-Timestamp` on
+  BOTH HTTP legs (the `dispatch_worker.tera` `outbound_headers`
+  factoring — compute once as data, cfg-gate only the transport). NULL ⇒
+  unsigned delivery (documented back-compat). Receivers verify with the
+  emitted `integration_dispatch::verify_event_signature` (constant-time
+  MAC check + 5-minute replay window, `EVENT_SIGNATURE_MAX_AGE_SECS`).
+  Deliberately exceeds the webhook plane's precedent, whose timestamp
+  header is unsigned; the webhook plane is untouched.
+- Gate: `cargo test -p codegraph --test extension_points_tests` (6,
   node-free) + `doctor_validates_extension_points` in `init_tests`.
 
 ### Hooks × topology refusal (issue #502)
