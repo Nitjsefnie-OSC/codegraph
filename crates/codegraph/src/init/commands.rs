@@ -300,6 +300,13 @@ pub struct DoctorArgs {
     /// `resolve_actor_policy` (a policy the run path would silently skip
     /// is a hard failure here). Parse errors are hard failures.
     pub ifml_files: Vec<PathBuf>,
+    /// extension-points config path (optional, issue #503). The run path
+    /// consumes this config; doctor parse-validates it (unknown
+    /// cardinality/direction values are parse errors) and cross-checks
+    /// entity refs against domains.toml (domain segment: hard error) and
+    /// the model-derived entity tables (hard error when a model source is
+    /// available).
+    pub extension_points: Option<PathBuf>,
 }
 
 /// Outcome counts for a doctor run. `model_warnings` isolates the
@@ -864,6 +871,166 @@ fn check_deploy_files(
     (hard, soft)
 }
 
+/// Validate `--extension-points` for doctor (issue #503): the run path
+/// consumes this config for the push-integration plane, so doctor
+/// parse-validates it (unknown cardinality/direction values are parse
+/// errors) and cross-checks every entity ref: the domain segment must be
+/// a domains.toml key (hard error) and — when a model source is available
+/// (mox files, or the JSON schemas directory) — the entity segment must
+/// match a model-derived entity table (hard error). Returns the
+/// (hard_failures, soft_warnings) contributed.
+fn check_extension_points(
+    path: &Path,
+    domain_config: Option<&codegraph_config::config::DomainConfig>,
+    mox_files: &[PathBuf],
+    schemas: Option<&Path>,
+) -> (usize, usize) {
+    let mut hard = 0;
+    let text = match fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) => {
+            hard += 1;
+            println!(
+                "FAIL extension-points — cannot read {}: {e}",
+                path.display()
+            );
+            return (hard, 0);
+        }
+    };
+    let config = match codegraph_ext_points::parse_extension_points_str(&text) {
+        Ok(c) => c,
+        Err(e) => {
+            hard += 1;
+            println!(
+                "FAIL extension-points — {} does not parse: {e}",
+                path.display()
+            );
+            println!(
+                "     hint: cardinality is \"exclusive\"|\"multiple\"; directions are \
+                 \"push\"|\"pull\"|\"bidirectional\"; config field types are \
+                 \"text\"|\"select\"|\"toggle\"|\"secret\""
+            );
+            return (hard, 0);
+        }
+    };
+
+    // Model-derived entity tables for the entity-segment cross-check:
+    // mox classes (table = snake(suffix-stripped class name) per package
+    // domain), else JSON schema file stems.
+    let mut expected: std::collections::HashSet<String> = std::collections::HashSet::new();
+    if !mox_files.is_empty() {
+        if let Some(cfg) = domain_config {
+            let sources: Vec<(String, String)> = mox_files
+                .iter()
+                .filter_map(|p| {
+                    fs::read_to_string(p)
+                        .ok()
+                        .map(|t| (p.display().to_string(), t))
+                })
+                .collect();
+            let compilation = rex_driver::compile_files(
+                &sources,
+                &rex_driver::DomainImports {
+                    schemas: rex_driver::SchemaImports::new(),
+                    sigil: rex_driver::SigilImports::new(),
+                },
+            );
+            if let Some(model) = compilation.model {
+                let suffix = &cfg.defaults.type_suffix;
+                for package in &model.packages {
+                    let (domain, matched) =
+                        crate::ingest::mox_ingest::resolve_domain(cfg, &package.name);
+                    if !matched {
+                        continue;
+                    }
+                    for class in &package.classes {
+                        expected.insert(format!(
+                            "{domain}.{}",
+                            codegraph_naming::to_snake_case(&codegraph_naming::strip_suffix(
+                                &class.name,
+                                suffix
+                            ))
+                        ));
+                    }
+                }
+            }
+        }
+    } else if let Some(entries) = schemas.and_then(|dir| fs::read_dir(dir).ok()) {
+        for entry in entries.flatten() {
+            let domain = entry.file_name().to_string_lossy().to_string();
+            let Ok(files) = fs::read_dir(entry.path()) else {
+                continue;
+            };
+            for file in files.flatten() {
+                let name = file.file_name().to_string_lossy().to_string();
+                let Some(stem) = name.strip_suffix(".json") else {
+                    continue;
+                };
+                if let Some(cfg) = domain_config {
+                    expected.insert(format!(
+                        "{domain}.{}",
+                        codegraph_naming::to_snake_case(&codegraph_naming::strip_suffix(
+                            stem,
+                            &cfg.defaults.type_suffix
+                        ))
+                    ));
+                }
+            }
+        }
+    }
+
+    let model_source_available = !expected.is_empty();
+    let mut entities = 0usize;
+    let mut points = 0usize;
+    for (id, def) in &config.points {
+        points += 1;
+        for entity in &def.entities {
+            entities += 1;
+            let Some((domain, _table)) = entity.split_once('.') else {
+                hard += 1;
+                println!(
+                    "FAIL extension-points — point '{id}' entity ref '{entity}' is not \
+                     `domain.entity`"
+                );
+                println!("     hint: entity refs look like \"payroll.pay_run\"");
+                continue;
+            };
+            match domain_config {
+                Some(cfg) if !cfg.domains.contains_key(domain) => {
+                    hard += 1;
+                    println!(
+                        "FAIL extension-points — point '{id}' references '{entity}' but \
+                         domains.toml has no [{domain}] entry"
+                    );
+                    println!("     hint: add a [domains.{domain}] entry or fix the ref");
+                }
+                _ => {}
+            }
+            if model_source_available && !expected.contains(entity) {
+                hard += 1;
+                println!(
+                    "FAIL extension-points — point '{id}' references '{entity}' which is \
+                     not a known entity of the model"
+                );
+                println!(
+                    "     hint: entity refs are `domain.entity_table` (the entity's \
+                     snake_case table name)"
+                );
+            }
+        }
+    }
+    println!(
+        "PASS extension-points — {} — {points} point(s), {entities} entity ref(s){}",
+        path.display(),
+        if model_source_available {
+            "; entity refs cross-checked against the model"
+        } else {
+            " (no model source; entity segments not cross-checked)"
+        }
+    );
+    (hard, 0)
+}
+
 /// Parse-verify the .ifml interaction-model plane (additive, like
 /// `check_evt_files`: never feeds model_warnings). Each file goes through
 /// the SAME `rex_ifml::parse_ifml_file` the ingest path uses, so doctor
@@ -1238,6 +1405,19 @@ pub fn cmd_doctor(args: &DoctorArgs) -> Result<DoctorSummary> {
     // it never feeds model_warnings.
     if !args.ifml_files.is_empty() {
         let (hard, soft) = check_ifml_files(&args.ifml_files);
+        hard_failures += hard;
+        soft_warnings += soft;
+    }
+
+    // The extension-points plane (issue #503): the run path consumes this
+    // config for the push-integration surface, so doctor validates it.
+    if let Some(ext_path) = &args.extension_points {
+        let (hard, soft) = check_extension_points(
+            ext_path,
+            domain_config.as_ref().ok(),
+            &args.mox_files,
+            args.schemas.as_deref(),
+        );
         hard_failures += hard;
         soft_warnings += soft;
     }

@@ -259,7 +259,9 @@ async fn main() {
             Arc::new({{ project.lib_name }}::domain::{{ domain.name }}::{{ entity.module_name }}::repository_impl::{{ entity.name }}RepositoryImpl),
             db.clone(),
 {% endif %}
-            registry.{{ domain.name }}_{{ entity.module_name }}.clone(),
+            registry.{{ domain.name }}_{{ entity.module_name }}.clone(),{% if project.has_extension_points %}
+            None,
+{% endif %}
         ),
 {% endif %}
         {{ domain.name }}_{{ entity.module_name }}_queries: {{ project.lib_name }}::domain::{{ domain.name }}::{{ entity.module_name }}::query::{{ entity.name }}QueryHandler::new(

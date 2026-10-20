@@ -614,3 +614,148 @@ mod tests {
         );
     }
 }
+
+/// Workers topology + extension points (issue #503): the dispatcher module
+/// is emitted INTO each covered worker crate, the worker lib declares it,
+/// the worker AppState constructs it from the provider handle, and the
+/// worker command module carries the notify call sites for covered
+/// entities. Flag-off parity is pinned by the policy_rls canary.
+#[tokio::test]
+async fn workers_topology_emits_integration_dispatcher_per_worker() {
+    let (mock, config, tera, output_dir) = workers_scaffold_test_setup();
+    let domain_types_tmp = tempfile::TempDir::new().unwrap();
+    let hooks_tmp = tempfile::TempDir::new().unwrap();
+
+    let ext = codegraph_ext_points::parse_extension_points_str(
+        r#"
+[payroll-sync]
+name = "Payroll Sync"
+description = "Synchronise pay data"
+cardinality = "exclusive"
+entities = ["compensation.pay_run"]
+directions = ["push"]
+"#,
+    )
+    .unwrap();
+
+    let project = codegraph::generate::ProjectConfig {
+        deployment: codegraph::generate::DeploymentConfig {
+            deployment_topology: codegraph::profile::DeploymentTopology::Workers,
+        },
+        integration: codegraph::generate::IntegrationFlags {
+            has_extension_points: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let plan = BuildPlan {
+        entity_generators: vec![
+            "ddl".to_string(),
+            "sea_orm_entity".to_string(),
+            "handler".to_string(),
+            "dto".to_string(),
+            "repository".to_string(),
+            "command".to_string(),
+            "query".to_string(),
+        ],
+        domain_generators: vec![
+            "errors".to_string(),
+            "router".to_string(),
+            "links".to_string(),
+        ],
+        global_generators: vec![
+            "worker_scaffold".to_string(),
+            "scaffold".to_string(),
+            "integration_dispatch".to_string(),
+        ],
+        post_gen_scripts: vec![],
+        ifml_frameworks: vec![],
+        template_pack_path: None,
+        database_target: codegraph::generate::db::dialect::DatabaseTarget::Postgres,
+        has_atproto: false,
+        atproto_tenancy: "shared_pds".to_string(),
+        has_fern: false,
+        has_emdash: false,
+        fern_sdk_languages: vec!["typescript".to_string()],
+        persistence_provider: codegraph::profile::PersistenceProvider::SeaOrm,
+        dto_key_casing: "snake".to_string(),
+        deployment_topology: codegraph::profile::DeploymentTopology::Workers,
+        dependency_strategy: codegraph::profile::DependencyStrategy::Rev,
+        namespace_layout: false,
+        ux_rules: false,
+        expr_ir: false,
+        ifml_e2e_auth: false,
+        testid_module: false,
+        structural_gates: false,
+        public_operations_rls: false,
+        features: toml::Table::new(),
+    };
+
+    let report =
+        codegraph::generate::run_generators_with_opts(codegraph::generate::GeneratorOpts {
+            db: &mock,
+            config: &config,
+            output_dir: output_dir.path(),
+            tera: &tera,
+            ui_overrides: &Default::default(),
+            ui_domains: &Default::default(),
+            schema_base_dir: Path::new(""),
+            domain_types_base: Some(domain_types_tmp.path()),
+            hooks_base: Some(hooks_tmp.path()),
+            ext_points: Some(&ext),
+            seed_config: None,
+            build_plan: Some(&plan),
+            ifml_frameworks: vec![],
+            ifml_components: None,
+            ux_rules: None,
+            project_config: Some(&project),
+            emdash_plugins: None,
+            domain_config_dir: None,
+        })
+        .await
+        .unwrap();
+
+    let find = |needle: &str| {
+        report
+            .files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with(needle))
+            .unwrap_or_else(|| panic!("missing generated file: {needle}"))
+    };
+
+    // The dispatcher module lands INSIDE the covered worker crate...
+    let dispatcher = find("workers/compensation/src/integration_dispatch.rs");
+    assert!(
+        dispatcher
+            .content
+            .contains("pub struct IntegrationDispatcher"),
+        "worker dispatcher module must carry the dispatcher:\n{}",
+        dispatcher.content
+    );
+    // ...the worker lib declares it...
+    assert!(
+        find("workers/compensation/src/lib.rs")
+            .content
+            .contains("pub mod integration_dispatch;"),
+        "worker lib must declare the integration_dispatch module"
+    );
+    // ...the worker AppState constructs it from the provider handle...
+    let app_state = find("workers/compensation/src/app_state.rs");
+    assert!(
+        app_state
+            .content
+            .contains("IntegrationDispatcher::new(db.clone())"),
+        "worker AppState must construct the dispatcher:\n{}",
+        app_state.content
+    );
+    // ...and the worker command module fires it for the covered entity.
+    let command = find("workers/compensation/src/domain/compensation/pay_run/command.rs");
+    assert!(
+        command
+            .content
+            .contains("dispatcher.notify(organization_id, \"compensation.pay_run\", \"created\""),
+        "worker command module must carry the notify call site:\n{}",
+        command.content
+    );
+}

@@ -156,7 +156,11 @@ pub async fn transition(
             WorkflowError::NotFound => AppError::not_found(e.to_string()).with_correlation_id(correlation_id),
             _ => AppError::internal(e.to_string()).with_correlation_id(correlation_id),
         }
-    })?;
+    })?;{% if has_extension_points %}
+    if let Some(dispatcher) = &state.integration_dispatcher {
+        dispatcher.notify(api_key_info.organization_id, "{{ entity_ref }}", "state_changed", id, correlation_id).await;
+    }
+{% endif %}
     let response = WorkflowStateResponse {
         entity_id: ws.entity_id,
         current_state: ws.current_state,

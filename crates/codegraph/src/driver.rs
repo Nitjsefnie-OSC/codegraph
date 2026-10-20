@@ -455,6 +455,7 @@ pub async fn run_with_graph_cache(
                 has_fern: plan.has_fern,
                 fern_sdk_languages: plan.fern_sdk_languages.clone(),
                 has_emdash: plan.has_emdash,
+                has_extension_points: false,
                 public_operations_rls: plan.public_operations_rls,
                 has_function_postconditions: resolved
                     .features
@@ -895,6 +896,12 @@ pub async fn run_with_graph_cache(
         && let Some(pc) = project_config.as_mut()
     {
         pc.ux.ux = ux_resolved.clone();
+    }
+    // Extension-points flag (issue #503): templates gate the integration
+    // plane (AppState field, dispatcher wiring) on this project-level flag;
+    // per-entity call sites gate on the covered set instead.
+    if let Some(pc) = project_config.as_mut() {
+        pc.integration.has_extension_points = ext_config.is_some();
     }
 
     run_validation(be.querier(), &domain_config).await?;
@@ -1440,6 +1447,14 @@ pub async fn generate(
     // Issue #293: plan-less run (no BuildPlan) — a CLI ux-rules file still
     // reaches generators; ProjectConfig stays None (see `run`).
     let ux_resolved = effective_ux_rules(ux_rules, None)?;
+    // Extension-points flag (issue #503): a plan-less run with a parsed
+    // config still needs the project-level gate (the AppState wiring), so
+    // an explicit ProjectConfig replaces the None default in that case.
+    let extension_points_project_config = ext_config.as_ref().map(|_| {
+        let mut pc = crate::generate::ProjectConfig::default();
+        pc.integration.has_extension_points = true;
+        pc
+    });
     let report = crate::generate::run_generators_with_opts(crate::generate::GeneratorOpts {
         db: be.querier(),
         config: &config,
@@ -1456,7 +1471,7 @@ pub async fn generate(
         ifml_frameworks: ifml_frameworks.to_vec(),
         ifml_components: ifml_component_mappings.as_ref(),
         ux_rules: ux_resolved,
-        project_config: None,
+        project_config: extension_points_project_config.as_ref(),
         emdash_plugins: None,
         domain_config_dir: config_path.parent(),
     })

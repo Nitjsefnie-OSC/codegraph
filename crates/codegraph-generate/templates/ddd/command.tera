@@ -107,6 +107,8 @@ pub struct {{ entity_name }}CommandHandler {
     db: DatabaseConnection,
 {% if project.hooks_api_crate %}
     hooks: Option<Arc<dyn {{ project.hooks_api_crate }}::generated::{{ domain }}::{{ module_name }}::{{ entity_name }}Lifecycle>>,
+{% endif %}{% if project.has_extension_points %}
+    dispatcher: Option<std::sync::Arc<crate::integration_dispatch::IntegrationDispatcher>>,
 {% endif %}
 }
 
@@ -122,6 +124,8 @@ impl {{ entity_name }}CommandHandler {
         db: DatabaseConnection,
 {% if project.hooks_api_crate %}
         hooks: Option<Arc<dyn {{ project.hooks_api_crate }}::generated::{{ domain }}::{{ module_name }}::{{ entity_name }}Lifecycle>>,
+{% endif %}{% if project.has_extension_points %}
+        dispatcher: Option<std::sync::Arc<crate::integration_dispatch::IntegrationDispatcher>>,
 {% endif %}
     ) -> Self {
         Self {
@@ -133,6 +137,8 @@ impl {{ entity_name }}CommandHandler {
             db,
 {% if project.hooks_api_crate %}
             hooks,
+{% endif %}{% if project.has_extension_points %}
+            dispatcher,
 {% endif %}
         }
     }
@@ -341,6 +347,10 @@ impl {{ entity_name }}CommandHandler {
         }
 {% endif %}
 
+        {% endif %}{% if has_extension_points %}
+        if let Some(dispatcher) = &self.dispatcher {
+            dispatcher.notify(organization_id, "{{ entity_ref }}", "created", id, correlation_id).await;
+        }
         {% endif %}
 
         Ok(id)
@@ -427,6 +437,10 @@ impl {{ entity_name }}CommandHandler {
         }
 {% endif %}
 
+        {% endif %}{% if has_extension_points %}
+        if let Some(dispatcher) = &self.dispatcher {
+            dispatcher.notify(organization_id, "{{ entity_ref }}", "updated", id, correlation_id).await;
+        }
         {% endif %}
 
         Ok(())
@@ -512,6 +526,10 @@ impl {{ entity_name }}CommandHandler {
 {% if project.persistence_provider == "cornucopia" %}
         }
 {% endif %}
+        {% endif %}{% if has_extension_points %}
+        if let Some(dispatcher) = &self.dispatcher {
+            dispatcher.notify(organization_id, "{{ entity_ref }}", "deleted", id, correlation_id).await;
+        }
         {% endif %}
 
         Ok(())

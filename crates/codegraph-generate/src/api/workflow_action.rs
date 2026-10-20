@@ -49,6 +49,11 @@ pub struct WorkflowActionContext {
     /// When true, the entity has a soft-delete audit policy and the query layer
     /// expects an `include_deleted: bool` argument on read methods.
     pub is_auditable: bool,
+    /// A push-direction extension point covers this entity (issue #503):
+    /// the transition handler notifies after a successful state change.
+    pub has_extension_points: bool,
+    /// The full `domain.table` ref the dispatcher addresses.
+    pub entity_ref: String,
 }
 
 /// A single transition rule for template rendering.
@@ -68,6 +73,9 @@ pub struct DualStatusGuard {
 pub struct WorkflowActionGenerator {
     output_dir: PathBuf,
     parent_candidates: Vec<codegraph_core::types::ParentCandidate>,
+    /// Push-covered entity refs ("domain.table") from the parsed
+    /// extension-points config (issue #503).
+    extension_covered: std::collections::HashSet<String>,
 }
 
 impl WorkflowActionGenerator {
@@ -75,6 +83,7 @@ impl WorkflowActionGenerator {
         Self {
             output_dir: output_dir.to_path_buf(),
             parent_candidates: Vec::new(),
+            extension_covered: std::collections::HashSet::new(),
         }
     }
 
@@ -83,6 +92,11 @@ impl WorkflowActionGenerator {
         candidates: Vec<codegraph_core::types::ParentCandidate>,
     ) -> Self {
         self.parent_candidates = candidates;
+        self
+    }
+
+    pub fn with_extension_points(mut self, covered: std::collections::HashSet<String>) -> Self {
+        self.extension_covered = covered;
         self
     }
 }
@@ -311,6 +325,10 @@ impl EntityGenerator for WorkflowActionGenerator {
             parent_path_segment,
             parent_domain,
             is_auditable,
+            has_extension_points: self
+                .extension_covered
+                .contains(&format!("{domain}.{module_name}")),
+            entity_ref: format!("{domain}.{module_name}"),
         };
 
         let content =

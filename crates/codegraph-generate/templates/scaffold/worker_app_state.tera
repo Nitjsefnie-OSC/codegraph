@@ -41,7 +41,9 @@ pub struct AppState {
     /// `/_dispatch` test pump), which have no `Env` otherwise.
     #[cfg(target_arch = "wasm32")]
     pub env: worker::Env,
-    pub workflow_service: Arc<dyn codegraph_workflow::WorkflowService>,
+    pub workflow_service: Arc<dyn codegraph_workflow::WorkflowService>,{% if project.has_extension_points %}
+    pub integration_dispatcher: Option<std::sync::Arc<crate::integration_dispatch::IntegrationDispatcher>>,
+{% endif %}
 {% if project.hooks_api_crate %}
     pub registry: HookRegistry,
 {% endif %}
@@ -59,6 +61,14 @@ impl AppState {
         supabase_url: Option<String>,
         #[cfg(target_arch = "wasm32")] env: worker::Env,
     ) -> Self {
+{%- if project.has_extension_points %}
+        // The push-integration dispatcher rides the same persistence-agnostic
+        // handle as the command layer (issue #503) — the wasm leg POSTs via
+        // worker::Fetch, the native leg via reqwest.
+        let integration_dispatcher = Some(std::sync::Arc::new(
+            crate::integration_dispatch::IntegrationDispatcher::new(client_source.clone()),
+        ));
+{%- endif %}
         Self {
 {% for entity in entities %}
 {% if entity.has_commands %}
@@ -70,6 +80,8 @@ impl AppState {
                 #[cfg(not(target_arch = "wasm32"))] db.clone(),
 {% if project.hooks_api_crate %}
                 None,
+{% endif %}{% if project.has_extension_points %}
+                integration_dispatcher.clone(),
 {% endif %}
             ),
 {% endif %}
@@ -99,7 +111,9 @@ impl AppState {
             jwt_secret,
             supabase_url,
             #[cfg(target_arch = "wasm32")]
-            env,
+            env,{% if project.has_extension_points %}
+            integration_dispatcher,
+{% endif %}
 {% if project.hooks_api_crate %}
             registry: HookRegistry::default(),
 {% endif %}
@@ -116,6 +130,11 @@ impl AppState {
         jwt_secret: String,
         supabase_url: Option<String>,
     ) -> Self {
+{%- if project.has_extension_points %}
+        let integration_dispatcher = Some(std::sync::Arc::new(
+            crate::integration_dispatch::IntegrationDispatcher::new(db.clone()),
+        ));
+{%- endif %}
         Self {
 {% for entity in entities %}
 {% if entity.has_commands %}
@@ -126,6 +145,8 @@ impl AppState {
                 db.clone(),
 {% if project.hooks_api_crate %}
                 None,
+{% endif %}{% if project.has_extension_points %}
+                integration_dispatcher.clone(),
 {% endif %}
             ),
 {% endif %}
@@ -142,7 +163,9 @@ impl AppState {
             db: db.clone(),
             jwt_secret,
             supabase_url,
-            workflow_service: Arc::new(codegraph_workflow::engine::SeaOrmWorkflowService::new(db)),
+            workflow_service: Arc::new(codegraph_workflow::engine::SeaOrmWorkflowService::new(db)),{% if project.has_extension_points %}
+            integration_dispatcher,
+{% endif %}
 {% if project.hooks_api_crate %}
             registry: HookRegistry::default(),
 {% endif %}

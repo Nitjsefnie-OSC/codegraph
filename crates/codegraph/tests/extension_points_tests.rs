@@ -21,9 +21,10 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use codegraph_ext_points::parse_extension_points_str;
+
 use codegraph_grafeo::GrafeoEngine;
 
 /// Extension point covering the fixture entity (CandidateType → table
@@ -193,28 +194,38 @@ async fn extension_point_coverage_emits_notify_call_sites() {
 
     // The dispatcher module exists (the plane is installed)…
     assert!(
-        output_dir.join("src").join("integration_dispatch.rs").exists(),
+        output_dir
+            .join("src")
+            .join("integration_dispatch.rs")
+            .exists(),
         "integration_dispatch.rs must be generated when extension points are configured"
     );
 
     // …and the covered entity's command layer FIRES it: one notify call
-    // site per mutation, entity_type = the full domain.table ref, closed
-    // event vocabulary.
+    // site per EMITTED mutation, entity_type = the full domain.table ref,
+    // closed event vocabulary. The fixture entity carries create/update
+    // (no delete op) — the delete site must follow the delete fn.
     let command = read_command_module(&output_dir);
-    for event in ["created", "updated", "deleted"] {
-        assert!(
-            command.contains(&format!("dispatcher.notify(")),
-            "command module must carry dispatcher.notify call sites:\n{command}"
-        );
-        assert!(
-            command.contains(&format!("\"recruiting.candidate\"")),
-            "notify must address the entity by its domain.table ref:\n{command}"
-        );
-        assert!(
-            command.contains(&format!("\"{event}\"")),
-            "notify must use the closed-vocabulary event `{event}`:\n{command}"
+    let has_delete = command.contains("pub async fn delete");
+    for (op_fn, event) in [
+        ("pub async fn create", "created"),
+        ("pub async fn update", "updated"),
+        ("pub async fn delete", "deleted"),
+    ] {
+        assert_eq!(
+            command.contains(op_fn),
+            command.contains(&format!(
+                "dispatcher.notify(organization_id, \"recruiting.candidate\", \"{event}\""
+            )),
+            "the `{event}` notify site must exactly follow the `{op_fn}` fn"
         );
     }
+    assert!(
+        command
+            .contains("dispatcher.notify(organization_id, \"recruiting.candidate\", \"created\""),
+        "command module must carry the create notify site:\n{command}"
+    );
+    let _ = has_delete;
 }
 
 /// Presence gating (the byte-identity contract): with NO extension-points
@@ -234,10 +245,20 @@ async fn without_extension_points_output_is_unchanged() {
     ingest_fixture_schemas(&engine, &config).await;
 
     let hooks_tmp = tempfile::tempdir().unwrap();
-    run_generation(&engine, None, &output_dir, &domain_types_dir, hooks_tmp.path()).await;
+    run_generation(
+        &engine,
+        None,
+        &output_dir,
+        &domain_types_dir,
+        hooks_tmp.path(),
+    )
+    .await;
 
     assert!(
-        !output_dir.join("src").join("integration_dispatch.rs").exists(),
+        !output_dir
+            .join("src")
+            .join("integration_dispatch.rs")
+            .exists(),
         "integration_dispatch.rs must not be generated without extension points"
     );
     let command = read_command_module(&output_dir);
@@ -263,9 +284,7 @@ fn test_project(provider: &str) -> codegraph::generate::ProjectConfig {
     project
 }
 
-fn render_dispatcher(
-    provider: &str,
-) -> String {
+fn render_dispatcher(provider: &str) -> String {
     let tera = codegraph::generate::template_engine::create_tera(
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("templates"),
     )

@@ -310,6 +310,11 @@ pub async fn run_server() -> Result<(), Box<dyn std::error::Error>> {
             });
         }
     }
+{% endif %}{% if project.has_extension_points %}
+    // SeaORM monolith: the dispatcher shares the serving pool. Under
+    // cornucopia (workers topology) each worker crate constructs its own
+    // dispatcher from the ClientSource handle — the monolith carries None.
+    let integration_dispatcher = {% if project.persistence_provider == "sea_orm" %}Some(std::sync::Arc::new(crate::integration_dispatch::IntegrationDispatcher::new(app_db.clone()))){% else %}None{% endif %};
 {% endif %}
 
     let state = crate::app_state::AppState {
@@ -321,6 +326,8 @@ pub async fn run_server() -> Result<(), Box<dyn std::error::Error>> {
             app_db.clone(),
 {% if project.hooks_api_crate %}
             hooks_registry.{{ domain.name }}_{{ entity.module_name }}.clone(),
+{% endif %}{% if project.has_extension_points %}
+            integration_dispatcher.clone(),
 {% endif %}
         ),{% endif %}
         {{ domain.name }}_{{ entity.module_name }}_queries: crate::domain::{{ domain.name }}::{{ entity.module_name }}::query::{{ entity.name }}QueryHandler::new(
@@ -334,10 +341,12 @@ pub async fn run_server() -> Result<(), Box<dyn std::error::Error>> {
 {% endfor %}
         db: app_db.clone(),
         pool_mode,
+{% if project.has_extension_points %}
+        integration_dispatcher,
+{% endif %}
 {% if project.hooks_api_crate %}
         registry: hooks_registry,
-{% endif %}
-{% if has_atproto %}
+{% endif %}{% if has_atproto %}
         identity: app_ctx.identity.clone(),
 
         atproto_auth: app_ctx.atproto_auth.clone(),

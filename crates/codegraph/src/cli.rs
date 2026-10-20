@@ -388,6 +388,12 @@ pub enum Commands {
         /// and unresolvable imports are hard failures
         #[arg(long)]
         ifml_files: Vec<PathBuf>,
+
+        /// Path to extension-points.toml (optional). Parse-validated and
+        /// its entity refs cross-checked against domains.toml and the
+        /// model (issue #503)
+        #[arg(long)]
+        extension_points: Option<PathBuf>,
     },
     /// Add to an existing consumer project
     Add {

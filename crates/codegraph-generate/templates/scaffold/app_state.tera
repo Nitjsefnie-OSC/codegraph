@@ -38,7 +38,9 @@ pub struct AppState {
     pub db: DatabaseConnection,
     pub pool_mode: DbPoolMode,
     pub jwt_secret: String,
-    pub workflow_service: Arc<dyn codegraph_workflow::WorkflowService>,
+    pub workflow_service: Arc<dyn codegraph_workflow::WorkflowService>,{% if project.has_extension_points %}
+    pub integration_dispatcher: Option<std::sync::Arc<crate::integration_dispatch::IntegrationDispatcher>>,
+{% endif %}
 {% if project.hooks_api_crate %}
     pub registry: HookRegistry,
 {% endif %}

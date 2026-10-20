@@ -22,11 +22,20 @@ pub struct CommandContext {
     pub has_update: bool,
     pub has_delete: bool,
     pub parent_ref: Option<String>,
+    /// A push-direction extension point covers this entity (issue #503):
+    /// the command layer carries dispatcher.notify call sites.
+    pub has_extension_points: bool,
+    /// The full `domain.table` ref the dispatcher addresses and the
+    /// installations SQL matches against `ep.allowed_entities`.
+    pub entity_ref: String,
 }
 
 pub struct CommandGenerator {
     output_dir: PathBuf,
     parent_candidates: Vec<ParentCandidate>,
+    /// Push-covered entity refs ("domain.table") from the parsed
+    /// extension-points config (issue #503).
+    extension_covered: std::collections::HashSet<String>,
 }
 
 impl CommandGenerator {
@@ -34,11 +43,17 @@ impl CommandGenerator {
         Self {
             output_dir: output_dir.to_path_buf(),
             parent_candidates: Vec::new(),
+            extension_covered: std::collections::HashSet::new(),
         }
     }
 
     pub fn with_parent_candidates(mut self, candidates: Vec<ParentCandidate>) -> Self {
         self.parent_candidates = candidates;
+        self
+    }
+
+    pub fn with_extension_points(mut self, covered: std::collections::HashSet<String>) -> Self {
+        self.extension_covered = covered;
         self
     }
 }
@@ -110,6 +125,10 @@ impl EntityGenerator for CommandGenerator {
             has_delete: operations.contains(&"delete".to_string()),
             parent_ref,
             entity_name,
+            has_extension_points: self
+                .extension_covered
+                .contains(&format!("{domain}.{}", module_name)),
+            entity_ref: format!("{domain}.{}", module_name),
             module_name: module_name.clone(),
             domain: domain.clone(),
             operations,

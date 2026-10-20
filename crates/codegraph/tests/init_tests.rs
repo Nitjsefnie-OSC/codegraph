@@ -519,6 +519,7 @@ fn doctor_fresh_scaffold_has_zero_model_warnings() {
         evt_files: vec![],
         deploy_files: vec![],
         ifml_files: vec![],
+        extension_points: None,
     })
     .unwrap();
     assert_eq!(
@@ -569,6 +570,7 @@ generators = ["ddl"]
         evt_files: vec![],
         deploy_files: vec![],
         ifml_files: vec![],
+        extension_points: None,
     })
     .unwrap_err();
     assert!(
@@ -599,6 +601,7 @@ fn doctor_empty_schemas_dir_in_mox_mode_still_warns() {
         evt_files: vec![],
         deploy_files: vec![],
         ifml_files: vec![],
+        extension_points: None,
     })
     .unwrap();
     assert_eq!(
@@ -632,6 +635,7 @@ fn doctor_classifier_missing_with_json_schemas_is_hard_failure() {
         evt_files: vec![],
         deploy_files: vec![],
         ifml_files: vec![],
+        extension_points: None,
     })
     .unwrap_err();
     assert!(
@@ -663,6 +667,7 @@ fn doctor_validates_multiple_mox_files() {
         evt_files: vec![],
         deploy_files: vec![],
         ifml_files: vec![],
+        extension_points: None,
     })
     .unwrap();
     assert_eq!(summary.hard_failures, 0);
@@ -689,6 +694,7 @@ fn doctor_fails_on_missing_schemas() {
         evt_files: vec![],
         deploy_files: vec![],
         ifml_files: vec![],
+        extension_points: None,
     })
     .unwrap_err();
     assert!(
@@ -737,6 +743,7 @@ fn doctor_mox_mode_validates_packages_and_allows_missing_schemas() {
         evt_files: vec![],
         deploy_files: vec![],
         ifml_files: vec![],
+        extension_points: None,
     })
     .unwrap();
     assert_eq!(summary.hard_failures, 0);
@@ -764,6 +771,7 @@ fn doctor_mox_package_without_domain_entry_is_a_hard_failure() {
         evt_files: vec![],
         deploy_files: vec![],
         ifml_files: vec![],
+        extension_points: None,
     })
     .unwrap_err();
     assert!(
@@ -794,6 +802,7 @@ fn doctor_broken_mox_file_is_a_hard_failure() {
         evt_files: vec![],
         deploy_files: vec![],
         ifml_files: vec![],
+        extension_points: None,
     })
     .unwrap_err();
     assert!(
@@ -929,6 +938,7 @@ fn doctor_valid_import_passes() {
         evt_files: vec![],
         deploy_files: vec![],
         ifml_files: vec![],
+        extension_points: None,
     })
     .unwrap();
 }
@@ -949,6 +959,7 @@ fn doctor_missing_import_target_is_a_hard_failure() {
         evt_files: vec![],
         deploy_files: vec![],
         ifml_files: vec![],
+        extension_points: None,
     })
     .unwrap_err();
     assert!(
@@ -973,6 +984,7 @@ fn doctor_invalid_import_json_is_a_hard_failure() {
         evt_files: vec![],
         deploy_files: vec![],
         ifml_files: vec![],
+        extension_points: None,
     })
     .unwrap_err();
     assert!(
@@ -1228,6 +1240,7 @@ fn doctor_rosetta_starter_has_zero_model_warnings() {
         evt_files: vec![],
         deploy_files: vec![],
         ifml_files: vec![],
+        extension_points: None,
     })
     .unwrap();
     assert_eq!(summary.hard_failures, 0);
@@ -1255,6 +1268,7 @@ fn doctor_broken_rosetta_file_is_a_hard_failure() {
         evt_files: vec![],
         deploy_files: vec![],
         ifml_files: vec![],
+        extension_points: None,
     })
     .unwrap_err();
     assert!(
@@ -1289,6 +1303,7 @@ fn doctor_rosetta_namespace_without_domain_entry_warns() {
         evt_files: vec![],
         deploy_files: vec![],
         ifml_files: vec![],
+        extension_points: None,
     })
     .unwrap();
     assert_eq!(
@@ -1329,6 +1344,7 @@ fn doctor_rosetta_import_without_matching_file_warns() {
         evt_files: vec![],
         deploy_files: vec![],
         ifml_files: vec![],
+        extension_points: None,
     })
     .unwrap();
     assert_eq!(summary.hard_failures, 0);
@@ -1436,6 +1452,7 @@ fn doctor_deploy_files_compile_clean_with_matching_topology() {
         evt_files: vec![],
         deploy_files: vec![deploy],
         ifml_files: vec![],
+        extension_points: None,
     })
     .unwrap();
     assert_eq!(
@@ -1484,6 +1501,7 @@ fn doctor_deploy_workers_profile_conflicts_with_monolith_topology() {
         evt_files: vec![],
         deploy_files: vec![deploy],
         ifml_files: vec![],
+        extension_points: None,
     })
     .unwrap_err();
     assert!(
@@ -1533,6 +1551,7 @@ fn doctor_workers_topology_without_deploy_profile_is_hard_failure() {
         evt_files: vec![],
         deploy_files: vec![deploy],
         ifml_files: vec![],
+        extension_points: None,
     })
     .unwrap_err();
     assert!(
@@ -1585,6 +1604,7 @@ fn doctor_deploy_component_coverage_gap_warns_but_does_not_fail() {
         evt_files: vec![],
         deploy_files: vec![deploy],
         ifml_files: vec![],
+        extension_points: None,
     })
     .unwrap();
     assert_eq!(
@@ -1662,6 +1682,7 @@ fn doctor_ifml_files_parse_clean_and_resolve_policy() {
         evt_files: vec![],
         deploy_files: vec![],
         ifml_files: vec![ifml],
+        extension_points: None,
     })
     .unwrap();
     assert_eq!(
@@ -1691,6 +1712,7 @@ fn doctor_ifml_missing_policy_import_is_hard_failure() {
         evt_files: vec![],
         deploy_files: vec![],
         ifml_files: vec![ifml],
+        extension_points: None,
     })
     .unwrap_err();
     assert!(
@@ -1719,10 +1741,90 @@ fn doctor_ifml_parse_error_is_hard_failure() {
         evt_files: vec![],
         deploy_files: vec![],
         ifml_files: vec![ifml],
+        extension_points: None,
     })
     .unwrap_err();
     assert!(
         format!("{err}").contains("hard check"),
         "an unparseable ifml file must be a hard failure: {err}"
+    );
+}
+
+// ── extension-points doctor check (issue #503) ──
+
+const EXT_POINTS_HAPPY: &str = r#"
+[payroll-sync]
+name = "Payroll Sync"
+description = "Synchronise employee and pay data"
+cardinality = "exclusive"
+entities = ["common.common_todo_list", "common.common_todo_item"]
+directions = ["push"]
+"#;
+
+const EXT_POINTS_UNKNOWN_ENTITY: &str = r#"
+[payroll-sync]
+name = "Payroll Sync"
+description = "Synchronise employee and pay data"
+cardinality = "exclusive"
+entities = ["common.nonexistent_entity"]
+directions = ["push"]
+"#;
+
+const EXT_POINTS_UNKNOWN_VOCABULARY: &str = r#"
+[payroll-sync]
+name = "Payroll Sync"
+description = "Synchronise employee and pay data"
+cardinality = "many"
+entities = ["common.common_todo_list"]
+directions = ["sideways"]
+"#;
+
+fn doctor_with_ext_points(ext_toml: &str) -> std::io::Result<String> {
+    let dir = TempDir::new().unwrap();
+    cmd_init(&init_args(dir.path(), "demo-app", Some(repo_root()), false)).unwrap();
+    let project = dir.path().join("demo-app");
+    let ext_path = project.join("extension-points.toml");
+    fs::write(&ext_path, ext_toml).unwrap();
+
+    let result = cmd_doctor(&DoctorArgs {
+        config: project.join("domains.toml"),
+        schemas: None,
+        classifier: None,
+        profiles_config: Some(project.join("profiles.toml")),
+        mox_files: vec![project.join("model/common.mox")],
+        rosetta_files: vec![],
+        ddd_files: vec![],
+        evt_files: vec![],
+        deploy_files: vec![],
+        ifml_files: vec![],
+        extension_points: Some(ext_path),
+    });
+    match result {
+        Ok(summary) => Ok(format!("ok: {} hard", summary.hard_failures)),
+        Err(e) => Ok(format!("{e}")),
+    }
+}
+
+#[test]
+fn doctor_validates_extension_points() {
+    // Happy path: covered refs exist in the scaffold model — zero failures.
+    let out = doctor_with_ext_points(EXT_POINTS_HAPPY).unwrap();
+    assert!(
+        out.starts_with("ok: 0 hard"),
+        "a covering extension-points config must pass doctor: {out}"
+    );
+
+    // Unknown entity ref (model source present): hard failure.
+    let out = doctor_with_ext_points(EXT_POINTS_UNKNOWN_ENTITY).unwrap();
+    assert!(
+        out.contains("hard check"),
+        "an unknown entity ref must be a hard failure: {out}"
+    );
+
+    // Unknown cardinality/direction values: parse errors are hard failures.
+    let out = doctor_with_ext_points(EXT_POINTS_UNKNOWN_VOCABULARY).unwrap();
+    assert!(
+        out.contains("hard check"),
+        "unknown vocabulary values must be a hard failure: {out}"
     );
 }
