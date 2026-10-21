@@ -1085,6 +1085,21 @@ fn check_extension_points(
         }
     }
 
+    // Issue #511 back-compat advisory: push events are HMAC-signed only
+    // when the installation row carries a signing_secret (the column
+    // ships nullable). Doctor cannot see the database, so every run that
+    // carries the push plane hears about the provisioning step once.
+    soft += 1;
+    println!(
+        "WARN extension-points — installations without signing_secret deliver UNSIGNED \
+         events (issue #511)"
+    );
+    println!(
+        "     hint: provision platform_integrations.installations.signing_secret per \
+         installation; receivers verify with \
+         integration_dispatch::verify_event_signature"
+    );
+
     println!(
         "PASS extension-points — {} — {points} point(s), {entities} entity ref(s){}",
         path.display(),
