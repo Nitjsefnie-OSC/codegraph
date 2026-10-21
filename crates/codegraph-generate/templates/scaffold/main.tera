@@ -27,6 +27,7 @@ mod webhook_router;
 mod events;{% endif %}
 {% if project.hooks_api_crate %}
 mod hooks;
+mod hook_adapters;
 {% endif %}
 {% if has_atproto %}
 mod atproto;
@@ -398,6 +399,7 @@ mod webhook_router;
 mod events;{% endif %}
 {% if project.hooks_api_crate %}
 mod hooks;
+mod hook_adapters;
 {% endif %}
 {% if has_atproto %}
 mod atproto;

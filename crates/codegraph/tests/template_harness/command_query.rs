@@ -618,13 +618,13 @@ fn hooks_project_config(
     }
 }
 
-/// Under cornucopia the command layer must contain NO transactional hook
-/// call site (they are sea_orm-gated) while the post-commit hooks remain
-/// (native-only in the worker slice behind the wasm32 cfg — the honest,
-/// documented shape; the typed-consumer event plane under workers is
-/// #505).
+/// Issue #509 (the #502 refusal is RETIRED): under cornucopia the command
+/// layer carries ALL hook call sites — transactional hooks run on the
+/// open cornucopia transaction via the erased `HookTx` adapter (Abort ⇒
+/// rollback preserved) and post-commit hooks ride the `ClientSource`
+/// adapter, un-gated: they compile and fire in the wasm32 worker slice.
 #[tokio::test]
-async fn cornucopia_command_skips_transactional_hooks_and_keeps_post_commit() {
+async fn cornucopia_command_keeps_all_hooks_without_wasm_gates() {
     let mock = setup_mock().await;
     let config = test_domain_config();
     let tera = test_tera();
@@ -646,34 +646,47 @@ async fn cornucopia_command_skips_transactional_hooks_and_keeps_post_commit() {
     assert_eq!(files.len(), 1);
     let content = &files[0].content;
 
-    // Transactional hooks: sea_orm-gated — none under cornucopia.
+    // Transactional hooks: present on every provider since #509.
     for tx_site in [
         "hooks.before_create(",
         "after_create_tx",
         "hooks.before_update(",
         "after_update_tx",
-        "TxContext::new(",
+        "generated::types::TxContext::new(",
     ] {
         assert!(
-            !content.contains(tx_site),
-            "cornucopia command must not carry the transactional hook site `{tx_site}`:\n{content}"
+            content.contains(tx_site),
+            "cornucopia command must carry the transactional hook site `{tx_site}`:\n{content}"
         );
     }
 
-    // Post-commit hooks: present, but wasm32-gated (native-only in the
-    // worker slice) — the documented contract the refusal (#502) makes
-    // visible.
+    // The tx handle is the erased SPI adapter over the cornucopia DbTx.
+    assert!(
+        content.contains("crate::hook_adapters::HookTxAdapter(&tx)"),
+        "tx hooks must adapt the open cornucopia transaction:\n{content}"
+    );
+
+    // Post-commit hooks: present, un-gated, on the ClientSource adapter —
+    // no wasm32 cfg (they fire in the worker slice).
     assert!(
         content.contains("after_create_commit(&post_ctx)"),
         "post-commit hook call site must remain:\n{content}"
     );
     assert!(
-        content.contains("PostCommitContext::new("),
+        content.contains("generated::types::PostCommitContext::new("),
         "post-commit context construction must remain:\n{content}"
     );
     assert!(
-        content.contains("#[cfg(not(target_arch = \"wasm32\"))]"),
-        "post-commit hooks must stay wasm32-gated under cornucopia:\n{content}"
+        content.contains("crate::hook_adapters::HookConnSourceAdapter("),
+        "post-commit hooks must adapt the ClientSource handle:\n{content}"
+    );
+    assert!(
+        content.contains("self.client_source.clone()"),
+        "post-commit connection source must be the cornucopia ClientSource:\n{content}"
+    );
+    assert!(
+        !content.contains("Post-commit hooks carry a SeaORM handle"),
+        "the #502-era SeaORM-handle comment must be gone:\n{content}"
     );
 }
 

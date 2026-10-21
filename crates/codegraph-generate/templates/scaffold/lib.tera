@@ -11,6 +11,7 @@ pub mod integrations;
 pub mod middleware;
 pub mod metrics_middleware;
 {% if project.persistence_provider == "cornucopia" %}pub mod db_client;
+{% endif %}{% if project.hooks_api_crate %}pub mod hook_adapters;
 {% endif %}{% if has_webhooks %}
 pub mod webhook_api;
 pub mod webhook_dispatch;

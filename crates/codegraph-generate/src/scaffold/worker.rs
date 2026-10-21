@@ -713,6 +713,9 @@ impl GlobalGenerator for WorkerScaffoldGenerator {
             // `crate::hooks::HookRegistry`; the registry itself lives in the
             // shared hooks-api crate (single source of truth for all domains'
             // lifecycle traits), so each worker re-exports it from there.
+            // The handle adapters (issue #509) ride alongside: they adapt
+            // the worker's cornucopia DbTx/ClientSource to the hooks
+            // crate's persistence-agnostic SPI, so hooks fire in wasm32 too.
             if !project.identity.hooks_api_crate.is_empty() {
                 let hooks_mod = render_template_with_project(
                     tera,
@@ -723,6 +726,16 @@ impl GlobalGenerator for WorkerScaffoldGenerator {
                 files.push(GeneratedFile {
                     path: base.join("src").join("hooks").join("mod.rs"),
                     content: hooks_mod,
+                });
+                let hook_adapters = render_template_with_project(
+                    tera,
+                    "scaffold/hook_adapters.tera",
+                    domain,
+                    project,
+                )?;
+                files.push(GeneratedFile {
+                    path: base.join("src").join("hook_adapters.rs"),
+                    content: hook_adapters,
                 });
             }
 

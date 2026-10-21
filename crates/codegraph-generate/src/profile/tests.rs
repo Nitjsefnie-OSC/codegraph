@@ -700,15 +700,15 @@ generators = ["ddl"]
         );
     }
 
-    /// Issue #502: `hooks_api_crate` under `deployment_topology = "workers"`
-    /// would generate a lifecycle-hooks surface that never fires —
-    /// transactional hooks require SeaORM transactions (workers run
-    /// cornucopia) and post-commit hooks are compiled out of wasm32
-    /// workers. Refused at plan time (the topology×provider precedent);
-    /// the error must name the dead surface and the event-plane
-    /// alternative (#505).
+    /// Issue #509 (the #502 refusal is RETIRED): `hooks_api_crate` under
+    /// `deployment_topology = "workers"` is a supported combination — the
+    /// lifecycle-hooks surface is persistence-agnostic since the context
+    /// types moved to the generated `types` module (erased HookTx /
+    /// HookConnSource handles with cornucopia adapters). Transactional
+    /// hooks run on the open cornucopia transaction and post-commit hooks
+    /// fire from the wasm32 worker slice.
     #[test]
-    fn build_plan_hooks_api_crate_under_workers_topology_errors() {
+    fn build_plan_hooks_api_crate_under_workers_topology_is_supported() {
         let registry = CapabilityRegistry::new();
 
         let toml = r#"
@@ -729,20 +729,8 @@ generators = ["ddl"]
         let def = &config.profiles["workers-hooks"];
         let resolved = resolve_profile(def, None).unwrap();
 
-        let err = BuildPlan::from_profile(&resolved, &registry).unwrap_err();
-        let msg = err.to_string();
-        assert!(
-            msg.contains("hooks_api_crate"),
-            "error must name hooks_api_crate, got: {msg}"
-        );
-        assert!(
-            msg.contains("workers"),
-            "error must name the workers topology, got: {msg}"
-        );
-        assert!(
-            msg.contains("event plane") && msg.contains("#505"),
-            "error must point at the event plane alternative (#505), got: {msg}"
-        );
+        let plan = BuildPlan::from_profile(&resolved, &registry).unwrap();
+        assert_eq!(plan.deployment_topology(), DeploymentTopology::Workers);
     }
 
     /// Control: workers topology WITHOUT hooks stays supported (the

@@ -532,12 +532,12 @@ fn doctor_fresh_scaffold_has_zero_model_warnings() {
     );
 }
 
-/// Issue #502: `hooks_api_crate` set while `deployment_topology = "workers"`
-/// is a hard profiles.toml failure (the plan-level refusal surfaces through
-/// the doctor's existing FAIL profiles.toml path) — the dead hooks surface
-/// must never look live.
+/// Issue #509 (the #502 refusal is RETIRED): `hooks_api_crate` set while
+/// `deployment_topology = "workers"` is a SUPPORTED combination — the
+/// hooks surface is persistence-agnostic since the context types moved to
+/// the generated `types` module. Doctor must pass (the plan resolves).
 #[test]
-fn doctor_hooks_api_crate_under_workers_topology() {
+fn doctor_hooks_api_crate_under_workers_topology_is_supported() {
     let dir = TempDir::new().unwrap();
     cmd_init(&init_args(dir.path(), "demo-app", Some(repo_root()), false)).unwrap();
     let project = dir.path().join("demo-app");
@@ -547,6 +547,7 @@ fn doctor_hooks_api_crate_under_workers_topology() {
         r#"[profiles.default.meta]
 name = "demo-app"
 version = "0.1.0"
+description = ""
 hooks_api_crate = "my_hooks"
 
 [profiles.default.features]
@@ -559,7 +560,7 @@ generators = ["ddl"]
     )
     .unwrap();
 
-    let err = cmd_doctor(&DoctorArgs {
+    let summary = cmd_doctor(&DoctorArgs {
         config: project.join("domains.toml"),
         schemas: None,
         classifier: None,
@@ -572,10 +573,10 @@ generators = ["ddl"]
         ifml_files: vec![],
         extension_points: None,
     })
-    .unwrap_err();
-    assert!(
-        format!("{err}").contains("hard check"),
-        "hooks_api_crate + workers topology must be a hard doctor failure: {err}"
+    .unwrap();
+    assert_eq!(
+        summary.hard_failures, 0,
+        "hooks_api_crate + workers topology must resolve (issue #509 parity)"
     );
 }
 
