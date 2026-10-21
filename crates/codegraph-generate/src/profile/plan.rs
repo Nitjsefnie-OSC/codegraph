@@ -240,34 +240,14 @@ impl BuildPlan {
             )));
         }
 
-        // Hooks × topology rule (issue #502): the lifecycle-hooks surface is
-        // SeaORM/monolith-native by construction — transactional hooks need
-        // a `sea_orm::DatabaseTransaction` (workers run cornucopia) and
-        // post-commit hooks are `#[cfg(not(target_arch = "wasm32"))]`-ed out
-        // of the worker slice. Under workers it compiles but never fires.
-        // Refused at plan time so the dead surface is never generated; the
-        // cross-topology post-commit seam is the event plane (webhook
-        // subscriptions and the DB domain-event triggers work under workers
-        // today; typed event consumers under workers are tracked in #505).
-        if deployment_topology == DeploymentTopology::Workers
-            && !profile
-                .meta
-                .hooks_api_crate
-                .as_deref()
-                .unwrap_or_default()
-                .is_empty()
-        {
-            return Err(Error::Config(
-                "hooks_api_crate under deployment_topology = \"workers\" would generate \
-                 a lifecycle-hooks surface that never fires: transactional hooks require \
-                 SeaORM transactions (workers run cornucopia) and post-commit hooks are \
-                 compiled out of wasm32 workers. Unset hooks_api_crate, or model \
-                 post-commit reactions on the event plane — webhook subscriptions and \
-                 the DB domain-event triggers work under workers today; typed event \
-                 consumers under workers are tracked in #505"
-                    .to_string(),
-            ));
-        }
+        // Hooks × topology (issue #509): the #502 refusal is RETIRED — the
+        // lifecycle-hooks surface is persistence-agnostic since the
+        // context types moved to `generated::types` (erased HookTx /
+        // HookConnSource handles, adapters in the app crate's
+        // `hook_adapters` module). Transactional hooks run on the open
+        // transaction on both providers (Abort ⇒ rollback preserved) and
+        // post-commit hooks fire from the wasm32 worker slice through the
+        // cornucopia ClientSource.
 
         // Parse dto_key_casing from features (default: "snake").
         // Unknown values fall back to "snake" — worst case the wire keys

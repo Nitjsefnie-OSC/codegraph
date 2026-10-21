@@ -165,6 +165,20 @@ impl GlobalGenerator for HookRegistryGenerator {
             content: registry_content,
         });
 
+        // 1b. Render types.rs — the persistence-agnostic hook context
+        //     contract (issue #509): TxContext/PostCommitContext plus the
+        //     HookTx/HookConnSource handle SPIs. Emitted only when the
+        //     hooks surface is configured — an empty file in the tree
+        //     would still perturb byte-identity canaries.
+        if !project.identity.hooks_api_crate.is_empty() {
+            let types_content =
+                render_template_with_project(tera, "hooks/types.tera", &registry_ctx, project)?;
+            files.push(GeneratedFile {
+                path: generated_dir.join("types.rs"),
+                content: types_content,
+            });
+        }
+
         // 2. Render top-level generated/mod.rs, preserving any existing domain
         //    modules not in the current generation order. This prevents stripping
         //    modules for domains that aren't in the graph but were previously generated.
@@ -175,9 +189,12 @@ impl GlobalGenerator for HookRegistryGenerator {
             std::collections::HashSet::new()
         };
         // Merge: keep existing modules and add new ones from this generation
+        // (`registry`/`types` are always rendered by the template, never
+        // treated as domains).
         let mut all_domain_names: Vec<String> = domains.iter().map(|d| d.name.clone()).collect();
         for existing in &existing_modules {
-            if existing != "registry" && !all_domain_names.contains(existing) {
+            if existing != "registry" && existing != "types" && !all_domain_names.contains(existing)
+            {
                 all_domain_names.push(existing.clone());
             }
         }

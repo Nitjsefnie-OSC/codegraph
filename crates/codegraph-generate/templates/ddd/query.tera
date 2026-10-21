@@ -156,25 +156,20 @@ impl {{ entity_name }}QueryHandler {
         {% if project.hooks_api_crate %}
 {% if project.hooks_api_crate %}
         // --- on_query hook ---
-{% if project.persistence_provider == "cornucopia" %}
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-{% endif %}
         if let Some(hooks) = &self.hooks {
             if let Some(ref mut resp) = result {
                 let query_correlation_id = Uuid::new_v4();
                 let source = {{ project.domain_types_crate }}::SourceContext::api();
-                let post_ctx = {{ project.hooks_api_crate }}::PostCommitContext::new(
-                    self.db.clone(), query_correlation_id, organization_id, api_key_id, id, source,
+                let post_ctx = {{ project.hooks_api_crate }}::generated::types::PostCommitContext::new(
+                    std::sync::Arc::new(crate::hook_adapters::HookConnSourceAdapter(
+                        {% if project.persistence_provider == "cornucopia" %}self.client_source.clone(){% else %}self.db.clone(){% endif %})),
+                    query_correlation_id, organization_id, api_key_id, id, source,
                 );
                 if let Err(e) = hooks.on_query(&post_ctx, resp).await {
                     tracing::error!(entity_id = %id, correlation_id = %query_correlation_id, "on_query hook failed: {e}");
                 }
             }
         }
-{% if project.persistence_provider == "cornucopia" %}
-        }
-{% endif %}
 {% endif %}
         {% endif %}
 

@@ -61,6 +61,9 @@ impl AppState {
         supabase_url: Option<String>,
         #[cfg(target_arch = "wasm32")] env: worker::Env,
     ) -> Self {
+{% if project.hooks_api_crate %}
+        let hooks_registry = HookRegistry::default();
+{% endif %}
 {%- if project.has_extension_points %}
         // The push-integration dispatcher rides the same persistence-agnostic
         // handle as the command layer (issue #503) — the wasm leg POSTs via
@@ -79,7 +82,7 @@ impl AppState {
                 client_source.clone(),
                 #[cfg(not(target_arch = "wasm32"))] db.clone(),
 {% if project.hooks_api_crate %}
-                None,
+                hooks_registry.{{ name }}_{{ entity.module_name }}.clone(),
 {% endif %}{% if project.has_extension_points %}
                 integration_dispatcher.clone(),
 {% endif %}
@@ -92,7 +95,7 @@ impl AppState {
                 client_source.clone(),
                 #[cfg(not(target_arch = "wasm32"))] db.clone(),
 {% if project.hooks_api_crate and entity.has_query_hooks %}
-                None,
+                hooks_registry.{{ name }}_{{ entity.module_name }}.clone(),
 {% endif %}
             ),
 {% endfor %}
@@ -115,7 +118,7 @@ impl AppState {
             integration_dispatcher,
 {% endif %}
 {% if project.hooks_api_crate %}
-            registry: HookRegistry::default(),
+            registry: hooks_registry,
 {% endif %}
         }
     }
@@ -130,6 +133,9 @@ impl AppState {
         jwt_secret: String,
         supabase_url: Option<String>,
     ) -> Self {
+{% if project.hooks_api_crate %}
+        let hooks_registry = HookRegistry::default();
+{% endif %}
 {%- if project.has_extension_points %}
         let integration_dispatcher = Some(std::sync::Arc::new(
             crate::integration_dispatch::IntegrationDispatcher::new(db.clone()),
@@ -144,7 +150,7 @@ impl AppState {
                 ),
                 db.clone(),
 {% if project.hooks_api_crate %}
-                None,
+                hooks_registry.{{ name }}_{{ entity.module_name }}.clone(),
 {% endif %}{% if project.has_extension_points %}
                 integration_dispatcher.clone(),
 {% endif %}
@@ -156,7 +162,7 @@ impl AppState {
                 ),
                 db.clone(),
 {% if project.hooks_api_crate and entity.has_query_hooks %}
-                None,
+                hooks_registry.{{ name }}_{{ entity.module_name }}.clone(),
 {% endif %}
             ),
 {% endfor %}
@@ -167,7 +173,7 @@ impl AppState {
             integration_dispatcher,
 {% endif %}
 {% if project.hooks_api_crate %}
-            registry: HookRegistry::default(),
+            registry: hooks_registry,
 {% endif %}
         }
     }

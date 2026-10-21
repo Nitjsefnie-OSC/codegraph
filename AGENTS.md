@@ -2135,21 +2135,42 @@ installations SQL matches against `ep.allowed_entities` (POSTed event =
 - Gate: `cargo test -p codegraph --test extension_points_tests` (6,
   node-free) + `doctor_validates_extension_points` in `init_tests`.
 
-### Hooks × topology refusal (issue #502)
+### Hooks parity under workers (issue #509 — the #502 refusal retired)
 
-`hooks_api_crate` under `deployment_topology = "workers"` is refused at
-`BuildPlan::from_profile` (the topology×provider precedent): the
-lifecycle-hooks surface is SeaORM/monolith-native by construction —
-transactional hooks need a `sea_orm::DatabaseTransaction` (workers run
-cornucopia) and post-commit hooks are `#[cfg(not(target_arch =
-"wasm32"))]`-ed out of the worker slice — so under workers it compiles
-but never fires. The refusal names the event-plane alternative; the
-persistence-agnostic events epic (#505) tracks making the typed event
-consumers real under workers. The SeaORM monolith keeps its hooks
-surface untouched (pinned by the template guards in
-`template_harness/command_query.rs` — cornucopia renders no tx-hook
-call site and keeps the wasm32-gated post-commit; sea_orm keeps them
-all).
+`hooks_api_crate` under `deployment_topology = "workers"` is **supported**:
+the lifecycle-hooks surface is persistence-agnostic since issue #509.
+The context types (`TxContext`, `PostCommitContext`, `HookControl`,
+`HookResult`) live in the hooks crate's generated module
+(`{hooks_base}/src/generated/types.tera` output) and erase the provider
+handle behind two SPIs — `HookTx` (the OPEN transaction) and
+`HookConnSource` (a fresh-connection source) — with `native()`
+downcast hatches. Each generated crate carries `hook_adapters.rs`
+(`templates/scaffold/hook_adapters.tera`; monolith `src/`, per-worker
+under workers): sea_orm adapts `DatabaseTransaction`/`DatabaseConnection`,
+cornucopia adapts `DbTx`/`ClientSource` — both targets (deadpool native,
+Hyperdrive wasm32).
+
+- **Transactional hooks** (`before_*`, `after_*_tx`) run on the open
+  transaction on BOTH providers — the cornucopia command path's
+  `client.transaction()` `DbTx` is real; `HookControl::Abort { reason }`
+  ⇒ `tx.rollback()` + conflict error is preserved (the per-provider
+  rollback error mapping is the only branch left in `command.tera`).
+- **Post-commit / `on_query`** hooks ride the `HookConnSource` adapter —
+  no `#[cfg(not(target_arch = "wasm32"))]` gates remain; they compile and
+  fire from the wasm32 worker slice. `worker_app_state.tera` passes the
+  registered `Option<Arc<dyn XLifecycle>>` into command/query handlers
+  (was `None` — the "compiles but never fires" half of #502 is gone).
+- **Consumer migration** (hr-specs and friends): hooks impls import the
+  context types from `crate::generated::types` instead of a consumer-owned
+  `src/types.rs`; `HookError`/`BulkCreateResults` stay consumer-owned
+  (`crate::error`). The `Abort { reason }` shape is unchanged.
+- The #502 plan refusal is deleted from `BuildPlan::from_profile`; the
+  topology×provider rule (workers ⇒ cornucopia) is untouched. Pinned by
+  `build_plan_hooks_api_crate_under_workers_topology_is_supported`,
+  `doctor_hooks_api_crate_under_workers_topology_is_supported`, and the
+  template pins in `template_harness/command_query.rs`
+  (`cornucopia_command_keeps_all_hooks_without_wasm_gates` — tx + post-commit
+  sites present, adapter construction, zero wasm gates; `sea_orm_command_keeps_transactional_hooks`).
 
 ### Per-domain worker config (domains.toml)
 

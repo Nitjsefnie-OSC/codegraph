@@ -466,6 +466,19 @@ impl GlobalGenerator for ScaffoldGenerator {
             });
         }
 
+        // Lifecycle-hook handle adapters (issue #509): adapt the provider's
+        // native transaction/connection handles to the hooks crate's
+        // persistence-agnostic SPI. Emitted whenever the hooks surface is
+        // configured, both providers.
+        if !project.identity.hooks_api_crate.is_empty() {
+            let hook_adapters =
+                render_template_with_project(tera, "scaffold/hook_adapters.tera", &ctx, project)?;
+            files.push(GeneratedFile {
+                path: self.output_dir.join("src").join("hook_adapters.rs"),
+                content: hook_adapters,
+            });
+        }
+
         let error_rs = render_template_with_project(tera, "scaffold/error.tera", &ctx, project)?;
         files.push(GeneratedFile {
             path: self.output_dir.join("src").join("error.rs"),

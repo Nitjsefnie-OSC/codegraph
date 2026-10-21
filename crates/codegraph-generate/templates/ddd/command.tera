@@ -259,20 +259,23 @@ impl {{ entity_name }}CommandHandler {
 {% endif %}
         set_rls_session_vars(&tx, api_key_id, organization_id, correlation_id, user_id, &role).await?;
 
-        {% if project.hooks_api_crate and project.persistence_provider == "sea_orm" %}
+        {% if project.hooks_api_crate %}
         // --- before_create hook ---
         if let Some(hooks) = &self.hooks {
-            let mut ctx = {{ project.hooks_api_crate }}::TxContext::new(&tx, correlation_id, organization_id, api_key_id, source);
+            let mut ctx = {{ project.hooks_api_crate }}::generated::types::TxContext::new(
+                &crate::hook_adapters::HookTxAdapter(&tx),
+                correlation_id, organization_id, api_key_id, source,
+            );
             match hooks.before_create(&mut ctx, &cmd).await {
-                Ok({{ project.hooks_api_crate }}::HookControl::Abort { reason }) => {
-                    tx.rollback().await?;
+                Ok({{ project.hooks_api_crate }}::generated::types::HookControl::Abort { reason: _ }) => {
+                    {% if project.persistence_provider == "cornucopia" %}tx.rollback().await.map_err(|e| {{ domain | pascal_case }}Error::from_repo_err(e))?;{% else %}tx.rollback().await?;{% endif %}
                     return Err({{ domain | pascal_case }}Error::Conflict);
                 }
                 Err(e) => {
-                    tx.rollback().await?;
+                    {% if project.persistence_provider == "cornucopia" %}tx.rollback().await.map_err(|e| {{ domain | pascal_case }}Error::from_repo_err(e))?;{% else %}tx.rollback().await?;{% endif %}
                     return Err({{ domain | pascal_case }}Error::from_repo_err(e));
                 }
-                Ok({{ project.hooks_api_crate }}::HookControl::Continue) => {}
+                Ok({{ project.hooks_api_crate }}::generated::types::HookControl::Continue) => {}
             }
         }
 
@@ -302,20 +305,23 @@ impl {{ entity_name }}CommandHandler {
             })?;
 {% endif %}
 
-        {% if project.hooks_api_crate and project.persistence_provider == "sea_orm" %}
+        {% if project.hooks_api_crate %}
         // --- after_create_tx hook ---
         if let Some(hooks) = &self.hooks {
-            let mut ctx = {{ project.hooks_api_crate }}::TxContext::new(&tx, correlation_id, organization_id, api_key_id, source);
+            let mut ctx = {{ project.hooks_api_crate }}::generated::types::TxContext::new(
+                &crate::hook_adapters::HookTxAdapter(&tx),
+                correlation_id, organization_id, api_key_id, source,
+            );
             match hooks.after_create_tx(&mut ctx, id).await {
-                Ok({{ project.hooks_api_crate }}::HookControl::Abort { reason }) => {
-                    tx.rollback().await?;
+                Ok({{ project.hooks_api_crate }}::generated::types::HookControl::Abort { reason: _ }) => {
+                    {% if project.persistence_provider == "cornucopia" %}tx.rollback().await.map_err(|e| {{ domain | pascal_case }}Error::from_repo_err(e))?;{% else %}tx.rollback().await?;{% endif %}
                     return Err({{ domain | pascal_case }}Error::Conflict);
                 }
                 Err(e) => {
-                    tx.rollback().await?;
+                    {% if project.persistence_provider == "cornucopia" %}tx.rollback().await.map_err(|e| {{ domain | pascal_case }}Error::from_repo_err(e))?;{% else %}tx.rollback().await?;{% endif %}
                     return Err({{ domain | pascal_case }}Error::from_repo_err(e));
                 }
-                Ok({{ project.hooks_api_crate }}::HookControl::Continue) => {}
+                Ok({{ project.hooks_api_crate }}::generated::types::HookControl::Continue) => {}
             }
         }
 
@@ -326,26 +332,16 @@ impl {{ entity_name }}CommandHandler {
 
         {% if project.hooks_api_crate %}
         // --- after_create_commit hook ---
-{% if project.persistence_provider == "cornucopia" %}
-        // Post-commit hooks carry a SeaORM handle in their PostCommitContext;
-        // they are native-only in the worker slice (no wasm32 SeaORM).
-        // Under workers topology the hooks surface is refused at plan time
-        // (issue #502); the cross-topology post-commit seam is the event
-        // plane (typed event consumers under workers: #505).
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-{% endif %}
         if let Some(hooks) = &self.hooks {
-            let post_ctx = {{ project.hooks_api_crate }}::PostCommitContext::new(
-                self.db.clone(), correlation_id, organization_id, api_key_id, id, source.clone(),
+            let post_ctx = {{ project.hooks_api_crate }}::generated::types::PostCommitContext::new(
+                std::sync::Arc::new(crate::hook_adapters::HookConnSourceAdapter(
+                    {% if project.persistence_provider == "cornucopia" %}self.client_source.clone(){% else %}self.db.clone(){% endif %})),
+                correlation_id, organization_id, api_key_id, id, source.clone(),
             );
             if let Err(e) = hooks.after_create_commit(&post_ctx).await {
                 tracing::error!(entity_id = %id, correlation_id = %correlation_id, "after_create_commit hook failed: {e}");
             }
         }
-{% if project.persistence_provider == "cornucopia" %}
-        }
-{% endif %}
 
         {% endif %}{% if has_extension_points %}
         if let Some(dispatcher) = &self.dispatcher {
@@ -369,20 +365,23 @@ impl {{ entity_name }}CommandHandler {
 {% endif %}
         set_rls_session_vars(&tx, api_key_id, organization_id, correlation_id, user_id, &role).await?;
 
-        {% if project.hooks_api_crate and project.persistence_provider == "sea_orm" %}
+        {% if project.hooks_api_crate %}
         // --- before_update hook ---
         if let Some(hooks) = &self.hooks {
-            let mut ctx = {{ project.hooks_api_crate }}::TxContext::new(&tx, correlation_id, organization_id, api_key_id, &source);
+            let mut ctx = {{ project.hooks_api_crate }}::generated::types::TxContext::new(
+                &crate::hook_adapters::HookTxAdapter(&tx),
+                correlation_id, organization_id, api_key_id, &source,
+            );
             match hooks.before_update(&mut ctx, id, &cmd).await {
-                Ok({{ project.hooks_api_crate }}::HookControl::Abort { reason }) => {
-                    tx.rollback().await?;
+                Ok({{ project.hooks_api_crate }}::generated::types::HookControl::Abort { reason: _ }) => {
+                    {% if project.persistence_provider == "cornucopia" %}tx.rollback().await.map_err(|e| {{ domain | pascal_case }}Error::from_repo_err(e))?;{% else %}tx.rollback().await?;{% endif %}
                     return Err({{ domain | pascal_case }}Error::Conflict);
                 }
                 Err(e) => {
-                    tx.rollback().await?;
+                    {% if project.persistence_provider == "cornucopia" %}tx.rollback().await.map_err(|e| {{ domain | pascal_case }}Error::from_repo_err(e))?;{% else %}tx.rollback().await?;{% endif %}
                     return Err({{ domain | pascal_case }}Error::from_repo_err(e));
                 }
-                Ok({{ project.hooks_api_crate }}::HookControl::Continue) => {}
+                Ok({{ project.hooks_api_crate }}::generated::types::HookControl::Continue) => {}
             }
         }
 
@@ -397,20 +396,23 @@ impl {{ entity_name }}CommandHandler {
                 }
             })?;
 
-        {% if project.hooks_api_crate and project.persistence_provider == "sea_orm" %}
+        {% if project.hooks_api_crate %}
         // --- after_update_tx hook ---
         if let Some(hooks) = &self.hooks {
-            let mut ctx = {{ project.hooks_api_crate }}::TxContext::new(&tx, correlation_id, organization_id, api_key_id, &source);
+            let mut ctx = {{ project.hooks_api_crate }}::generated::types::TxContext::new(
+                &crate::hook_adapters::HookTxAdapter(&tx),
+                correlation_id, organization_id, api_key_id, &source,
+            );
             match hooks.after_update_tx(&mut ctx, id).await {
-                Ok({{ project.hooks_api_crate }}::HookControl::Abort { reason }) => {
-                    tx.rollback().await?;
+                Ok({{ project.hooks_api_crate }}::generated::types::HookControl::Abort { reason: _ }) => {
+                    {% if project.persistence_provider == "cornucopia" %}tx.rollback().await.map_err(|e| {{ domain | pascal_case }}Error::from_repo_err(e))?;{% else %}tx.rollback().await?;{% endif %}
                     return Err({{ domain | pascal_case }}Error::Conflict);
                 }
                 Err(e) => {
-                    tx.rollback().await?;
+                    {% if project.persistence_provider == "cornucopia" %}tx.rollback().await.map_err(|e| {{ domain | pascal_case }}Error::from_repo_err(e))?;{% else %}tx.rollback().await?;{% endif %}
                     return Err({{ domain | pascal_case }}Error::from_repo_err(e));
                 }
-                Ok({{ project.hooks_api_crate }}::HookControl::Continue) => {}
+                Ok({{ project.hooks_api_crate }}::generated::types::HookControl::Continue) => {}
             }
         }
 
@@ -421,21 +423,16 @@ impl {{ entity_name }}CommandHandler {
 
         {% if project.hooks_api_crate %}
         // --- after_update_commit hook ---
-{% if project.persistence_provider == "cornucopia" %}
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-{% endif %}
         if let Some(hooks) = &self.hooks {
-            let post_ctx = {{ project.hooks_api_crate }}::PostCommitContext::new(
-                self.db.clone(), correlation_id, organization_id, api_key_id, id, source.clone(),
+            let post_ctx = {{ project.hooks_api_crate }}::generated::types::PostCommitContext::new(
+                std::sync::Arc::new(crate::hook_adapters::HookConnSourceAdapter(
+                    {% if project.persistence_provider == "cornucopia" %}self.client_source.clone(){% else %}self.db.clone(){% endif %})),
+                correlation_id, organization_id, api_key_id, id, source.clone(),
             );
             if let Err(e) = hooks.after_update_commit(&post_ctx).await {
                 tracing::error!(entity_id = %id, correlation_id = %correlation_id, "after_update_commit hook failed: {e}");
             }
         }
-{% if project.persistence_provider == "cornucopia" %}
-        }
-{% endif %}
 
         {% endif %}{% if has_extension_points %}
         if let Some(dispatcher) = &self.dispatcher {
@@ -459,20 +456,23 @@ impl {{ entity_name }}CommandHandler {
 {% endif %}
         set_rls_session_vars(&tx, api_key_id, organization_id, correlation_id, user_id, &role).await?;
 
-        {% if project.hooks_api_crate and project.persistence_provider == "sea_orm" %}
+        {% if project.hooks_api_crate %}
         // --- before_delete hook ---
         if let Some(hooks) = &self.hooks {
-            let mut ctx = {{ project.hooks_api_crate }}::TxContext::new(&tx, correlation_id, organization_id, api_key_id, &source);
+            let mut ctx = {{ project.hooks_api_crate }}::generated::types::TxContext::new(
+                &crate::hook_adapters::HookTxAdapter(&tx),
+                correlation_id, organization_id, api_key_id, &source,
+            );
             match hooks.before_delete(&mut ctx, id).await {
-                Ok({{ project.hooks_api_crate }}::HookControl::Abort { reason }) => {
-                    tx.rollback().await?;
+                Ok({{ project.hooks_api_crate }}::generated::types::HookControl::Abort { reason: _ }) => {
+                    {% if project.persistence_provider == "cornucopia" %}tx.rollback().await.map_err(|e| {{ domain | pascal_case }}Error::from_repo_err(e))?;{% else %}tx.rollback().await?;{% endif %}
                     return Err({{ domain | pascal_case }}Error::Conflict);
                 }
                 Err(e) => {
-                    tx.rollback().await?;
+                    {% if project.persistence_provider == "cornucopia" %}tx.rollback().await.map_err(|e| {{ domain | pascal_case }}Error::from_repo_err(e))?;{% else %}tx.rollback().await?;{% endif %}
                     return Err({{ domain | pascal_case }}Error::from_repo_err(e));
                 }
-                Ok({{ project.hooks_api_crate }}::HookControl::Continue) => {}
+                Ok({{ project.hooks_api_crate }}::generated::types::HookControl::Continue) => {}
             }
         }
 
@@ -487,20 +487,23 @@ impl {{ entity_name }}CommandHandler {
                 }
             })?;
 
-        {% if project.hooks_api_crate and project.persistence_provider == "sea_orm" %}
+        {% if project.hooks_api_crate %}
         // --- after_delete_tx hook ---
         if let Some(hooks) = &self.hooks {
-            let mut ctx = {{ project.hooks_api_crate }}::TxContext::new(&tx, correlation_id, organization_id, api_key_id, &source);
+            let mut ctx = {{ project.hooks_api_crate }}::generated::types::TxContext::new(
+                &crate::hook_adapters::HookTxAdapter(&tx),
+                correlation_id, organization_id, api_key_id, &source,
+            );
             match hooks.after_delete_tx(&mut ctx, id).await {
-                Ok({{ project.hooks_api_crate }}::HookControl::Abort { reason }) => {
-                    tx.rollback().await?;
+                Ok({{ project.hooks_api_crate }}::generated::types::HookControl::Abort { reason: _ }) => {
+                    {% if project.persistence_provider == "cornucopia" %}tx.rollback().await.map_err(|e| {{ domain | pascal_case }}Error::from_repo_err(e))?;{% else %}tx.rollback().await?;{% endif %}
                     return Err({{ domain | pascal_case }}Error::Conflict);
                 }
                 Err(e) => {
-                    tx.rollback().await?;
+                    {% if project.persistence_provider == "cornucopia" %}tx.rollback().await.map_err(|e| {{ domain | pascal_case }}Error::from_repo_err(e))?;{% else %}tx.rollback().await?;{% endif %}
                     return Err({{ domain | pascal_case }}Error::from_repo_err(e));
                 }
-                Ok({{ project.hooks_api_crate }}::HookControl::Continue) => {}
+                Ok({{ project.hooks_api_crate }}::generated::types::HookControl::Continue) => {}
             }
         }
 
@@ -511,21 +514,16 @@ impl {{ entity_name }}CommandHandler {
 
         {% if project.hooks_api_crate %}
         // --- after_delete_commit hook ---
-{% if project.persistence_provider == "cornucopia" %}
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-{% endif %}
         if let Some(hooks) = &self.hooks {
-            let post_ctx = {{ project.hooks_api_crate }}::PostCommitContext::new(
-                self.db.clone(), correlation_id, organization_id, api_key_id, id, source,
+            let post_ctx = {{ project.hooks_api_crate }}::generated::types::PostCommitContext::new(
+                std::sync::Arc::new(crate::hook_adapters::HookConnSourceAdapter(
+                    {% if project.persistence_provider == "cornucopia" %}self.client_source.clone(){% else %}self.db.clone(){% endif %})),
+                correlation_id, organization_id, api_key_id, id, source,
             );
             if let Err(e) = hooks.after_delete_commit(&post_ctx).await {
                 tracing::error!(entity_id = %id, correlation_id = %correlation_id, "after_delete_commit hook failed: {e}");
             }
         }
-{% if project.persistence_provider == "cornucopia" %}
-        }
-{% endif %}
         {% endif %}{% if has_extension_points %}
         if let Some(dispatcher) = &self.dispatcher {
             dispatcher.notify(organization_id, "{{ entity_ref }}", "deleted", id, correlation_id).await;
