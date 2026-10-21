@@ -1828,3 +1828,129 @@ fn doctor_validates_extension_points() {
         "unknown vocabulary values must be a hard failure: {out}"
     );
 }
+
+const WORKERS_DEPLOY_NO_COMMON_COMPONENT: &str = concat!(
+    "application Shop {\n",
+    "    component api: api { replicas: 2 }\n",
+    "    component db: database { engine: d1 }\n",
+    "    connects api -> db\n",
+    "}\n",
+    "\n",
+    "profile cf {\n",
+    "    target: cloudflareWorkers\n",
+    "}\n",
+    "\n",
+    "deployment prod for Shop {\n",
+    "    use cf\n",
+    "}\n",
+);
+
+const WORKERS_DEPLOY_WITH_COMMON_COMPONENT: &str = concat!(
+    "application Shop {\n",
+    "    component common: api { replicas: 2 }\n",
+    "    component db: database { engine: d1 }\n",
+    "    connects common -> db\n",
+    "}\n",
+    "\n",
+    "profile cf {\n",
+    "    target: cloudflareWorkers\n",
+    "}\n",
+    "\n",
+    "deployment prod for Shop {\n",
+    "    use cf\n",
+    "}\n",
+);
+
+/// Issue #510: a push-covered domain with no api/worker deploy component
+/// warns (soft) — the deferred #503 cross-check. Advisory: hard failures
+/// stay zero, and the mox-first warning matrix is untouched.
+#[test]
+fn doctor_ext_points_push_covered_domain_without_deploy_component_warns() {
+    let dir = TempDir::new().unwrap();
+    let mut args = init_args(dir.path(), "demo-app", None, false);
+    args.deployment_topology = "workers".to_string();
+    args.persistence_provider = "cornucopia".to_string();
+    cmd_init(&args).unwrap();
+    let project = dir.path().join("demo-app");
+    let deploy = project.join("svc.deploy");
+    fs::write(&deploy, WORKERS_DEPLOY_NO_COMMON_COMPONENT).unwrap();
+    let ext_path = project.join("extension-points.toml");
+    fs::write(&ext_path, EXT_POINTS_HAPPY).unwrap();
+
+    let summary = cmd_doctor(&DoctorArgs {
+        config: project.join("domains.toml"),
+        schemas: None,
+        classifier: None,
+        profiles_config: Some(project.join("profiles.toml")),
+        mox_files: vec![project.join("model/common.mox")],
+        rosetta_files: vec![],
+        ddd_files: vec![],
+        evt_files: vec![],
+        deploy_files: vec![deploy],
+        ifml_files: vec![],
+        extension_points: Some(ext_path),
+    })
+    .unwrap();
+    assert_eq!(
+        summary.hard_failures, 0,
+        "a covered domain without a deploy component is advisory, never hard"
+    );
+    assert!(
+        summary.soft_warnings >= 1,
+        "the push-covered domain 'common' must warn (soft)"
+    );
+}
+
+/// The matching case: an api component named after the covered domain
+/// adds NO warning over the identical doctor run without extension
+/// points (the baseline is deterministic within one environment).
+#[test]
+fn doctor_ext_points_push_covered_domain_with_matching_component_no_extra_warn() {
+    let dir = TempDir::new().unwrap();
+    let mut args = init_args(dir.path(), "demo-app", None, false);
+    args.deployment_topology = "workers".to_string();
+    args.persistence_provider = "cornucopia".to_string();
+    cmd_init(&args).unwrap();
+    let project = dir.path().join("demo-app");
+    let deploy = project.join("svc.deploy");
+    fs::write(&deploy, WORKERS_DEPLOY_WITH_COMMON_COMPONENT).unwrap();
+    let ext_path = project.join("extension-points.toml");
+    fs::write(&ext_path, EXT_POINTS_HAPPY).unwrap();
+
+    let with_points = cmd_doctor(&DoctorArgs {
+        config: project.join("domains.toml"),
+        schemas: None,
+        classifier: None,
+        profiles_config: Some(project.join("profiles.toml")),
+        mox_files: vec![project.join("model/common.mox")],
+        rosetta_files: vec![],
+        ddd_files: vec![],
+        evt_files: vec![],
+        deploy_files: vec![deploy.clone()],
+        ifml_files: vec![],
+        extension_points: Some(ext_path),
+    })
+    .unwrap();
+    let baseline = cmd_doctor(&DoctorArgs {
+        config: project.join("domains.toml"),
+        schemas: None,
+        classifier: None,
+        profiles_config: Some(project.join("profiles.toml")),
+        mox_files: vec![project.join("model/common.mox")],
+        rosetta_files: vec![],
+        ddd_files: vec![],
+        evt_files: vec![],
+        deploy_files: vec![deploy],
+        ifml_files: vec![],
+        extension_points: None,
+    })
+    .unwrap();
+    assert_eq!(
+        with_points.hard_failures, 0,
+        "the matching-component deploy must agree with the workers plan"
+    );
+    assert_eq!(
+        with_points.soft_warnings, baseline.soft_warnings,
+        "a covered domain with a matching api/worker component must add no warning"
+    );
+}

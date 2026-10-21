@@ -811,21 +811,21 @@ fn check_evt_files(evt_files: &[PathBuf]) -> (usize, usize) {
     (hard, soft)
 }
 
-/// Validate `--deploy-files` for doctor (rexlang #49): every deployment
-/// file resolves its imported .ddd designs and .ifml flows and compiles
-/// through the SAME read+resolve+compile helper the ingest path uses, so
-/// doctor and ingest cannot drift. Error-severity diagnostics (or a
-/// missing artifact) are hard failures with the per-file rendered output;
-/// warnings count as soft. ADDITIVE (the `check_evt_files` policy): never
-/// feeds model_warnings. Once the files compile, two cross-checks run:
-/// profile target vs resolved BuildPlan topology (hard) and domains.toml
-/// component coverage (soft). Returns the (hard_failures, soft_warnings)
-/// contributed.
-fn check_deploy_files(
+/// Compile the `--deploy-files` plane for doctor (rexlang #49): every
+/// deployment file resolves its imported .ddd designs and .ifml flows and
+/// compiles through the SAME read+resolve+compile helper the ingest path
+/// uses, so doctor and ingest cannot drift. Error-severity diagnostics
+/// (or a missing artifact) are hard failures with the per-file rendered
+/// output; warnings count as soft. ADDITIVE (the `check_evt_files`
+/// policy): never feeds model_warnings. Hoisted ahead of the
+/// extension-points check (#510) so both checks share one compilation;
+/// the topology/component cross-checks stay in `check_deploy_files`.
+/// Returns the successfully compiled models (empty when none compiled)
+/// plus the (hard_failures, soft_warnings) contributed by the per-file
+/// checks.
+fn compile_deploy_files(
     deploy_files: &[PathBuf],
-    build_plan: Option<&crate::profile::BuildPlan>,
-    domain_config: Option<&codegraph_config::config::DomainConfig>,
-) -> (usize, usize) {
+) -> (Vec<codegraph_core::types::DeployModelGraph>, usize, usize) {
     let mut hard = 0;
     let mut soft = 0;
     let mut compiled_models: Vec<codegraph_core::types::DeployModelGraph> = Vec::new();
@@ -863,10 +863,26 @@ fn check_deploy_files(
         }
     }
 
+    (compiled_models, hard, soft)
+}
+
+/// Cross-checks over the compiled `.deploy` models (rexlang #49): the
+/// `cloudflareWorkers` profile target vs the resolved BuildPlan topology
+/// (hard) and per-domain component coverage (soft). Takes the models
+/// compiled by `compile_deploy_files` (#510) — which also feeds the
+/// extension-points check — so the plane is parsed exactly once.
+fn check_deploy_files(
+    compiled_models: &[codegraph_core::types::DeployModelGraph],
+    build_plan: Option<&crate::profile::BuildPlan>,
+    domain_config: Option<&codegraph_config::config::DomainConfig>,
+) -> (usize, usize) {
+    let mut hard = 0;
+    let mut soft = 0;
+
     // Cross-checks are only meaningful against models that compiled.
     if !compiled_models.is_empty() {
-        hard += check_deploy_topology(&compiled_models, build_plan);
-        soft += check_deploy_component_coverage(&compiled_models, domain_config);
+        hard += check_deploy_topology(compiled_models, build_plan);
+        soft += check_deploy_component_coverage(compiled_models, domain_config);
     }
     (hard, soft)
 }
@@ -877,15 +893,19 @@ fn check_deploy_files(
 /// errors) and cross-checks every entity ref: the domain segment must be
 /// a domains.toml key (hard error) and — when a model source is available
 /// (mox files, or the JSON schemas directory) — the entity segment must
-/// match a model-derived entity table (hard error). Returns the
+/// match a model-derived entity table (hard error). When `.deploy` models
+/// compiled, every push-covered domain must have an api/worker deploy
+/// component (soft WARN, issue #510). Returns the
 /// (hard_failures, soft_warnings) contributed.
 fn check_extension_points(
     path: &Path,
     domain_config: Option<&codegraph_config::config::DomainConfig>,
     mox_files: &[PathBuf],
     schemas: Option<&Path>,
+    deploy_models: &[codegraph_core::types::DeployModelGraph],
 ) -> (usize, usize) {
     let mut hard = 0;
+    let mut soft = 0;
     let text = match fs::read_to_string(path) {
         Ok(t) => t,
         Err(e) => {
@@ -1019,6 +1039,52 @@ fn check_extension_points(
             }
         }
     }
+    // Push-covered domains vs the deploy surface (issue #510, deferred
+    // from #503): under workers topology each covered domain's worker
+    // crate carries the push dispatcher, so a covered domain without an
+    // api/worker deploy component has no deployed home for its notify
+    // call sites. Same resolution the scaffold uses
+    // (`DeployShape::from_models`: first cloudflareWorkers profile →
+    // first deployment → its application); advisory WARN — a deployment
+    // may legitimately be narrower than the full model during rollout.
+    if !deploy_models.is_empty() {
+        let mut covered: Vec<String> = config
+            .points
+            .values()
+            .filter(|def| {
+                def.directions
+                    .contains(&codegraph_ext_points::Direction::Push)
+            })
+            .flat_map(|def| def.entities.iter().cloned())
+            .filter_map(|entity| entity.split('.').next().map(str::to_string))
+            .collect();
+        covered.sort();
+        covered.dedup();
+        let worker_components: std::collections::HashSet<String> =
+            codegraph_generate::scaffold::worker::DeployShape::from_models(deploy_models)
+                .map(|s| {
+                    s.components
+                        .iter()
+                        .filter(|c| c.kind == "api" || c.kind == "worker")
+                        .map(|c| c.name.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
+        for domain in &covered {
+            if !worker_components.contains(domain) {
+                soft += 1;
+                println!(
+                    "WARN extension-points — domain '{domain}' is push-covered but no \
+                     .deploy application component named '{domain}' (api/worker)"
+                );
+                println!(
+                    "     hint: under workers topology the covered domain's worker \
+                     carries the push dispatcher; add a component or drop the entity ref"
+                );
+            }
+        }
+    }
+
     println!(
         "PASS extension-points — {} — {points} point(s), {entities} entity ref(s){}",
         path.display(),
@@ -1028,7 +1094,7 @@ fn check_extension_points(
             " (no model source; entity segments not cross-checked)"
         }
     );
-    (hard, 0)
+    (hard, soft)
 }
 
 /// Parse-verify the .ifml interaction-model plane (additive, like
@@ -1409,6 +1475,21 @@ pub fn cmd_doctor(args: &DoctorArgs) -> Result<DoctorSummary> {
         soft_warnings += soft;
     }
 
+    // The .deploy deployment plane (rexlang #49): compile-verify each
+    // file when provided. Compilation is hoisted ahead of the
+    // extension-points check (#510) so both checks share one parse of the
+    // deploy surface; the topology/component cross-checks run in the
+    // deploy block below. Not a model-source check, so it never feeds
+    // model_warnings.
+    let deploy_models = if !args.deploy_files.is_empty() {
+        let (models, hard, soft) = compile_deploy_files(&args.deploy_files);
+        hard_failures += hard;
+        soft_warnings += soft;
+        models
+    } else {
+        Vec::new()
+    };
+
     // The extension-points plane (issue #503): the run path consumes this
     // config for the push-integration surface, so doctor validates it.
     if let Some(ext_path) = &args.extension_points {
@@ -1417,18 +1498,15 @@ pub fn cmd_doctor(args: &DoctorArgs) -> Result<DoctorSummary> {
             domain_config.as_ref().ok(),
             &args.mox_files,
             args.schemas.as_deref(),
+            &deploy_models,
         );
         hard_failures += hard;
         soft_warnings += soft;
     }
 
-    // The .deploy deployment plane is additive to any model source:
-    // compile-verify each file when provided (rexlang #49), plus the
-    // topology and component-coverage cross-checks once they compile. Not
-    // a model-source check, so it never feeds model_warnings.
-    if !args.deploy_files.is_empty() {
+    if !deploy_models.is_empty() {
         let (hard, soft) = check_deploy_files(
-            &args.deploy_files,
+            &deploy_models,
             build_plan.as_ref(),
             domain_config.as_ref().ok(),
         );
