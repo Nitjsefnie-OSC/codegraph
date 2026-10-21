@@ -18,6 +18,9 @@ use codegraph_config::DomainConfig;
 struct DomainModContext {
     domain: String,
     entities: Vec<DomainModEntity>,
+    /// `pub mod mox_types;` — the domain carries mox operations or derived
+    /// features (issue #508: the mirrors + `Resource` arena live there).
+    has_mox_types: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -170,12 +173,28 @@ impl GlobalGenerator for DomainTypesScaffoldGenerator {
             }
         }
 
+        // Mox surface per domain (issue #508): classes carrying operations
+        // or derived features own a `mox_types` module (mirrors + the real
+        // `Resource` arena).
+        let mox_ops = db.get_mox_operations().await.unwrap_or_default();
+        let mox_derived = db.get_mox_derived_features().await.unwrap_or_default();
+        let suffix = &config.defaults.type_suffix;
+
         // 1. Generate per-domain mod.rs
         for domain_name in &domain_order {
             let entities = match domain_entity_map.get(domain_name) {
                 Some(e) => e,
                 None => continue,
             };
+
+            let has_mox_types = entities.iter().any(|(_name, _module, title)| {
+                let matches = |class: &str| {
+                    class == title.as_str()
+                        || codegraph_naming::strip_suffix(title, suffix) == class
+                };
+                mox_ops.iter().any(|o| matches(&o.class))
+                    || mox_derived.iter().any(|d| matches(&d.class))
+            });
 
             let domain_mod_ctx = DomainModContext {
                 domain: domain_name.clone(),
@@ -185,6 +204,7 @@ impl GlobalGenerator for DomainTypesScaffoldGenerator {
                         module_name: module.clone(),
                     })
                     .collect(),
+                has_mox_types,
             };
 
             let content = render_template_with_project(

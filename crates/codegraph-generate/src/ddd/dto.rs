@@ -980,23 +980,27 @@ pub async fn build_dto_context(
         }
     }
 
-    // Non-stored derived features (#501 slice 1): a read-only response
-    // field plus a fixed-signature accessor lowered from the `expr` body.
-    // Unsupported constructs and non-primitive types carry `todo!` stubs —
-    // never guesses.
+    // Non-stored derived features (#501 slice 1, quality bar #508): a
+    // read-only response field plus a fixed-signature accessor lowered
+    // from the `expr` body. A body that refuses to lower is a GENERATION
+    // ERROR (issue #508 R3 — never an emitted `todo!` panic); body-less
+    // features keep the documented seam.
     let field_bindings: std::collections::HashMap<String, crate::mox_expr::FieldBinding> = fields
         .iter()
         .map(|f| {
             (
                 f.name.clone(),
-                crate::mox_expr::FieldBinding {
-                    recv: format!("self.{}", f.name),
-                    clone: !crate::mox_expr::is_copy_rust_type(&f.rust_type),
-                },
+                crate::mox_expr::FieldBinding::new(
+                    format!("self.{}", f.name),
+                    !crate::mox_expr::is_copy_rust_type(&f.rust_type),
+                    f.rust_type.clone(),
+                ),
             )
         })
         .collect();
+    let empty_arena = crate::mox_expr::ArenaIndex::new();
     let mut mox_derived_extras: Vec<MoxDerivedExtra> = Vec::new();
+    let mut failures: Vec<String> = Vec::new();
     for feature in &derived_all {
         let name =
             codegraph_naming::escape_rust_keyword(&codegraph_naming::to_snake_case(&feature.name));
@@ -1006,10 +1010,18 @@ pub async fn build_dto_context(
         let rust_type =
             crate::mox_expr::mox_primitive_rust_type(&feature.type_ref).map(str::to_string);
         let body = match feature.expr.as_deref() {
-            Some(expr) => match crate::mox_expr::lower_expr_to_rust(expr, &field_bindings) {
-                Ok(code) => code,
-                Err(e) => todo_stub(&format!("transpile derived feature '{}'", feature.name), &e),
-            },
+            Some(expr) => {
+                match crate::mox_expr::lower_expr_to_rust(expr, &field_bindings, &empty_arena) {
+                    Ok(code) => code,
+                    Err(e) => {
+                        failures.push(format!(
+                            "derived feature `{}` on `{}`: {} ({})",
+                            feature.name, schema_title, e.detail, e.kind
+                        ));
+                        continue;
+                    }
+                }
+            }
             None => format!(
                 "todo!(\"body-less derived feature '{}' — declare an expr body\")",
                 feature.name
@@ -1021,6 +1033,12 @@ pub async fn build_dto_context(
             rust_type,
             body,
         });
+    }
+    if !failures.is_empty() {
+        return Err(crate::error::Error::Validation(format!(
+            "mox expr bodies outside the lowered subset (issue #508 R3):\n  - {}",
+            failures.join("\n  - ")
+        )));
     }
     mox_derived_extras.sort_by(|a, b| a.name.cmp(&b.name));
     mox_derived_extras.dedup_by(|a, b| a.name == b.name);
@@ -1047,17 +1065,6 @@ pub async fn build_dto_context(
         derived_fields,
         mox_derived_extras,
     })
-}
-
-/// The `todo!` stub text for a construct outside the lowered subset —
-/// naming the feature and the refusal (the marker convention).
-fn todo_stub(what: &str, e: &crate::mox_expr::Unsupported) -> String {
-    let what = what.replace('"', "'");
-    let detail = e.detail.replace('"', "'");
-    format!(
-        "todo!(\"TODO(#501): {what} (unsupported: {}: {detail})\")",
-        e.kind
-    )
 }
 
 pub struct DtoGenerator {

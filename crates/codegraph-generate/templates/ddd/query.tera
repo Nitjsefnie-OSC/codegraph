@@ -173,7 +173,28 @@ impl {{ entity_name }}QueryHandler {
 {% endif %}
         {% endif %}
 
-        Ok(result)
+{% if mox_derived_names | default(value=[]) | length > 0 %}
+        // SELECT-time population of mox derived fields (issue #508).
+        {
+            let mut __mox_res = {{ project.domain_types_crate }}::{{ domain }}::mox_types::Resource::new(
+                organization_id, Uuid::new_v4(), Some(api_key_id),
+            );
+            if let Some(__resp) = result.as_ref() {
+                let __mirror = {{ project.domain_types_crate }}::{{ domain }}::mox_types::{{ entity_name }} {
+{%- for f in mox_mirror_fields | default(value=[]) %}
+                    {{ f }}: __resp.{{ f }}.clone(),
+{%- endfor %}
+                };
+                __mox_res.insert_{{ module_name }}(__mirror);
+            }
+            if let Some(__resp) = result.as_mut() {
+{%- for n in mox_derived_names %}
+                let __v = __resp.{{ n }}(&__mox_res);
+                __resp.{{ n }} = __v;
+{%- endfor %}
+            }
+        }
+{% endif %}        Ok(result)
     }
 {% endif %}
 {% if parent_ref %}
@@ -186,18 +207,39 @@ impl {{ entity_name }}QueryHandler {
         let tx = client.transaction().await
             .map_err(|e| {{ domain | pascal_case }}Error::from_repo_err(e))?;
         set_rls_session_vars(&tx, api_key_id, organization_id, user_id, &role).await?;
-        let result = self.repo.find_by_id_scoped(&tx, id, parent_id{% if is_auditable %}, include_deleted{% endif %}).await
+        let {% if mox_derived_names | default(value=[]) | length > 0 %}mut {% endif %}result = self.repo.find_by_id_scoped(&tx, id, parent_id{% if is_auditable %}, include_deleted{% endif %}).await
             .map_err(|e| {{ domain | pascal_case }}Error::from_repo_err(e))?;
         tx.commit().await
             .map_err(|e| {{ domain | pascal_case }}Error::from_repo_err(e))?;
 {% else %}
         let tx = self.db.begin().await?;
         set_rls_session_vars(&tx, api_key_id, organization_id, user_id, &role).await?;
-        let result = self.repo.find_by_id_scoped(&tx, id, parent_id{% if is_auditable %}, include_deleted{% endif %}).await
+        let {% if mox_derived_names | default(value=[]) | length > 0 %}mut {% endif %}result = self.repo.find_by_id_scoped(&tx, id, parent_id{% if is_auditable %}, include_deleted{% endif %}).await
             .map_err(|e| {{ domain | pascal_case }}Error::from_repo_err(e))?;
         tx.commit().await?;
 {% endif %}
-        Ok(result)
+{% if mox_derived_names | default(value=[]) | length > 0 %}
+        // SELECT-time population of mox derived fields (issue #508).
+        {
+            let mut __mox_res = {{ project.domain_types_crate }}::{{ domain }}::mox_types::Resource::new(
+                organization_id, Uuid::new_v4(), Some(api_key_id),
+            );
+            if let Some(__resp) = result.as_ref() {
+                let __mirror = {{ project.domain_types_crate }}::{{ domain }}::mox_types::{{ entity_name }} {
+{%- for f in mox_mirror_fields | default(value=[]) %}
+                    {{ f }}: __resp.{{ f }}.clone(),
+{%- endfor %}
+                };
+                __mox_res.insert_{{ module_name }}(__mirror);
+            }
+            if let Some(__resp) = result.as_mut() {
+{%- for n in mox_derived_names %}
+                let __v = __resp.{{ n }}(&__mox_res);
+                __resp.{{ n }} = __v;
+{%- endfor %}
+            }
+        }
+{% endif %}        Ok(result)
     }
 {% endif %}
 {% endif %}
@@ -210,18 +252,39 @@ impl {{ entity_name }}QueryHandler {
         let tx = client.transaction().await
             .map_err(|e| {{ domain | pascal_case }}Error::from_repo_err(e))?;
         set_rls_session_vars(&tx, api_key_id, organization_id, user_id, &role).await?;
-        let result = self.repo.list(&tx, page, page_size, filters{% if is_auditable %}, include_deleted{% endif %}{% if ux_sort %}, sort{% endif %}).await
+        let {% if mox_derived_names | default(value=[]) | length > 0 %}mut {% endif %}result = self.repo.list(&tx, page, page_size, filters{% if is_auditable %}, include_deleted{% endif %}{% if ux_sort %}, sort{% endif %}).await
             .map_err(|e| {{ domain | pascal_case }}Error::from_repo_err(e))?;
         tx.commit().await
             .map_err(|e| {{ domain | pascal_case }}Error::from_repo_err(e))?;
 {% else %}
         let tx = self.db.begin().await?;
         set_rls_session_vars(&tx, api_key_id, organization_id, user_id, &role).await?;
-        let result = self.repo.list(&tx, page, page_size, filters{% if is_auditable %}, include_deleted{% endif %}{% if ux_sort %}, sort{% endif %}).await
+        let {% if mox_derived_names | default(value=[]) | length > 0 %}mut {% endif %}result = self.repo.list(&tx, page, page_size, filters{% if is_auditable %}, include_deleted{% endif %}{% if ux_sort %}, sort{% endif %}).await
             .map_err(|e| {{ domain | pascal_case }}Error::from_repo_err(e))?;
         tx.commit().await?;
 {% endif %}
-        Ok(result)
+{% if mox_derived_names | default(value=[]) | length > 0 %}
+        // SELECT-time population of mox derived fields (issue #508).
+        {
+            let mut __mox_res = {{ project.domain_types_crate }}::{{ domain }}::mox_types::Resource::new(
+                organization_id, Uuid::new_v4(), Some(api_key_id),
+            );
+            for __resp in result.0.iter() {
+                let __mirror = {{ project.domain_types_crate }}::{{ domain }}::mox_types::{{ entity_name }} {
+{%- for f in mox_mirror_fields | default(value=[]) %}
+                    {{ f }}: __resp.{{ f }}.clone(),
+{%- endfor %}
+                };
+                __mox_res.insert_{{ module_name }}(__mirror);
+            }
+            for __resp in result.0.iter_mut() {
+{%- for n in mox_derived_names %}
+                let __v = __resp.{{ n }}(&__mox_res);
+                __resp.{{ n }} = __v;
+{%- endfor %}
+            }
+        }
+{% endif %}        Ok(result)
     }
 {% endif %}
 {% if has_fts %}

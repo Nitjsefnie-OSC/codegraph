@@ -203,7 +203,12 @@ pub(crate) fn build_domain_generators(
         Box::new(ddd::rules::RulesGenerator::new(base("rules"))) as Box<dyn DomainGenerator>,
         // Mox operation codegen (issue #501) — presence-gated: emits only
         // when the graph carries mox operations.
-        Box::new(ddd::mox_ops::MoxOpsGenerator::new(base("mox_ops"))) as Box<dyn DomainGenerator>,
+        Box::new(ddd::mox_ops::MoxOpsGenerator::new(
+            base("mox_ops"),
+            ctx.domain_types_base
+                .map(|b| b.to_path_buf())
+                .unwrap_or_else(|| output_dir.to_path_buf()),
+        )) as Box<dyn DomainGenerator>,
         Box::new(
             api::router::RouterGenerator::new(base("router"))
                 .with_parent_candidates(parent_candidates.to_vec()),

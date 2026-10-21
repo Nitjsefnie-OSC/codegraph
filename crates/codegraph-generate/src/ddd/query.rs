@@ -43,6 +43,12 @@ pub struct QueryContext {
     /// flag-off output stays byte-identical.
     #[serde(default)]
     pub ux_sort: bool,
+    /// Mox derived feature names populated at SELECT time (issue #508).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mox_derived_names: Vec<String>,
+    /// Response → mirror copy list for the population step (issue #508).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mox_mirror_fields: Vec<String>,
 }
 
 pub struct QueryGenerator {
@@ -198,6 +204,29 @@ impl EntityGenerator for QueryGenerator {
                 .map(|plan| !plan.is_empty())
                 .unwrap_or(false);
 
+        // SELECT-time derived-field population (issue #508): the mox
+        // derived response fields are computed from the loaded row.
+        let mox_mirror_fields = crate::api::handler::mox_mirror_fields(db, schema_title).await;
+        let mox_derived_names: Vec<String> = db
+            .get_mox_derived_features()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .filter(|d| d.class == schema_title || d.class == entity_name)
+            .map(|d| {
+                codegraph_naming::escape_rust_keyword(&codegraph_naming::to_snake_case(&d.name))
+            })
+            .filter(|name| {
+                // Only non-stored features become computed extras (the
+                // stored ones are real columns) — mirrors the dto.rs
+                // extras decision exactly.
+                !mox_mirror_fields.iter().any(|f| {
+                    f == name
+                        || &codegraph_naming::to_snake_case(f) == name
+                        || &codegraph_naming::escape_rust_keyword(f) == name
+                })
+            })
+            .collect();
         let ctx = QueryContext {
             has_read: operations.contains(&"read".to_string()),
             has_create: operations.contains(&"create".to_string()),
@@ -213,6 +242,8 @@ impl EntityGenerator for QueryGenerator {
             hierarchy_field,
             tree_include,
             ux_sort,
+            mox_derived_names,
+            mox_mirror_fields,
         };
 
         let content = render_template_with_project(tera, "ddd/query.tera", &ctx, project)?;

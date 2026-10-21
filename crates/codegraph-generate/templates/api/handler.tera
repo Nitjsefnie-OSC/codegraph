@@ -1136,3 +1136,46 @@ pub async fn tree(
 //     }
 // }
 {% endif %}
+{% if mox_ops | default(value=[]) | length > 0 %}{% for op in mox_ops %}
+
+/// Mox operation `{{ op.name }}` (issue #508 R2): `POST …/{id}/op/{{ op.snake }}`
+/// on the loaded row — the tested invocation contract. Params arrive as
+/// JSON body members; the result rides the standard `{"data": …}` envelope.
+pub async fn mox_op_{{ op.snake }}(
+    State(state): State<AppState>,
+    Extension(api_key_info): Extension<ApiKeyInfo>,
+    headers: HeaderMap,
+    Path({{ param_name }}): Path<Uuid>,
+    body: Option<axum::Json<serde_json::Value>>,
+) -> Result<axum::response::Response, AppError> {
+    use axum::response::IntoResponse;
+    let correlation_id = extract_correlation_id(&headers);
+    let resp = state.{{ domain }}_{{ module_name }}_queries
+        .find_by_id({{ param_name }}{% if is_auditable %}, false{% endif %}, api_key_info.api_key_id, api_key_info.organization_id, api_key_info.user_id, api_key_info.role.clone())
+        .await
+        .map_err(|e: {{ domain | pascal_case }}Error| {
+            AppError::from_domain_error(e.http_status(), e.to_string(), "Failed to find {{ entity_name }}")
+                .with_correlation_id(correlation_id)
+        })?
+        .ok_or_else(|| AppError::not_found("{{ entity_name }} not found").with_correlation_id(correlation_id))?;
+    let mirror = {{ project.domain_types_crate }}::{{ domain }}::mox_types::{{ entity_name }} {
+{%- for f in mox_mirror_fields | default(value=[]) %}
+        {{ f }}: resp.{{ f }}.clone(),
+{%- endfor %}
+    };
+    let mut res = {{ project.domain_types_crate }}::{{ domain }}::mox_types::Resource::new(
+        api_key_info.organization_id, correlation_id, Some(api_key_info.api_key_id),
+    );
+    res.insert_{{ module_name }}(mirror);
+    let target = res.get_{{ module_name }}({{ param_name }}).expect("row inserted above");
+{%- for p in op.params %}
+    let {{ p.name }}: {{ p.rust_type }} = body
+        .as_ref()
+        .and_then(|b| b.get("{{ p.name }}").cloned())
+        .and_then(|v| serde_json::from_value(v).ok())
+        .ok_or_else(|| AppError::bad_request("missing or invalid parameter '{{ p.name }}'").with_correlation_id(correlation_id))?;
+{%- endfor %}
+    let out = target.{{ op.snake }}(&res{% for p in op.params %}, {{ p.name }}{% endfor %});
+    Ok(axum::Json(serde_json::json!({ "data": out })).into_response())
+}
+{% endfor %}{% endif %}
