@@ -298,7 +298,7 @@ grpc_backend = true
 
 [profiles.fullstack.variants.lite]
 [profiles.fullstack.variants.lite.api]
-generators = ["ddl", "dto", "handler", "router", "scaffold", "openapi"]
+generators = ["ddl", "dto", "handler", "router", "scaffold", "openapi", "mox_ops"]
 [profiles.fullstack.variants.lite.ui]
 generators = ["ui_page", "ui_form", "ui_scaffold"]
 [profiles.fullstack.variants.lite.features]
@@ -333,7 +333,7 @@ generators = [
     "command", "query", "event", "handler", "workflow_action",
     "lifecycle_trait", "domain_types_dto", "domain_types_query_service",
     # Domain
-    "errors", "router", "links",
+    "errors", "router", "links", "mox_ops",
     # Global
     "cornucopia_config", "worker_scaffold", "basejump_setup", "pgmq_setup",
     "platform_schema", "workflow_seed", "hook_registry", "domain_types_scaffold",

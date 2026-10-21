@@ -116,16 +116,12 @@ pub struct {{ entity_name }}WorkflowState {
 {%- endif %}
 {%- if mox_derived_extras | length > 0 %}
 
-/// Placeholder for the rexlang `res: &Resource` slot of the fixed
-/// operation signature (issue #501) — codegraph's generated app has no
-/// resource bag; bodies referencing `res.` fail to compile until wired by
-/// hand. Present only when a derived feature needs the accessor.
-pub struct Resource;
-
 impl {{ entity_name }}Response {
 {%- for extra in mox_derived_extras %}
     /// Computed accessor for the mox derived feature `{{ extra.source_name }}`.
-    pub fn {{ extra.name }}(&self, res: &Resource) -> {{ extra.rust_type | default(value="()") }} {
+    /// The `res` arena (issue #508 R4) is the domain's real
+    /// `crate::{{ domain }}::mox_types::Resource`.
+    pub fn {{ extra.name }}(&self, res: &crate::{{ domain }}::mox_types::Resource) -> {{ extra.rust_type | default(value="()") }} {
         {{ extra.body }}
     }
 {%- endfor %}

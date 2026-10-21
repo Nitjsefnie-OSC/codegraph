@@ -289,10 +289,13 @@ async fn mox_derived_feature_exposed_in_response() {
         "response must expose the non-stored derived field:\n{response}"
     );
 
-    // Accessor with the rexlang fixed signature, lowered from the expr body
-    // (feature ref → self.<field>); module-local Resource placeholder.
+    // Accessor with the rexlang fixed signature, lowered from the expr
+    // body (feature ref → self.<field>); the arena is the domain's REAL
+    // Resource (issue #508 R4) — no placeholder.
     assert!(
-        response.contains("pub fn upper_id(&self, res: &Resource) -> String"),
+        response.contains(
+            "pub fn upper_id(&self, res: &crate::recruiting::mox_types::Resource) -> String"
+        ),
         "response module must carry the computed accessor:\n{response}"
     );
     assert!(
@@ -300,9 +303,31 @@ async fn mox_derived_feature_exposed_in_response() {
         "accessor body must lower the expr (feature ref → self.<field>):\n{response}"
     );
     assert!(
-        response.contains("pub struct Resource;"),
-        "response module must carry the documented Resource placeholder:\n{response}"
+        !response.contains("pub struct Resource;"),
+        "the module-local Resource placeholder is retired (issue #508 R4):\n{response}"
     );
+
+    // The real Resource contract lives in the domain's mox_types module:
+    // mirrors + the synchronous arena.
+    let mox_types = fs::read_to_string(
+        domain_types_dir
+            .join("src")
+            .join("recruiting")
+            .join("mox_types.rs"),
+    )
+    .expect("src/recruiting/mox_types.rs must be generated for a model with derived features");
+    for fragment in [
+        "pub struct Candidate",
+        "pub struct Resource",
+        "pub fn insert_candidate(",
+        "pub fn get_candidate(&self, id: Uuid) -> Option<&Candidate>",
+        "pub organization_id: Uuid,",
+    ] {
+        assert!(
+            mox_types.contains(fragment),
+            "mox_types must carry the real Resource contract (`{fragment}`):\n{mox_types}"
+        );
+    }
 
     // Create/update: derived features are never writable inputs.
     assert!(
@@ -361,19 +386,38 @@ async fn mox_op_body_emitted_with_fixed_signature() {
 
     let ops_rs = read_mox_ops(&output_dir);
 
-    // The rexlang fixed-signature seam: module-local Resource placeholder,
-    // per-class impl on the entity model type.
+    // The rexlang fixed-signature seam (issue #508 R1): impl on the
+    // persistence-agnostic row mirror from the domain's mox_types module —
+    // NOT the SeaORM Model, so the module compiles under workers-cornucopia
+    // on both targets.
     assert!(
-        ops_rs.contains("pub struct Resource;"),
-        "module must carry the documented Resource placeholder:\n{ops_rs}"
+        !ops_rs.contains("pub struct Resource;"),
+        "the module-local Resource placeholder is retired (issue #508 R4):\n{ops_rs}"
     );
     assert!(
-        ops_rs.contains("use crate::entity::candidate::Model as Candidate;"),
-        "ops must alias the entity's SeaORM Model under its rust type name:\n{ops_rs}"
+        !ops_rs.contains("crate::entity::"),
+        "ops must not depend on the SeaORM entity module:\n{ops_rs}"
+    );
+    assert!(
+        ops_rs.contains("use domain_types::recruiting::mox_types::{Candidate, Resource};"),
+        "ops must impl on the mox_types row mirror:\n{ops_rs}"
     );
     assert!(
         ops_rs.contains("impl Candidate {"),
-        "ops must be emitted as an inherent impl on the entity model:\n{ops_rs}"
+        "ops must be emitted as an inherent impl on the mirror:\n{ops_rs}"
+    );
+
+    // mox_types carries the mirror + the real Resource arena.
+    let mox_types = fs::read_to_string(
+        domain_types_dir
+            .join("src")
+            .join("recruiting")
+            .join("mox_types.rs"),
+    )
+    .expect("src/recruiting/mox_types.rs must be generated for a model with ops");
+    assert!(
+        mox_types.contains("pub struct Resource"),
+        "mox_types must carry the real Resource contract:\n{mox_types}"
     );
 
     // `rust` body: fixed signature with rex type mapping (int → i32, String
@@ -398,6 +442,80 @@ async fn mox_op_body_emitted_with_fixed_signature() {
         ops_rs.contains("self.candidate_id"),
         "expr body must lower feature refs to self.<field>:\n{ops_rs}"
     );
+}
+
+// ── Slice 2b: the tested invocation contract (issue #508 R2) ──
+
+/// Qualifying ops (bodied, primitive signature) route as
+/// `POST {id}/op/{snake}` through the handler/router planes — the
+/// generated-and-never-called era is over.
+#[tokio::test]
+async fn mox_op_routes_wired_through_handler_and_router() {
+    let dir = tempfile::tempdir().unwrap();
+    let output_dir = dir.path().join("out");
+    let domain_types_dir = dir.path().join("domain-types");
+    fs::create_dir_all(&output_dir).unwrap();
+
+    let engine = GrafeoEngine::in_memory().unwrap();
+    let config =
+        codegraph_config::config::parse_domain_config(Path::new("tests/fixtures/domains.toml"))
+            .unwrap();
+    ingest_fixture_schemas(&engine, &config).await;
+
+    let mox_dir = tempfile::tempdir().unwrap();
+    let mox = write_mox_fixture(mox_dir.path(), "model.mox", RUST_AND_EXPR_OPS_MOX);
+
+    let hooks_tmp = tempfile::tempdir().unwrap();
+    run_generation(
+        &engine,
+        Some(mox),
+        &domain_types_dir,
+        &output_dir,
+        hooks_tmp.path(),
+    )
+    .await;
+
+    let handler = fs::read_to_string(
+        output_dir
+            .join("src")
+            .join("api")
+            .join("recruiting")
+            .join("candidate_handler.rs"),
+    )
+    .expect("candidate handler module must be generated");
+    let router = fs::read_to_string(
+        output_dir
+            .join("src")
+            .join("api")
+            .join("recruiting")
+            .join("router.rs"),
+    )
+    .expect("recruiting router must be generated");
+
+    // Handler: one action fn per qualifying op — loads the row, copies it
+    // into the mox_types mirror, builds the real Resource arena, and
+    // INVOKES the op with the body params.
+    for fragment in [
+        "pub async fn mox_op_id_length(",
+        "pub async fn mox_op_has_short_id(",
+        "res.insert_candidate(mirror);",
+        "target.id_length(&res, prefix)",
+        "target.has_short_id(&res)",
+        "\"data\": out",
+    ] {
+        assert!(
+            handler.contains(fragment),
+            "handler must wire the mox op invocation (`{fragment}`):\n{handler}"
+        );
+    }
+
+    // Router: the action routes, guarded like every other action route.
+    for fragment in ["/op/id_length", "/op/has_short_id", "mox_op_id_length"] {
+        assert!(
+            router.contains(fragment),
+            "router must mount the mox op route (`{fragment}`):\n{router}"
+        );
+    }
 }
 
 // ── Slice 3: body-less ops → a visible seam ──
@@ -443,6 +561,21 @@ async fn mox_bodyless_op_seam_is_visible() {
     assert!(
         ops_rs.contains("todo!("),
         "stub body must be a todo! (compiles, never guessed):\n{ops_rs}"
+    );
+
+    // Body-less ops never route (issue #508 R2) — the todo! seam stays
+    // unreachable from the API plane.
+    let router = fs::read_to_string(
+        output_dir
+            .join("src")
+            .join("api")
+            .join("recruiting")
+            .join("router.rs"),
+    )
+    .expect("recruiting router must be generated");
+    assert!(
+        !router.contains("/op/audit_count"),
+        "body-less op must not expose a route:\n{router}"
     );
 }
 

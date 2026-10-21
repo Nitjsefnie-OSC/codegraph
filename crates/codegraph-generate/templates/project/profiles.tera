@@ -40,7 +40,7 @@ generators = [
     "query", "event", "handler", "workflow_action", "media_route", "test",
     "lifecycle_trait", "domain_types_dto", "domain_types_query_service",
     # Domain
-    "router", "links", "errors",
+    "router", "links", "errors", "mox_ops",
     # hurl API contract tests (issue #463) — run by the ops api suite
     "hurl_contract",
     # Global

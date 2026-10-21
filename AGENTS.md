@@ -97,53 +97,62 @@ bridged, auto-scored): integration guide at `docs/rosetta.md`, construct
 matrix + defects ledger at `docs/rosetta-gap-analysis.md`.
 
 
-## mox op/derived consuming generator (issue #501)
+## mox op/derived consuming generator (issue #501, quality bar #508)
 
-The #218 ingest surface (`MoxOperationNode`/`MoxDerivedFeatureNode`) now
-has its B5 consumer — the mox behavior surface generates code, not just
-graph nodes:
+The #218 ingest surface (`MoxOperationNode`/`MoxDerivedFeatureNode`)
+generates code on the quality bar of issue #508 (R1–R4) — "we support
+mox" carries NO topology asterisk:
 
-- **Derived `expr` features** (`ddd/dto.rs` + `dto_response.tera`): a
-  derived feature naming an existing stored field annotates that field
-  read-only (the #218 behavior). A feature naming NO stored field becomes
-  a `#[serde(default)]` read-only response field plus a computed accessor
-  `pub fn name(&self, res: &Resource) -> T` in an impl block, with a
-  documented module-local `pub struct Resource;` placeholder. Bodies
-  lower through `codegraph-generate/src/mox_expr.rs` (rex-expr parse →
-  Rust closed subset: feature refs → `self.<field>` with Copy-aware
-  `.clone()`, literals, comparisons, boolean/arithmetic, fully
-  parenthesized — third target alongside `expr_sql`/`expr_ts`).
-  Never-located constructs and non-primitive types carry `todo!` stubs +
-  `TODO(#501)` markers. Create/update DTOs never see derived features.
-  SELECT-time population of the exposed fields is deferred.
-- **`mox_ops` DomainGenerator** (`ddd/mox_ops.rs`, the `functions.rs`
-  #263 shape): `src/domain/<domain>/mox_ops.rs` — one inherent impl per
-  mox class on the entity's SeaORM `Model` (aliased under its rust type
-  name), with the rex-backend-rust FIXED signature
-  `pub fn <snake>(&self, res: &Resource, params) -> Ret` (`int→i32`,
-  `string→String`, `boolean→bool`, `number→f64`, non-primitives
-  verbatim). `rust` bodies embed VERBATIM (byte-identical, own line —
-  the Tier 1 contract); `expr` bodies lower via `mox_expr` or marker +
-  `todo!`; body-less ops emit the signature-complete
-  `todo!("body-less mox op 'x' — implement by hand")` seam. The
-  `res: &Resource` slot is faithful to the rexlang contract — bodies
-  using `res.` fail to compile until hand-wired; that IS the seam.
-  Worker-routed (lands in `workers/{domain}/`); `"mox_ops"` rides the
-  six SeaORM-band `[api]` profiles (workers-cornucopia excluded — no
-  SeaORM Model exists there).
+- **Type surface** (`ddd/mox_ops.rs` → `{domain_types_base}/src/{domain}/mox_types.rs`):
+  one persistence-agnostic row mirror per mox class carrying ops or
+  derived features, plus the **real `Resource` contract** (issue #508
+  R4): request context (org/correlation/api-key) + a synchronous arena
+  (`res.get_<class>(id)`, `insert_<class>`) — lowered `x.field`
+  navigation resolves through it (the rex-backend-rust contract: plain
+  navigation `expect("dangling …")`, `?.` yields `None`). Compiles under
+  sea_orm AND workers-cornucopia, on native AND wasm32 — the ops impl on
+  the mirror, NOT the SeaORM `Model`. `mox_types` is declared by the
+  domain-types domain `mod.rs` when the domain carries a mox surface.
+- **`mox_ops` DomainGenerator** (`ddd/mox_ops.rs`): `src/domain/<domain>/mox_ops.rs`
+  — one inherent impl per mirror with the rex-backend-rust FIXED
+  signature `pub fn <snake>(&self, res: &Resource, params) -> Ret`
+  (`int→i32`, `string→String`, `boolean→bool`, `number→f64`; known
+  class refs → `Uuid`, the `{Class}Id` slot; else verbatim). `rust`
+  bodies embed VERBATIM (byte-identical — the Tier 1 contract); `expr`
+  bodies lower through `mox_expr`'s **normative subset** (issue #508
+  R3); body-less ops emit the signature-complete `todo!("body-less mox
+  op …")` seam (and never route). `"mox_ops"` rides every band including
+  `workers-cornucopia` and `fullstack.variants.lite`.
+- **Expression lowering** (`codegraph-generate/src/mox_expr.rs`): the
+  closed subset targets parity with `rex-backend-rust` `expr_lower.rs` —
+  literals with L1 widths, string `&str` strips inside `==`/`!=`,
+  null-equality (R2), `?:` (R3), `if`/`let`, list literals, A1–A6
+  collection algebra (refs-1/2 closure convention), date literals +
+  `plusDays`/`plusMonths`/`diffDays` (chrono), and arena navigation
+  (`x.field`, `x?.field`, `x.op(..)`). **Refused bodies are generation
+  errors** (the `expr_sql`/`expr_ts` precedent — `Error::Validation`
+  naming the op/feature) — never an emitted `todo!` panic. Body-less
+  features keep the seam.
+- **Runner wiring (issue #508 R2)**: qualifying ops (bodied, all-
+  primitive signature) route as `POST {id}/op/{snake}` — handler
+  (`api/handler.tera` `mox_op_*` fns) loads the row, copies it into the
+  mirror, builds the `Resource` arena and INVOKES the op; router
+  (`api/router.tera`) mounts the routes with the usual guards. Derived
+  response fields are **populated at SELECT time** (query.tera: after
+  load, `resp.<name>(&res)` per computed extra — the `#[serde(default)]`
+  is belt-and-braces now).
 - **Doctor seam section**: `codegraph doctor --mox-files` prints every
   body-less op via `bodyless_op_seams()` (pub, in `init/commands.rs`) as
-  `INFO mox — body-less op <pkg>::<Class>::<op>` — INFO only, never a
-  warning (the mox-first zero-warning doctor matrix holds).
-- **Presence gating**: no ops/derived features in the graph ⇒ no files,
-  no markers, byte-identical output. Gate:
-  `cargo test -p codegraph --test mox_ops_tests` (5, node-free;
+  `INFO mox — body-less op <pkg>::<Class>::<op>` — INFO only.
+- **Presence gating**: no ops/derived features ⇒ no files, no routes,
+  byte-identical output. Gates:
+  `cargo test -p codegraph --test mox_ops_tests` (6, node-free;
   `mox_dto_tests` pins the stored-field annotation path).
-- **Deferred**: SELECT-time population of derived response fields;
-  class-typed signature slots (`{Class}Id`); mox_ops for cornucopia
-  profiles; `res.`-bag semantics (a real Resource type); runner wiring
-  (the ops/repo planes never CALL the generated methods — same
-  "generated but not yet invoked" class as #338).
+- **Deferred**: class-ref parameter/return lowering beyond `Uuid` slots
+  with arena `From` conversions; op routes for non-primitive signature
+  slots; `res`-aware derived-feature arena building in dto context
+  (navigation in derived extras hard-errors until then); openapi/hurl
+  coverage of the op routes.
 
 ## DDD design models as generator input (issue #449)
 

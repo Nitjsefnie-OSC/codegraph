@@ -20,6 +20,71 @@ use super::router::{ChildInfo, CrossRefInfo};
 
 use super::api_model::{resolve_entity_operations, resolve_path_segment};
 
+/// A mox operation routed as an action endpoint (issue #508 R2):
+/// `POST {id}/op/{snake}`. Only qualifying ops route — bodied AND with
+/// all-primitive signature slots; body-less ops never route.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MoxOpRoute {
+    /// Operation name as written in mox.
+    pub name: String,
+    /// Rust method name (and route segment).
+    pub snake: String,
+    /// Parameters: (snake name, Rust type).
+    pub params: Vec<MoxOpParam>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MoxOpParam {
+    pub name: String,
+    pub rust_type: String,
+}
+
+/// Qualifying mox ops for `schema_title` (issue #508 R2): a body
+/// (`rust` or `expr`) and only primitive signature slots.
+pub async fn routable_mox_ops(
+    db: &dyn GraphQuerier,
+    schema_title: &str,
+    entity_name: &str,
+) -> Vec<MoxOpRoute> {
+    let all = db.get_mox_operations().await.unwrap_or_default();
+    all.iter()
+        .filter(|op| op.class == schema_title || op.class == entity_name)
+        .filter(|op| op.bodies.contains_key("rust") || op.bodies.contains_key("expr"))
+        .filter_map(|op| {
+            let primitive = |t: &str| crate::mox_expr::mox_primitive_rust_type(t).is_some();
+            if !primitive(&op.return_type) || !op.params.iter().all(|p| primitive(&p.type_)) {
+                return None;
+            }
+            Some(MoxOpRoute {
+                name: op.name.clone(),
+                snake: codegraph_naming::to_snake_case(&op.name),
+                params: op
+                    .params
+                    .iter()
+                    .map(|p| MoxOpParam {
+                        name: codegraph_naming::to_snake_case(&p.name),
+                        rust_type: crate::mox_expr::mox_primitive_rust_type(&p.type_)
+                            .unwrap_or("String")
+                            .to_string(),
+                    })
+                    .collect(),
+            })
+        })
+        .collect()
+}
+
+/// Mirror field names in emission order (issue #508 R2): the Response →
+/// mirror copy list — mirrors the mox_types emission (`id` first when no
+/// property carries it).
+pub async fn mox_mirror_fields(db: &dyn GraphQuerier, schema_title: &str) -> Vec<String> {
+    let props = db.get_properties(schema_title).await.unwrap_or_default();
+    let mut fields: Vec<String> = props.iter().map(|p| p.rust_field_name.clone()).collect();
+    if !fields.iter().any(|f| f == "id") {
+        fields.insert(0, "id".to_string());
+    }
+    fields
+}
+
 #[derive(Debug, Serialize)]
 pub struct HandlerContext {
     pub entity_name: String,
@@ -96,6 +161,13 @@ pub struct HandlerContext {
     /// byte-identical.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub ux_sort_fields: Vec<String>,
+    /// Mox operations routed as action endpoints (issue #508 R2). Empty =
+    /// no op routes and the handler stays byte-identical.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mox_ops: Vec<MoxOpRoute>,
+    /// Response → mirror copy list for op handlers (issue #508 R2).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mox_mirror_fields: Vec<String>,
 }
 
 pub struct HandlerGenerator {
@@ -273,6 +345,10 @@ impl EntityGenerator for HandlerGenerator {
             Vec::new()
         };
 
+        // Mox op action routes + mirror copy list (issue #508 R2).
+        let mox_ops = routable_mox_ops(db, schema_title, &entity_name).await;
+        let mox_mirror_fields = mox_mirror_fields(db, schema_title).await;
+
         let ctx = HandlerContext {
             has_create: operations.contains(&"create".to_string()),
             has_read: operations.contains(&"read".to_string()),
@@ -285,6 +361,8 @@ impl EntityGenerator for HandlerGenerator {
             path_segment,
             tag,
             operations,
+            mox_ops,
+            mox_mirror_fields,
             parent_ref: topo.parent_ref,
             parent_entity,
             parent_path_segment: topo.parent_path_segment,

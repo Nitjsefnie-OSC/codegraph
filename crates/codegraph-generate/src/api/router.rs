@@ -76,6 +76,9 @@ pub struct RouterContext {
 
 #[derive(Debug, Serialize)]
 pub struct RouterEntity {
+    /// Mox op action routes (issue #508 R2) — POST `{id}/op/{snake}`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mox_ops: Vec<crate::api::handler::MoxOpRoute>,
     pub entity_name: String,
     pub module_name: String,
     pub path_segment: String,
@@ -312,6 +315,7 @@ impl DomainGenerator for RouterGenerator {
                 title_to_entity_idx.insert(title.clone(), entity_idx);
 
                 entities.push(RouterEntity {
+                    mox_ops: crate::api::handler::routable_mox_ops(db, title, entity_name).await,
                     entity_name: entity_name.clone(),
                     module_name: schema.pg_table_name.clone(),
                     path_segment: resolve_path_segment(entity_cfg, &schema),
@@ -658,6 +662,7 @@ pub async fn build_router_context(
             title_to_entity_idx.insert(title.clone(), entity_idx);
 
             entities.push(RouterEntity {
+                mox_ops: crate::api::handler::routable_mox_ops(db, title, entity_name).await,
                 entity_name: entity_name.clone(),
                 module_name: schema.pg_table_name.clone(),
                 path_segment: resolve_path_segment(entity_cfg, &schema),
@@ -1069,6 +1074,7 @@ mod tests {
         RouterContext {
             domain: "events".to_string(),
             entities: vec![RouterEntity {
+                mox_ops: Vec::new(),
                 entity_name: "PublicEvent".to_string(),
                 module_name: "public_event".to_string(),
                 path_segment: "public-event".to_string(),

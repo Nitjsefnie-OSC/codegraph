@@ -351,6 +351,7 @@ mod tests {
 
     fn entity(name: &str, module: &str, path_segment: &str) -> RouterEntity {
         RouterEntity {
+            mox_ops: Vec::new(),
             entity_name: name.into(),
             module_name: module.into(),
             path_segment: path_segment.into(),

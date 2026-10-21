@@ -278,7 +278,9 @@ fn fullstack_variant_lite_strips_to_minimal() {
         vec!["ddl", "dto", "handler", "ui_form", "ui_page"]
     );
 
-    assert_eq!(plan.domain_generators, vec!["router"]);
+    // Lite keeps the mox behavior surface (issue #508: no band carries a
+    // "we support mox" asterisk).
+    assert_eq!(plan.domain_generators, vec!["router", "mox_ops"]);
 
     let mut global_gens = plan.global_generators;
     global_gens.sort();

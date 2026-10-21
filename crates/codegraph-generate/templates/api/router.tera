@@ -113,6 +113,9 @@ fn {{ entity.module_name }}_routes() -> Router<AppState> {
         .route("/{ {{- entity.param_name -}} }/workflow", axum::routing::get({{ entity.module_name }}_workflow::get_workflow_state).guard("{{ domain }}:{{ entity.path_segment }}", "read"))
         .route("/{ {{- entity.param_name -}} }/workflow/history", axum::routing::get({{ entity.module_name }}_workflow::get_process_history).guard("{{ domain }}:{{ entity.path_segment }}", "read"))
 {% endif %}
+{%- for op in entity.mox_ops | default(value=[]) %}
+        .route("/{ {{- entity.param_name -}} }/op/{{ op.snake }}", axum::routing::post({{ entity.module_name }}_handler::mox_op_{{ op.snake }}).guard("{{ domain }}:{{ entity.path_segment }}", "read"))
+{%- endfor %}
 {% for mf in entity.media_fields %}
         .route(
             "/{id}/{{ mf }}",
