@@ -236,15 +236,16 @@ fn read_dtos(domain_types_dir: &Path) -> (String, String, String) {
 }
 
 /// The slice-2/3 artifact: per-domain mox operation module in the app crate.
-fn read_mox_ops(output_dir: &Path) -> String {
+/// The mox behavior plane (issue #517): mirrors + `Resource` + op impls
+/// live together in the domain-types `mox_types.rs`.
+fn read_mox_ops(domain_types_dir: &Path) -> String {
     fs::read_to_string(
-        output_dir
+        domain_types_dir
             .join("src")
-            .join("domain")
             .join("recruiting")
-            .join("mox_ops.rs"),
+            .join("mox_types.rs"),
     )
-    .expect("src/domain/recruiting/mox_ops.rs must be generated for a model with ops")
+    .expect("src/recruiting/mox_types.rs must be generated for a model with ops")
 }
 
 // ── Slice 1: derived `expr` features → read-only response fields ──
@@ -384,12 +385,12 @@ async fn mox_op_body_emitted_with_fixed_signature() {
     )
     .await;
 
-    let ops_rs = read_mox_ops(&output_dir);
+    let ops_rs = read_mox_ops(&domain_types_dir);
 
-    // The rexlang fixed-signature seam (issue #508 R1): impl on the
-    // persistence-agnostic row mirror from the domain's mox_types module —
-    // NOT the SeaORM Model, so the module compiles under workers-cornucopia
-    // on both targets.
+    // The rexlang fixed-signature seam (issues #508 R1, #517): impl on the
+    // persistence-agnostic row mirror — NOT the SeaORM Model, in the one
+    // model surface (`mox_types.rs`) so the plane compiles under
+    // workers-cornucopia on both targets with every type resolved.
     assert!(
         !ops_rs.contains("pub struct Resource;"),
         "the module-local Resource placeholder is retired (issue #508 R4):\n{ops_rs}"
@@ -399,8 +400,8 @@ async fn mox_op_body_emitted_with_fixed_signature() {
         "ops must not depend on the SeaORM entity module:\n{ops_rs}"
     );
     assert!(
-        ops_rs.contains("use domain_types::recruiting::mox_types::{Candidate, Resource};"),
-        "ops must impl on the mox_types row mirror:\n{ops_rs}"
+        ops_rs.contains("pub fn from_response(r: &CandidateResponse) -> Self"),
+        "the mirror must carry the Response copy ctor (issue #517):\n{ops_rs}"
     );
     assert!(
         ops_rs.contains("impl Candidate {"),
@@ -546,7 +547,7 @@ async fn mox_bodyless_op_seam_is_visible() {
     )
     .await;
 
-    let ops_rs = read_mox_ops(&output_dir);
+    let ops_rs = read_mox_ops(&domain_types_dir);
 
     // The seam: signature-complete stub naming the gap class — the module is
     // the record of what a hand implementation must provide.

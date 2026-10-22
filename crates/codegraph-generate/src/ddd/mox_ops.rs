@@ -1,40 +1,44 @@
-//! `mox_ops` — mox operation codegen (issue #501, quality bar #508).
+//! `mox_ops` — mox operation codegen (issue #501, quality bar #508,
+//! compile contract #517).
 //!
-//! Per domain, emits two files:
+//! Per domain, emits ONE file —
+//! `{domain_types_base}/src/{domain}/mox_types.rs` — carrying:
 //!
-//! 1. `{domain_types_base}/src/{domain}/mox_types.rs` — the persistence-
-//!    agnostic surface (issue #508 R1/R4): one row-mirror struct per mox
-//!    class carrying operations or derived features, plus the `Resource`
-//!    contract of the fixed signature — request context (org /
-//!    correlation / api key) and a **synchronous arena** of loaded
-//!    mirrors (`res.get_<class>(id)`), which is what lowered `x.field`
-//!    navigation resolves through. Not the SeaORM `Model`: the same
-//!    module compiles under sea_orm AND workers-cornucopia, on native
-//!    and wasm32 targets.
-//! 2. `src/domain/<domain>/mox_ops.rs` — one inherent impl per class on
-//!    its mirror, with the rexlang rex-backend-rust FIXED signature:
+//! 1. **Row mirrors** (issue #508 R1) — one per mox class with operations
+//!    or derived features. Field names/types/wrappers are **exactly** the
+//!    entity's `{Entity}Response` DTO surface (issue #517: the DTO layer's
+//!    kind-driven resolution — entity refs → `uuid::Uuid` with `_id`
+//!    names, codelists → generated enums, structured wrappers →
+//!    `types_import_prefix`, VO children → same-file child-struct types),
+//!    with the same import conventions the DTO modules use. Never bare
+//!    names — every emitted type resolves within the generated tree.
+//! 2. **`from_response`** — the Response → mirror copy the runner wiring
+//!    (issue #508 R2) uses; the handler/query copy lists collapsed into
+//!    this one constructor.
+//! 3. **The `Resource` arena** (issue #508 R4) — request context plus a
+//!    synchronous arena (`res.get_<class>(id)` / `insert_<class>`), the
+//!    rex-backend-rust navigation contract (plain navigation
+//!    `expect("dangling …")`, `?.` yields `None`).
+//! 4. **Operation impls** on the mirrors, with the rex-backend-rust FIXED
+//!    signature `pub fn <snake>(&self, res: &Resource, params) -> Ret`.
+//!    The impls live WITH the type (same file — the mirrors and ops are
+//!    one model surface, mirroring rex-backend-rust's layout); the
+//!    app-side `mox_ops.rs` is retired, so the plane is reachable from
+//!    every band through the domain-types dependency alone.
 //!
-//! ```text
-//! pub fn <snake_name>(&self, res: &Resource, <param>: <type>, ...) -> <Ret>
-//! ```
+//! Signature types map per the rex contract (issue #517 — every slot
+//! RESOLVES): `int` → `i32`, `string` → `String`, `boolean` → `bool`,
+//! `number` → `f64`; known class refs → `uuid::Uuid` (the `{Class}Id`
+//! slot); codelist/enum refs → `{domain_types}::codelist::{Enum}`;
+//! **anything else is a generation error naming the op** — never a bare
+//! name. `rust` bodies embed VERBATIM (byte-identical — the Tier 1
+//! contract); `expr` bodies lower through [`crate::mox_expr`]'s normative
+//! subset (issue #508 R3 — refused bodies are generation errors too);
+//! body-less ops emit the signature-complete `todo!` seam (and never
+//! route).
 //!
-//! | mox body  | Rust emission |
-//! |-----------|---------------|
-//! | `rust { … }` | body text embedded VERBATIM (byte-identical — the rex-backend-rust Tier 1 contract) |
-//! | `expr { … }` | lowered through [`crate::mox_expr`] (the normative subset; class navigation via the `res` arena) |
-//! | (no body) | signature-complete `todo!` seam naming the abstract hook (the documented rexlang gap class — body-less ops get no route) |
-//!
-//! **Refused `expr` bodies are generation errors** (issue #508 R3 — the
-//! `expr_sql`/`expr_ts` precedent): the run reports the op/feature and
-//! fails instead of emitting a `todo!` that panics at runtime.
-//!
-//! Signature types map per the rex contract: `int` → `i32`, `string` →
-//! `String`, `boolean` → `bool`, `number` → `f64`; class refs map to
-//! `Uuid` (the `{Class}Id` slot); anything else stays verbatim — never a
-//! guessed path.
-//!
-//! Presence-gated: with no mox operations or derived features in the
-//! graph the generator emits nothing and output stays byte-identical.
+//! Presence-gated: with no mox operations or derived features the
+//! generator emits nothing and output stays byte-identical.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -46,6 +50,7 @@ use codegraph_naming::{escape_rust_keyword, strip_suffix, to_pascal_case, to_sna
 
 use crate::ProjectConfig;
 use crate::code_writer::{CodeWriter, wln};
+use crate::ddd::dto::{ChildDtoContext, DtoField, build_dto_context};
 use crate::error::{Error, Result};
 use crate::mox_expr::{
     ArenaIndex, ClassBinding, FieldBinding, OpBinding, is_copy_rust_type, lower_expr_to_rust,
@@ -54,40 +59,135 @@ use crate::mox_expr::{
 use crate::traits::{DomainGenerator, DomainGeneratorKind, GeneratedFile};
 use codegraph_config::DomainConfig;
 
-/// The Rust type of an operation signature slot (param or return), per the
-/// rex contract. Class refs (known to the domain) map to their id type
-/// (`Uuid` — the `{Class}Id` slot); everything else stays verbatim.
-fn sig_type(type_ref: &str, known_classes: &HashSet<String>) -> String {
-    if known_classes.contains(type_ref) || known_classes.contains(&to_pascal_case(type_ref)) {
-        return "Uuid".to_string();
+/// The exact type spelling a DTO field carries on the response struct
+/// (issue #517 — the template's shape rules, in one place).
+fn wrap_shape(inner: &str, is_array: bool, is_required: bool) -> String {
+    let base = if is_array {
+        format!("Vec<{inner}>")
+    } else {
+        inner.to_string()
+    };
+    if is_required {
+        base
+    } else {
+        format!("Option<{base}>")
     }
-    mox_primitive_rust_type(type_ref)
-        .map(str::to_string)
-        .unwrap_or_else(|| type_ref.to_string())
 }
 
-/// One mirror class: schema title, Rust names, stored fields, ops, and
-/// whether it carries derived features (which need the mirror too).
+fn mirror_field_type(f: &DtoField) -> String {
+    if f.is_entity_ref {
+        wrap_shape("uuid::Uuid", f.is_array, f.is_required)
+    } else {
+        wrap_shape(&f.rust_type, f.is_array, f.is_required)
+    }
+}
+
+/// Child-struct fields on the response: arrays are bare `Vec<..>`,
+/// singletons are `Option<..>` (the dto_response.tera shape).
+fn child_field_type(child: &ChildDtoContext) -> String {
+    if child.is_array {
+        format!("Vec<{}Response>", child.struct_name)
+    } else {
+        format!("Option<{}Response>", child.struct_name)
+    }
+}
+
+/// Resolve one signature slot through wrappers (`Vec<..>`, `Option<..>`).
+fn resolve_slot(
+    type_ref: &str,
+    resolve: &dyn Fn(&str) -> std::result::Result<String, String>,
+) -> std::result::Result<String, String> {
+    for open in ["Vec<", "Option<"] {
+        if let Some(inner) = type_ref
+            .strip_prefix(open)
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            let resolved = resolve_slot(inner, resolve)?;
+            return Ok(format!("{open}{resolved}>"));
+        }
+    }
+    resolve(type_ref)
+}
+
+/// The Rust type of an operation signature slot (param or return), per the
+/// rex contract — issue #517: every slot RESOLVES. mox primitives map
+/// canonically; known class refs map to their id slot (`uuid::Uuid`); known
+/// codelists map to the generated codelist enum; anything else is refused
+/// (the caller raises a generation error naming the op — never a bare
+/// name).
+fn sig_type(
+    type_ref: &str,
+    known_classes: &HashSet<String>,
+    codelists: &HashSet<String>,
+    domain_types_crate: &str,
+    suffix: &str,
+) -> std::result::Result<String, String> {
+    resolve_slot(type_ref, &|inner| {
+        if let Some(t) = mox_primitive_rust_type(inner) {
+            return Ok(t.to_string());
+        }
+        // Class/enum slots may be written package-qualified
+        // (`pkg::ShelfType`) or carry the type suffix — normalize to the
+        // short name before matching.
+        let short = inner.rsplit("::").next().unwrap_or(inner);
+        let short = strip_suffix(short, suffix);
+        if known_classes.contains(short.as_str()) || known_classes.contains(&to_pascal_case(&short))
+        {
+            return Ok("uuid::Uuid".to_string());
+        }
+        if codelists.contains(short.as_str()) || codelists.contains(&to_pascal_case(&short)) {
+            return Ok(format!("{domain_types_crate}::codelist::{short}"));
+        }
+        Err(type_ref.to_string())
+    })
+}
+
+/// Signature-resolution context (issue #517): the sets a signature slot
+/// resolves against.
+struct SigCtx<'a> {
+    known_classes: &'a HashSet<String>,
+    codelists: &'a HashSet<String>,
+    suffix: &'a str,
+    project: &'a ProjectConfig,
+}
+
+/// One mirror field: name + the exact response-shaped type spelling.
+struct MirrorField {
+    name: String,
+    rust_type: String,
+}
+
+/// One mirror class: schema title, Rust names, DTO-shaped fields, ops.
 struct ClassSurface {
     /// The schema title the mox class resolved to.
     title: String,
     /// The mirror struct name (`Candidate`).
     entity_name: String,
-    /// The mirror module key (`candidate`).
+    /// The mirror module key (`candidate`) — arena getter names.
     module: String,
+    /// The DTO module (`pg_table_name`) whose `dto_response` defines the
+    /// Response and child structs the mirror references.
+    dto_module: String,
     /// Operations in name order.
     ops: Vec<MoxOperationNode>,
-    /// Mirror fields: (rust field name, rust type).
-    fields: Vec<(String, String)>,
-    /// Field bindings for `expr` lowering.
+    /// Mirror fields (id first, then the DTO field list, then children).
+    fields: Vec<MirrorField>,
+    /// Child-struct names (`{Struct}Response`) this surface references.
+    child_structs: Vec<String>,
+    /// Codelist enum names used by this surface's fields.
+    codelist_names: Vec<String>,
+    /// Structured-wrapper import lines (`use {types_import_prefix}::{T};`).
+    structured_imports: Vec<String>,
+    /// Field bindings for `expr` lowering (keyed by property name).
     bindings: HashMap<String, FieldBinding>,
 }
 
 pub struct MoxOpsGenerator {
+    #[allow(dead_code)]
     output_dir: PathBuf,
-    /// Resolved domain-types crate root — `mox_types.rs` (mirrors + the
-    /// real `Resource`) lives there so the domain-types response accessors
-    /// can name the same arena type.
+    /// Resolved domain-types crate root — `mox_types.rs` (mirrors +
+    /// `Resource` + op impls) lives there so the DTO response accessors
+    /// and every generated band reach the one model surface.
     domain_types_dir: PathBuf,
 }
 
@@ -160,30 +260,29 @@ impl DomainGenerator for MoxOpsGenerator {
         }
 
         // Known classes of the domain (signature class-ref mapping and the
-        // arena index keys).
-        let known_classes: HashSet<String> = {
-            let mut set = HashSet::new();
-            for title in entity_titles {
-                if let Ok(Some(schema)) = db.get_schema_in_domain(title, domain).await {
-                    set.insert(escape_rust_keyword(&schema.rust_type_name));
-                }
-            }
-            set
-        };
-
-        // Build the arena index (all domain entities — bodies may
-        // navigate any of them) and the class surfaces. Mirror names are
-        // the graph's canonical `rust_type_name` (acronym-safe).
-        let mut arena: ArenaIndex = HashMap::new();
-        let mut entity_props: HashMap<String, Vec<PropertyNode>> = HashMap::new();
+        // arena index keys) and known codelists (signature enum slots).
+        let mut known_classes: HashSet<String> = HashSet::new();
         let mut title_to_mirror: HashMap<String, String> = HashMap::new();
+        let mut entity_props: HashMap<String, Vec<PropertyNode>> = HashMap::new();
         for title in entity_titles {
             let props = db.get_properties(title).await.unwrap_or_default();
             entity_props.insert(title.clone(), props);
             if let Ok(Some(schema)) = db.get_schema_in_domain(title, domain).await {
-                title_to_mirror.insert(title.clone(), escape_rust_keyword(&schema.rust_type_name));
+                let mirror = escape_rust_keyword(&schema.rust_type_name);
+                title_to_mirror.insert(title.clone(), mirror.clone());
+                known_classes.insert(mirror);
             }
         }
+        let codelists: HashSet<String> = db
+            .list_codelists()
+            .await?
+            .iter()
+            .map(|cl| cl.name.clone())
+            .collect();
+
+        // Arena index (all domain entities — bodies may navigate any of
+        // them). Mirror names are the graph's canonical `rust_type_name`.
+        let mut arena: ArenaIndex = HashMap::new();
         for title in entity_titles {
             let Some(props) = entity_props.get(title) else {
                 continue;
@@ -222,57 +321,103 @@ impl DomainGenerator for MoxOpsGenerator {
             class_ops.sort_by(|a, b| a.name.cmp(&b.name));
             per_class_derived.remove(title);
 
-            let mut fields: Vec<(String, String)> = Vec::new();
-            let mut bindings = HashMap::new();
-            let mut has_id = false;
-            for p in &props {
-                if p.rust_field_name == "id" {
-                    has_id = true;
+            // The DTO context is the single source of truth for field
+            // names/types/shape (issue #517).
+            let dto = build_dto_context(db, title, domain, config).await?;
+
+            let mut fields: Vec<MirrorField> = vec![MirrorField {
+                name: "id".to_string(),
+                rust_type: "uuid::Uuid".to_string(),
+            }];
+            let mut child_structs: Vec<String> = Vec::new();
+            for f in &dto.fields {
+                if f.name == "id" {
+                    continue;
                 }
-                fields.push((p.rust_field_name.clone(), p.rust_field_type.clone()));
+                fields.push(MirrorField {
+                    name: f.name.clone(),
+                    rust_type: mirror_field_type(f),
+                });
+            }
+            for child in &dto.child_dtos {
+                fields.push(MirrorField {
+                    name: child.field_name.clone(),
+                    rust_type: child_field_type(child),
+                });
+                child_structs.push(format!("{}Response", child.struct_name));
+            }
+
+            // Bindings for `expr` lowering: keyed by PROPERTY name (bodies
+            // reference features as written), recv targets the DTO/mirror
+            // field name so renamed refs (`_id`) resolve.
+            let mut bindings: HashMap<String, FieldBinding> = HashMap::new();
+            for p in &props {
+                let def = codegraph_core::types::resolve_field(p);
+                let ty = fields
+                    .iter()
+                    .find(|f| f.name == def.rust_field_name)
+                    .map(|f| f.rust_type.clone())
+                    .unwrap_or_else(|| p.rust_field_type.clone());
+                let mut binding = FieldBinding::new(
+                    format!("self.{}", def.rust_field_name),
+                    !is_copy_rust_type(&ty),
+                    ty,
+                );
+                if let Some(target) = &p.ref_target {
+                    for (t, m) in &title_to_mirror {
+                        if t == target || strip_suffix(t, suffix) == *target {
+                            binding.class = Some(m.clone());
+                            break;
+                        }
+                    }
+                }
+                bindings.insert(p.rust_field_name.clone(), binding.clone());
+                if def.rust_field_name != p.rust_field_name {
+                    bindings.insert(def.rust_field_name.clone(), binding);
+                }
+            }
+            for child in &dto.child_dtos {
+                let ty = child_field_type(child);
                 bindings.insert(
-                    p.rust_field_name.clone(),
-                    binding_for(p, &title_to_mirror, suffix),
+                    child.field_name.clone(),
+                    FieldBinding::new(format!("self.{}", child.field_name), true, ty),
                 );
             }
-            if !has_id {
-                fields.insert(0, ("id".to_string(), "Uuid".to_string()));
-            }
+
             surfaces.push(ClassSurface {
                 entity_name,
                 module: escape_rust_keyword(&to_snake_case(&strip_suffix(title, suffix))),
+                dto_module: dto.module_name.clone(),
                 fields,
-                bindings,
+                child_structs,
+                codelist_names: dto.codelist_imports.clone(),
+                structured_imports: dto.structured_imports.clone(),
                 title: title.clone(),
                 ops: class_ops,
+                bindings,
             });
         }
         if surfaces.is_empty() {
             return Ok(Vec::new());
         }
 
-        // Class-id aware signature types (known_classes).
-        let mox_types = emit_mox_types(domain, &surfaces, project);
-        let mox_ops = emit_domain_mox_ops(domain, &surfaces, &arena, &known_classes, project)?;
-
-        let mut files = vec![GeneratedFile {
+        let content = emit_mox_types(
+            domain,
+            &surfaces,
+            &arena,
+            &known_classes,
+            &codelists,
+            suffix,
+            project,
+        )?;
+        Ok(vec![GeneratedFile {
             path: self
                 .domain_types_dir
                 .join("src")
                 .join(domain)
                 .join("mox_types.rs"),
-            content: mox_types,
-        }];
-        files.push(GeneratedFile {
-            path: self
-                .output_dir
-                .join("src")
-                .join("domain")
-                .join(domain)
-                .join("mox_ops.rs"),
-            content: mox_ops,
-        });
-        Ok(files)
+            content,
+        }])
     }
 }
 
@@ -288,7 +433,6 @@ fn binding_for(
         p.rust_field_type.clone(),
     );
     if let Some(target) = &p.ref_target {
-        // Resolve the target title to a domain mirror name.
         for (title, mirror) in title_to_mirror {
             if title == target || strip_suffix(title, suffix) == *target {
                 binding.class = Some(mirror.clone());
@@ -328,12 +472,22 @@ fn ops_bindings_for(
     out
 }
 
-/// Emit `{domain}/mox_types.rs`: mirrors + the real `Resource` contract.
-fn emit_mox_types(domain: &str, surfaces: &[ClassSurface], project: &ProjectConfig) -> String {
+/// Emit the complete `mox_types.rs` for one domain (deterministic:
+/// surfaces title-ordered, ops name-ordered). `Err` on any unresolvable
+/// signature slot or refused `expr` body — issue #508 R3 / #517.
+fn emit_mox_types(
+    domain: &str,
+    surfaces: &[ClassSurface],
+    arena: &ArenaIndex,
+    known_classes: &HashSet<String>,
+    codelists: &HashSet<String>,
+    suffix: &str,
+    project: &ProjectConfig,
+) -> Result<String> {
     let mut code = CodeWriter::new();
     wln!(
         code,
-        "//! Mox type surface for the {domain} domain (issue #508 R1/R4).",
+        "//! Mox type surface for the {domain} domain (issues #508 R1/R4, #517).",
         domain = domain
     );
     wln!(code, "//!");
@@ -344,25 +498,72 @@ fn emit_mox_types(domain: &str, surfaces: &[ClassSurface], project: &ProjectConf
     );
     wln!(
         code,
-        "//! mirrors plus the `Resource` contract of the fixed mox operation"
+        "//! mirrors (DTO-shaped — every type resolves within the generated"
     );
     wln!(
         code,
-        "//! signature: request context and a synchronous arena of loaded"
+        "//! tree), the `Resource` arena of the fixed mox operation signature,"
     );
     wln!(
         code,
-        "//! mirrors — `res.get_<class>(id)` is what lowered navigation"
+        "//! and the operation impls themselves (one model surface, mirroring"
     );
-    wln!(
-        code,
-        "//! resolves through. Compiles on every provider and target."
-    );
+    wln!(code, "//! the rex-backend-rust layout).");
+    wln!(code, "#![allow(dead_code)]");
     wln!(code);
     wln!(code, "use std::collections::HashMap;");
     wln!(code, "use uuid::Uuid;");
-    wln!(code);
 
+    // Import block — the DTO layer's conventions (issue #517).
+    let mut structured: Vec<&String> = Vec::new();
+    let mut seen_structured = HashSet::new();
+    let mut codelist_used: Vec<&String> = Vec::new();
+    let mut seen_codelist = HashSet::new();
+    for s in surfaces {
+        for line in &s.structured_imports {
+            if seen_structured.insert(line.clone()) {
+                structured.push(line);
+            }
+        }
+        for name in &s.codelist_names {
+            if seen_codelist.insert(name.clone()) {
+                codelist_used.push(name);
+            }
+        }
+    }
+    structured.sort();
+    codelist_used.sort();
+    if !codelist_used.is_empty() {
+        let names = codelist_used
+            .iter()
+            .map(|n| n.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        wln!(code, "use crate::codelist::{{{names}}};", names = names);
+    }
+    for line in structured {
+        wln!(code, "{line}", line = line.trim());
+    }
+    for s in surfaces {
+        let mut names = vec![format!("{}Response", s.entity_name)];
+        names.extend(s.child_structs.iter().cloned());
+        names.sort();
+        names.dedup();
+        wln!(
+            code,
+            "use super::{module}::dto_response::{{{names}}};",
+            module = s.dto_module,
+            names = names.join(", "),
+        );
+    }
+
+    let mut failures: Vec<String> = Vec::new();
+    let sig_ctx = SigCtx {
+        known_classes,
+        codelists,
+        suffix,
+        project,
+    };
     for surface in surfaces {
         wln!(code);
         wln!(
@@ -372,17 +573,65 @@ fn emit_mox_types(domain: &str, surfaces: &[ClassSurface], project: &ProjectConf
         );
         wln!(
             code,
-            "/// impl target of `{name}` operations (issue #508 R1).",
+            "/// impl target of `{name}` operations (issue #508 R1). Field",
+            name = surface.entity_name
+        );
+        wln!(
+            code,
+            "/// names/types mirror `{name}Response` exactly (issue #517).",
             name = surface.entity_name
         );
         wln!(code, "#[derive(Debug, Clone)]");
         wln!(code, "pub struct {name} {{", name = surface.entity_name);
-        for (fname, ftype) in &surface.fields {
-            wln!(code, "    pub {fname}: {ftype},");
+        for f in &surface.fields {
+            wln!(
+                code,
+                "    pub {name}: {ty},",
+                name = f.name,
+                ty = f.rust_type
+            );
+        }
+        wln!(code, "}}");
+        wln!(code);
+        wln!(code, "impl {name} {{", name = surface.entity_name);
+        wln!(
+            code,
+            "    /// Copy the loaded response into the row mirror (issue #508 R2)."
+        );
+        wln!(
+            code,
+            "    pub fn from_response(r: &{name}Response) -> Self {{",
+            name = surface.entity_name
+        );
+        wln!(code, "        Self {{");
+        for f in &surface.fields {
+            if f.name == "id" {
+                wln!(code, "            id: r.id,");
+            } else {
+                wln!(code, "            {name}: r.{name}.clone(),", name = f.name);
+            }
+        }
+        wln!(code, "        }}");
+        wln!(code, "    }}");
+        for op in &surface.ops {
+            emit_operation(&mut code, surface, op, arena, &sig_ctx, &mut failures);
         }
         wln!(code, "}}");
     }
 
+    emit_resource(&mut code, surfaces);
+
+    if !failures.is_empty() {
+        return Err(Error::Validation(format!(
+            "mox behavior surface outside the emitted subset (issues #508 R3, #517):\n  - {}",
+            failures.join("\n  - ")
+        )));
+    }
+    Ok(code.into_string())
+}
+
+/// Emit the `Resource` arena (issue #508 R4).
+fn emit_resource(code: &mut CodeWriter, surfaces: &[ClassSurface]) {
     wln!(code);
     wln!(
         code,
@@ -475,101 +724,33 @@ fn emit_mox_types(domain: &str, surfaces: &[ClassSurface], project: &ProjectConf
         wln!(code, "    }}");
     }
     wln!(code, "}}");
-    code.into_string()
-}
-
-/// Emit the complete `mox_ops.rs` for one domain (deterministic: surfaces
-/// title-ordered, ops name-ordered). `Err` on any refused `expr` body —
-/// issue #508 R3 (generation error, never an emitted `todo!`).
-fn emit_domain_mox_ops(
-    domain: &str,
-    surfaces: &[ClassSurface],
-    arena: &ArenaIndex,
-    known_classes: &HashSet<String>,
-    project: &ProjectConfig,
-) -> Result<String> {
-    let mut code = CodeWriter::new();
-    wln!(
-        code,
-        "//! Mox operations for the {domain} domain (issue #508).",
-        domain = domain,
-    );
-    wln!(code, "//!");
-    wln!(
-        code,
-        "//! Generated by {} — DO NOT EDIT. One inherent impl per mox class",
-        project.identity.generator_name
-    );
-    wln!(
-        code,
-        "//! on its persistence-agnostic row mirror, with the rexlang"
-    );
-    wln!(
-        code,
-        "//! rex-backend-rust fixed signature (`&self, res: &Resource,`)."
-    );
-    wln!(
-        code,
-        "//! `rust` bodies are embedded verbatim; `expr` bodies lower through"
-    );
-    wln!(
-        code,
-        "//! the normative subset (a refused body is a generation error, never"
-    );
-    wln!(code, "//! an emitted `todo!`).");
-    wln!(code, "#![allow(dead_code)]");
-    wln!(code);
-    wln!(
-        code,
-        "use {tt}::{domain}::mox_types::{{{names}, Resource}};",
-        tt = project.identity.domain_types_crate,
-        domain = domain,
-        names = surfaces
-            .iter()
-            .map(|s| s.entity_name.as_str())
-            .collect::<Vec<_>>()
-            .join(", "),
-    );
-
-    let mut failures: Vec<String> = Vec::new();
-    for surface in surfaces {
-        wln!(code);
-        wln!(code, "impl {entity} {{", entity = surface.entity_name);
-        for op in &surface.ops {
-            emit_operation(&mut code, surface, op, arena, known_classes, &mut failures);
-        }
-        wln!(code, "}}");
-    }
-
-    if !failures.is_empty() {
-        return Err(Error::Validation(format!(
-            "mox expr bodies outside the lowered subset (issue #508 R3):\n  - {}",
-            failures.join("\n  - ")
-        )));
-    }
-    Ok(code.into_string())
 }
 
 /// The fixed signature: `pub fn <snake>(&self, res: &Resource<, params>) -> <Ret>`.
-fn signature(op: &MoxOperationNode, known_classes: &HashSet<String>) -> String {
+fn signature(op: &MoxOperationNode, ctx: &SigCtx) -> std::result::Result<String, String> {
+    let tt = &ctx.project.identity.domain_types_crate;
     let name = escape_rust_keyword(&to_snake_case(&op.name));
-    let params = op
-        .params
-        .iter()
-        .map(|p| {
-            format!(
-                "{}: {}",
-                escape_rust_keyword(&to_snake_case(&p.name)),
-                sig_type(&p.type_, known_classes)
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    format!(
+    let mut params = Vec::with_capacity(op.params.len());
+    for p in &op.params {
+        let ty = sig_type(&p.type_, ctx.known_classes, ctx.codelists, tt, ctx.suffix)?;
+        params.push(format!(
+            "{}: {}",
+            escape_rust_keyword(&to_snake_case(&p.name)),
+            ty
+        ));
+    }
+    let ret = sig_type(
+        &op.return_type,
+        ctx.known_classes,
+        ctx.codelists,
+        tt,
+        ctx.suffix,
+    )?;
+    Ok(format!(
         "pub fn {name}(&self, res: &Resource{sep}{params}) -> {ret}",
-        sep = if op.params.is_empty() { "" } else { ", " },
-        ret = sig_type(&op.return_type, known_classes),
-    )
+        sep = if params.is_empty() { "" } else { ", " },
+        params = params.join(", "),
+    ))
 }
 
 /// Emit one operation method (verbatim rust body, lowered expr body, or —
@@ -579,9 +760,19 @@ fn emit_operation(
     surface: &ClassSurface,
     op: &MoxOperationNode,
     arena: &ArenaIndex,
-    known_classes: &HashSet<String>,
+    ctx: &SigCtx,
     failures: &mut Vec<String>,
 ) {
+    let sig = match signature(op, ctx) {
+        Ok(sig) => sig,
+        Err(type_ref) => {
+            failures.push(format!(
+                "op `{}` on `{}`: signature type `{type_ref}` does not resolve",
+                op.name, surface.title
+            ));
+            return;
+        }
+    };
     wln!(code);
     if let Some(description) = &op.description {
         wln!(code, "    /// {description}");
@@ -592,7 +783,7 @@ fn emit_operation(
         name = op.name,
         class = op.class,
     );
-    wln!(code, "    {} {{", signature(op, known_classes));
+    wln!(code, "    {sig} {{", sig = sig);
 
     if let Some(body) = op.bodies.get("rust") {
         // Verbatim embedding (the rex-backend-rust Tier 1 contract): the
@@ -629,8 +820,46 @@ mod tests {
         HashSet::new()
     }
 
+    fn empty_codelists() -> HashSet<String> {
+        HashSet::new()
+    }
+
+    fn test_project() -> ProjectConfig {
+        let mut project = ProjectConfig::default();
+        project.identity.domain_types_crate = "domain_types".into();
+        project
+    }
+
+    fn sig_ctx<'a>(
+        classes: &'a HashSet<String>,
+        codelists: &'a HashSet<String>,
+        project: &'a ProjectConfig,
+    ) -> SigCtx<'a> {
+        SigCtx {
+            known_classes: classes,
+            codelists,
+            suffix: "",
+            project,
+        }
+    }
+
+    fn op_with(param_type: &str, return_type: &str) -> MoxOperationNode {
+        MoxOperationNode {
+            name: "getBook".to_string(),
+            class: "Library".to_string(),
+            package: "lib".to_string(),
+            description: None,
+            return_type: return_type.to_string(),
+            params: vec![codegraph_core::types::MoxParam {
+                name: "title".to_string(),
+                type_: param_type.to_string(),
+            }],
+            bodies: BTreeMap::new(),
+        }
+    }
+
     #[test]
-    fn signature_maps_primitives_and_keeps_order() {
+    fn signature_maps_primitives() {
         let op = MoxOperationNode {
             name: "getBook".to_string(),
             class: "Library".to_string(),
@@ -643,15 +872,19 @@ mod tests {
                     type_: "string".to_string(),
                 },
                 codegraph_core::types::MoxParam {
-                    name: "shelf".to_string(),
-                    type_: "Shelf".to_string(),
+                    name: "year".to_string(),
+                    type_: "long".to_string(),
                 },
             ],
             bodies: BTreeMap::new(),
         };
         assert_eq!(
-            signature(&op, &empty_classes()),
-            "pub fn get_book(&self, res: &Resource, title: String, shelf: Shelf) -> i32"
+            signature(
+                &op,
+                &sig_ctx(&empty_classes(), &empty_codelists(), &test_project())
+            )
+            .unwrap(),
+            "pub fn get_book(&self, res: &Resource, title: String, year: i64) -> i32"
         );
     }
 
@@ -659,21 +892,36 @@ mod tests {
     fn signature_maps_known_class_refs_to_the_id_slot() {
         let mut classes = HashSet::new();
         classes.insert("Shelf".to_string());
-        let op = MoxOperationNode {
-            name: "getBook".to_string(),
-            class: "Library".to_string(),
-            package: "lib".to_string(),
-            description: None,
-            return_type: "Shelf".to_string(),
-            params: vec![codegraph_core::types::MoxParam {
-                name: "shelf".to_string(),
-                type_: "Shelf".to_string(),
-            }],
-            bodies: BTreeMap::new(),
-        };
+        let op = op_with("Shelf", "Shelf");
         assert_eq!(
-            signature(&op, &classes),
-            "pub fn get_book(&self, res: &Resource, shelf: Uuid) -> Uuid"
+            signature(&op, &sig_ctx(&classes, &empty_codelists(), &test_project())).unwrap(),
+            "pub fn get_book(&self, res: &Resource, title: uuid::Uuid) -> uuid::Uuid"
+        );
+    }
+
+    #[test]
+    fn signature_maps_codelist_refs_to_the_generated_enum() {
+        let mut codelists = HashSet::new();
+        codelists.insert("BookCategory".to_string());
+        let op = op_with("BookCategory", "string");
+        assert_eq!(
+            signature(&op, &sig_ctx(&empty_classes(), &codelists, &test_project())).unwrap(),
+            "pub fn get_book(&self, res: &Resource, title: domain_types::codelist::BookCategory) -> String"
+        );
+    }
+
+    #[test]
+    fn signature_refuses_unresolvable_types() {
+        // Issue #517: never a bare name — an unknown non-primitive slot is
+        // a generation error.
+        let op = op_with("Ghost", "int");
+        assert_eq!(
+            signature(
+                &op,
+                &sig_ctx(&empty_classes(), &empty_codelists(), &test_project())
+            )
+            .unwrap_err(),
+            "Ghost"
         );
     }
 
@@ -689,8 +937,59 @@ mod tests {
             bodies: BTreeMap::new(),
         };
         assert_eq!(
-            signature(&op, &empty_classes()),
+            signature(
+                &op,
+                &sig_ctx(&empty_classes(), &empty_codelists(), &test_project())
+            )
+            .unwrap(),
             "pub fn has_short_id(&self, res: &Resource) -> bool"
+        );
+    }
+
+    #[test]
+    fn mirror_field_shapes_follow_the_response_template() {
+        let required = DtoField {
+            name: "title".into(),
+            rust_type: "String".into(),
+            is_required: true,
+            is_array: false,
+            description: String::new(),
+            render_strategy: String::new(),
+            is_entity_ref: false,
+            is_hierarchy_field: false,
+            min_length: None,
+            max_length: None,
+            minimum: None,
+            maximum: None,
+            pattern: None,
+            format: None,
+        };
+        assert_eq!(mirror_field_type(&required), "String");
+        let optional = DtoField {
+            is_required: false,
+            ..required.clone()
+        };
+        assert_eq!(mirror_field_type(&optional), "Option<String>");
+        let id_ref = DtoField {
+            is_entity_ref: true,
+            rust_type: "ShelfType".into(),
+            ..required.clone()
+        };
+        assert_eq!(mirror_field_type(&id_ref), "uuid::Uuid");
+        let id_ref_array = DtoField {
+            is_entity_ref: true,
+            is_array: true,
+            rust_type: "ShelfType".into(),
+            ..required.clone()
+        };
+        assert_eq!(mirror_field_type(&id_ref_array), "Vec<uuid::Uuid>");
+        let id_ref_array_opt = DtoField {
+            is_required: false,
+            ..id_ref_array.clone()
+        };
+        assert_eq!(
+            mirror_field_type(&id_ref_array_opt),
+            "Option<Vec<uuid::Uuid>>"
         );
     }
 }
