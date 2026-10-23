@@ -180,11 +180,7 @@ impl {{ entity_name }}QueryHandler {
                 organization_id, Uuid::new_v4(), Some(api_key_id),
             );
             if let Some(__resp) = result.as_ref() {
-                let __mirror = {{ project.domain_types_crate }}::{{ domain }}::mox_types::{{ entity_name }} {
-{%- for f in mox_mirror_fields | default(value=[]) %}
-                    {{ f }}: __resp.{{ f }}.clone(),
-{%- endfor %}
-                };
+                let __mirror = {{ project.domain_types_crate }}::{{ domain }}::mox_types::{{ entity_name }}::from_response(__resp);
                 __mox_res.insert_{{ module_name }}(__mirror);
             }
             if let Some(__resp) = result.as_mut() {
@@ -225,11 +221,7 @@ impl {{ entity_name }}QueryHandler {
                 organization_id, Uuid::new_v4(), Some(api_key_id),
             );
             if let Some(__resp) = result.as_ref() {
-                let __mirror = {{ project.domain_types_crate }}::{{ domain }}::mox_types::{{ entity_name }} {
-{%- for f in mox_mirror_fields | default(value=[]) %}
-                    {{ f }}: __resp.{{ f }}.clone(),
-{%- endfor %}
-                };
+                let __mirror = {{ project.domain_types_crate }}::{{ domain }}::mox_types::{{ entity_name }}::from_response(__resp);
                 __mox_res.insert_{{ module_name }}(__mirror);
             }
             if let Some(__resp) = result.as_mut() {
@@ -270,11 +262,7 @@ impl {{ entity_name }}QueryHandler {
                 organization_id, Uuid::new_v4(), Some(api_key_id),
             );
             for __resp in result.0.iter() {
-                let __mirror = {{ project.domain_types_crate }}::{{ domain }}::mox_types::{{ entity_name }} {
-{%- for f in mox_mirror_fields | default(value=[]) %}
-                    {{ f }}: __resp.{{ f }}.clone(),
-{%- endfor %}
-                };
+                let __mirror = {{ project.domain_types_crate }}::{{ domain }}::mox_types::{{ entity_name }}::from_response(__resp);
                 __mox_res.insert_{{ module_name }}(__mirror);
             }
             for __resp in result.0.iter_mut() {

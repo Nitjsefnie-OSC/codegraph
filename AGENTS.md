@@ -97,62 +97,66 @@ bridged, auto-scored): integration guide at `docs/rosetta.md`, construct
 matrix + defects ledger at `docs/rosetta-gap-analysis.md`.
 
 
-## mox op/derived consuming generator (issue #501, quality bar #508)
+## mox op/derived consuming generator (issue #501, quality bar #508, compile contract #517)
 
 The #218 ingest surface (`MoxOperationNode`/`MoxDerivedFeatureNode`)
-generates code on the quality bar of issue #508 (R1–R4) — "we support
-mox" carries NO topology asterisk:
+generates code on the quality bar of issue #508 (R1–R4) with the #517
+compile contract — "we support mox" carries NO topology asterisk and
+every emitted type resolves within the generated tree:
 
-- **Type surface** (`ddd/mox_ops.rs` → `{domain_types_base}/src/{domain}/mox_types.rs`):
-  one persistence-agnostic row mirror per mox class carrying ops or
-  derived features, plus the **real `Resource` contract** (issue #508
-  R4): request context (org/correlation/api-key) + a synchronous arena
-  (`res.get_<class>(id)`, `insert_<class>`) — lowered `x.field`
-  navigation resolves through it (the rex-backend-rust contract: plain
-  navigation `expect("dangling …")`, `?.` yields `None`). Compiles under
-  sea_orm AND workers-cornucopia, on native AND wasm32 — the ops impl on
-  the mirror, NOT the SeaORM `Model`. `mox_types` is declared by the
-  domain-types domain `mod.rs` when the domain carries a mox surface.
-- **`mox_ops` DomainGenerator** (`ddd/mox_ops.rs`): `src/domain/<domain>/mox_ops.rs`
-  — one inherent impl per mirror with the rex-backend-rust FIXED
-  signature `pub fn <snake>(&self, res: &Resource, params) -> Ret`
-  (`int→i32`, `string→String`, `boolean→bool`, `number→f64`; known
-  class refs → `Uuid`, the `{Class}Id` slot; else verbatim). `rust`
-  bodies embed VERBATIM (byte-identical — the Tier 1 contract); `expr`
-  bodies lower through `mox_expr`'s **normative subset** (issue #508
-  R3); body-less ops emit the signature-complete `todo!("body-less mox
-  op …")` seam (and never route). `"mox_ops"` rides every band including
-  `workers-cornucopia` and `fullstack.variants.lite`.
-- **Expression lowering** (`codegraph-generate/src/mox_expr.rs`): the
-  closed subset targets parity with `rex-backend-rust` `expr_lower.rs` —
-  literals with L1 widths, string `&str` strips inside `==`/`!=`,
-  null-equality (R2), `?:` (R3), `if`/`let`, list literals, A1–A6
-  collection algebra (refs-1/2 closure convention), date literals +
-  `plusDays`/`plusMonths`/`diffDays` (chrono), and arena navigation
-  (`x.field`, `x?.field`, `x.op(..)`). **Refused bodies are generation
-  errors** (the `expr_sql`/`expr_ts` precedent — `Error::Validation`
-  naming the op/feature) — never an emitted `todo!` panic. Body-less
-  features keep the seam.
-- **Runner wiring (issue #508 R2)**: qualifying ops (bodied, all-
-  primitive signature) route as `POST {id}/op/{snake}` — handler
-  (`api/handler.tera` `mox_op_*` fns) loads the row, copies it into the
-  mirror, builds the `Resource` arena and INVOKES the op; router
-  (`api/router.tera`) mounts the routes with the usual guards. Derived
-  response fields are **populated at SELECT time** (query.tera: after
-  load, `resp.<name>(&res)` per computed extra — the `#[serde(default)]`
-  is belt-and-braces now).
+- **One model surface** (`ddd/mox_ops.rs` → `{domain_types_base}/src/{domain}/mox_types.rs`):
+  row mirrors + `from_response` + the `Resource` arena + the op impls
+  live TOGETHER (the rex-backend-rust layout). The app-side
+  `src/domain/<domain>/mox_ops.rs` is **retired** (an inherent impl on a
+  foreign type is E0116 — the #517 compile pin exposed this); the plane
+  is reachable from every band through the domain-types dependency
+  alone.
+- **DTO-shaped mirrors (issue #517)**: mirror field names/types/wrappers
+  are exactly the `{Entity}Response` surface — the DTO layer's
+  kind-driven resolution (`build_dto_context`: entity refs → `uuid::Uuid`
+  with `_id` names, codelists → `crate::codelist::{Enum}` imports,
+  structured wrappers → `types_import_prefix`, VO children → same-file
+  child-struct types). Never bare names; `p.rust_field_type` is only
+  trusted for primitives. `from_response(&r)` is the Response → mirror
+  copy the runner wiring uses (handler/query copy lists collapsed into
+  it).
+- **`Resource`** (issue #508 R4): request context + a synchronous arena
+  (`res.get_<class>(id)`/`insert_<class>`) — lowered `x.field`
+  navigation resolves through it (the rex-backend-rust contract).
+- **Op signatures (issue #517)**: every slot RESOLVES — primitives map
+  per the rex contract, known class refs (incl. `pkg::Name`/suffix forms)
+  → `uuid::Uuid` (the `{Class}Id` slot), codelists →
+  `{domain_types}::codelist::{Enum}`; **unresolvable slots are generation
+  errors naming the op** (never a bare name). `rust` bodies embed
+  VERBATIM; `expr` bodies lower through `mox_expr`'s normative subset
+  (refused bodies are generation errors too — #508 R3); body-less ops
+  keep the `todo!` seam and never route. `"mox_ops"` rides every band
+  incl. `workers-cornucopia` and `fullstack.variants.lite`.
+- **Runner wiring (issue #508 R2)**: qualifying ops (bodied,
+  all-primitive signature) route as `POST {id}/op/{snake}` — the handler
+  loads the row, `from_response`s it into the mirror, builds the
+  `Resource` arena and INVOKES the op; derived response fields are
+  populated at SELECT time in the query plane.
+- **Compile pin (issue #517)**: `cargo test -p codegraph --test
+  mox_plane_compile_tests` — the emitted plane (mirrors + ops) compiles
+  in a sea_orm-free crate on native AND `wasm32-unknown-unknown`, over
+  a fixture with class-ref/codelist/`Vec<ClassRef>` fields and a
+  class-ref op param (the CI `test` job installs the wasm32 target).
+  The repo's `tests/fixtures` CandidateType carries the 7 formerly-bare
+  class-typed fields.
 - **Doctor seam section**: `codegraph doctor --mox-files` prints every
   body-less op via `bodyless_op_seams()` (pub, in `init/commands.rs`) as
   `INFO mox — body-less op <pkg>::<Class>::<op>` — INFO only.
 - **Presence gating**: no ops/derived features ⇒ no files, no routes,
   byte-identical output. Gates:
-  `cargo test -p codegraph --test mox_ops_tests` (6, node-free;
-  `mox_dto_tests` pins the stored-field annotation path).
-- **Deferred**: class-ref parameter/return lowering beyond `Uuid` slots
-  with arena `From` conversions; op routes for non-primitive signature
-  slots; `res`-aware derived-feature arena building in dto context
-  (navigation in derived extras hard-errors until then); openapi/hurl
-  coverage of the op routes.
+  `cargo test -p codegraph --test mox_ops_tests` (6) +
+  `mox_dto_tests` + `mox_plane_compile_tests` (3).
+- **Deferred / follow-ups**: lambda-param navigation in `mox_expr`
+  (closure params carry no class metadata — issue #519); class-ref
+  parameter/return lowering beyond `Uuid` slots with arena `From`
+  conversions; op routes for non-primitive signature slots; `res`-aware
+  derived-feature arena building in dto context; openapi/hurl coverage of
+  the op routes.
 
 ## DDD design models as generator input (issue #449)
 

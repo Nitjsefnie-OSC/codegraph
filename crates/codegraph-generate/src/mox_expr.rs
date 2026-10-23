@@ -176,6 +176,19 @@ enum TyHint {
 }
 
 fn hint_of(rust_type: &str) -> TyHint {
+    // Look through `Option<..>`/`Vec<..>` wrappers (issue #517: DTO-shaped
+    // mirror field types carry them) at the element type.
+    let mut rust_type = rust_type;
+    loop {
+        let stripped = rust_type
+            .strip_prefix("Option<")
+            .or_else(|| rust_type.strip_prefix("Vec<"))
+            .and_then(|s| s.strip_suffix('>'));
+        match stripped {
+            Some(inner) => rust_type = inner,
+            None => break,
+        }
+    }
     if rust_type == "i64" || rust_type == "u64" {
         TyHint::Long
     } else if rust_type == "i32" {

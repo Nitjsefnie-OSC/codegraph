@@ -52,6 +52,10 @@ jobs:
           docker-images: true
           swap-storage: false
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          # The mox-plane compile pin (issue #517) cargo-checks the emitted
+          # plane on wasm32-unknown-unknown as well as native.
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
 

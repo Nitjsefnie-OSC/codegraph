@@ -1158,11 +1158,7 @@ pub async fn mox_op_{{ op.snake }}(
                 .with_correlation_id(correlation_id)
         })?
         .ok_or_else(|| AppError::not_found("{{ entity_name }} not found").with_correlation_id(correlation_id))?;
-    let mirror = {{ project.domain_types_crate }}::{{ domain }}::mox_types::{{ entity_name }} {
-{%- for f in mox_mirror_fields | default(value=[]) %}
-        {{ f }}: resp.{{ f }}.clone(),
-{%- endfor %}
-    };
+    let mirror = {{ project.domain_types_crate }}::{{ domain }}::mox_types::{{ entity_name }}::from_response(&resp);
     let mut res = {{ project.domain_types_crate }}::{{ domain }}::mox_types::Resource::new(
         api_key_info.organization_id, correlation_id, Some(api_key_info.api_key_id),
     );

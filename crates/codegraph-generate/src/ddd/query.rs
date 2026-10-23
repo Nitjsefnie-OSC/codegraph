@@ -46,9 +46,6 @@ pub struct QueryContext {
     /// Mox derived feature names populated at SELECT time (issue #508).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub mox_derived_names: Vec<String>,
-    /// Response → mirror copy list for the population step (issue #508).
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub mox_mirror_fields: Vec<String>,
 }
 
 pub struct QueryGenerator {
@@ -205,8 +202,14 @@ impl EntityGenerator for QueryGenerator {
                 .unwrap_or(false);
 
         // SELECT-time derived-field population (issue #508): the mox
-        // derived response fields are computed from the loaded row.
-        let mox_mirror_fields = crate::api::handler::mox_mirror_fields(db, schema_title).await;
+        // derived response fields are computed from the loaded row. The
+        // skip list is the DTO field set — the same decision dto.rs makes
+        // when it splits stored-derived columns from computed extras.
+        let dto_names: std::collections::HashSet<String> =
+            match crate::ddd::dto::build_dto_context(db, schema_title, &domain, config).await {
+                Ok(dto) => dto.fields.iter().map(|f| f.name.clone()).collect(),
+                Err(_) => std::collections::HashSet::new(),
+            };
         let mox_derived_names: Vec<String> = db
             .get_mox_derived_features()
             .await
@@ -216,16 +219,7 @@ impl EntityGenerator for QueryGenerator {
             .map(|d| {
                 codegraph_naming::escape_rust_keyword(&codegraph_naming::to_snake_case(&d.name))
             })
-            .filter(|name| {
-                // Only non-stored features become computed extras (the
-                // stored ones are real columns) — mirrors the dto.rs
-                // extras decision exactly.
-                !mox_mirror_fields.iter().any(|f| {
-                    f == name
-                        || &codegraph_naming::to_snake_case(f) == name
-                        || &codegraph_naming::escape_rust_keyword(f) == name
-                })
-            })
+            .filter(|name| !dto_names.contains(name.as_str()))
             .collect();
         let ctx = QueryContext {
             has_read: operations.contains(&"read".to_string()),
@@ -243,7 +237,6 @@ impl EntityGenerator for QueryGenerator {
             tree_include,
             ux_sort,
             mox_derived_names,
-            mox_mirror_fields,
         };
 
         let content = render_template_with_project(tera, "ddd/query.tera", &ctx, project)?;

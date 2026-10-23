@@ -73,18 +73,6 @@ pub async fn routable_mox_ops(
         .collect()
 }
 
-/// Mirror field names in emission order (issue #508 R2): the Response →
-/// mirror copy list — mirrors the mox_types emission (`id` first when no
-/// property carries it).
-pub async fn mox_mirror_fields(db: &dyn GraphQuerier, schema_title: &str) -> Vec<String> {
-    let props = db.get_properties(schema_title).await.unwrap_or_default();
-    let mut fields: Vec<String> = props.iter().map(|p| p.rust_field_name.clone()).collect();
-    if !fields.iter().any(|f| f == "id") {
-        fields.insert(0, "id".to_string());
-    }
-    fields
-}
-
 #[derive(Debug, Serialize)]
 pub struct HandlerContext {
     pub entity_name: String,
@@ -165,9 +153,6 @@ pub struct HandlerContext {
     /// no op routes and the handler stays byte-identical.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub mox_ops: Vec<MoxOpRoute>,
-    /// Response → mirror copy list for op handlers (issue #508 R2).
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub mox_mirror_fields: Vec<String>,
 }
 
 pub struct HandlerGenerator {
@@ -345,9 +330,8 @@ impl EntityGenerator for HandlerGenerator {
             Vec::new()
         };
 
-        // Mox op action routes + mirror copy list (issue #508 R2).
+        // Mox op action routes (issue #508 R2).
         let mox_ops = routable_mox_ops(db, schema_title, &entity_name).await;
-        let mox_mirror_fields = mox_mirror_fields(db, schema_title).await;
 
         let ctx = HandlerContext {
             has_create: operations.contains(&"create".to_string()),
@@ -362,7 +346,6 @@ impl EntityGenerator for HandlerGenerator {
             tag,
             operations,
             mox_ops,
-            mox_mirror_fields,
             parent_ref: topo.parent_ref,
             parent_entity,
             parent_path_segment: topo.parent_path_segment,
