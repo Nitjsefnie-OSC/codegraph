@@ -216,9 +216,7 @@ type Locals = Vec<LocalBinding>;
 
 fn fresh_local_name(base: &str, locals: &Locals, used: &str) -> String {
     let mut name = base.to_string();
-    while name == "res"
-        || locals.iter().any(|local| local.emitted == name)
-        || used.contains(&name)
+    while name == "res" || locals.iter().any(|local| local.emitted == name) || used.contains(&name)
     {
         name.push('_');
     }
@@ -1368,7 +1366,13 @@ mod tests {
     fn optional_lambda_operation_arguments_keep_the_parameter_binding() {
         let (mut f, mut arena) = books_arena();
         f.get_mut("books").unwrap().rust_type = "Vec<Option<Uuid>>".into();
-        arena.get_mut("Book").unwrap().ops.get_mut("active").unwrap().params = vec!["bool".into()];
+        arena
+            .get_mut("Book")
+            .unwrap()
+            .ops
+            .get_mut("active")
+            .unwrap()
+            .params = vec!["bool".into()];
         assert_eq!(
             lower_expr_to_rust("books.map(o => o?.active(o == null))", &f, &arena)
                 .map_err(|e| e.to_string()),
