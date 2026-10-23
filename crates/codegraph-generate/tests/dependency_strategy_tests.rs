@@ -1,6 +1,6 @@
 //! Dependency-strategy template emission (issue #347).
 //!
-//! The generated app's Cargo.toml and the ops testkit's Cargo.toml must
+//! The generated app, ops testkit, and domain-types Cargo.toml manifests must
 //! reference codegraph crates via git+rev by default (`rev`, the historical
 //! byte-identical contract) and via absolute path deps when the profile sets
 //! `dependency_strategy = "path"`.
@@ -94,6 +94,67 @@ fn render_testkit_cargo(project: &ProjectConfig) -> String {
         project,
     )
     .unwrap()
+}
+
+fn render_domain_types_cargo(project: &ProjectConfig) -> String {
+    let tera = create_tera(&template_dir()).unwrap();
+    render_template_with_project(
+        &tera,
+        "domain_types/cargo_toml.tera",
+        &serde_json::json!({}),
+        project,
+    )
+    .unwrap()
+}
+
+#[test]
+fn domain_types_path_strategy_emits_absolute_path_dep() {
+    let rendered = render_domain_types_cargo(&project(DependencyStrategy::Path));
+    assert!(
+        rendered.contains(
+            r#"codegraph-type-contracts = { path = "/home/dev/codegraph/crates/codegraph-type-contracts" }"#
+        ),
+        "domain-types Cargo.toml must reference codegraph-type-contracts by path:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("git =") && !rendered.contains("rev ="),
+        "path strategy must not emit git or rev sources:\n{rendered}"
+    );
+}
+
+#[test]
+fn domain_types_rev_strategy_emits_git_rev_dep() {
+    let rendered = render_domain_types_cargo(&project(DependencyStrategy::Rev));
+    assert!(
+        rendered.contains(
+            r#"codegraph-type-contracts = { git = "https://github.com/magick93/codegraph.git", rev = "abc123" }"#
+        ),
+        "domain-types Cargo.toml must pin codegraph-type-contracts via git+rev:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("path ="),
+        "rev strategy must not emit path deps:\n{rendered}"
+    );
+}
+
+#[test]
+fn domain_types_explicit_path_override_wins_in_both_strategies() {
+    for strategy in [DependencyStrategy::Path, DependencyStrategy::Rev] {
+        let mut project = project(strategy);
+        project.paths.type_contracts_base = "../custom-type-contracts".to_string();
+        let rendered = render_domain_types_cargo(&project);
+        assert!(
+            rendered
+                .contains(r#"codegraph-type-contracts = { path = "../custom-type-contracts" }"#),
+            "explicit override must win for {strategy:?}:\n{rendered}"
+        );
+        assert!(
+            !rendered.contains("git =")
+                && !rendered.contains("rev =")
+                && !rendered.contains("/home/dev/codegraph"),
+            "explicit override must replace strategy sources for {strategy:?}:\n{rendered}"
+        );
+    }
 }
 
 /// Default (`rev`): both manifests pin the git repo at the stamped rev —

@@ -16,4 +16,5 @@ async-trait = "0.1"
 garde = { version = "0.22", features = ["derive", "regex"] }
 thiserror = "2"
 {% if project.type_contracts_base %}codegraph-type-contracts = { path = "{{ project.type_contracts_base }}" }
+{% elif project.dependency_strategy == "path" %}codegraph-type-contracts = { path = "{{ project.codegraph_path_root }}/crates/codegraph-type-contracts" }
 {% elif project.codegraph_rev %}codegraph-type-contracts = { git = "https://github.com/magick93/codegraph.git", rev = "{{ project.codegraph_rev }}" }{% endif %}
