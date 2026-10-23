@@ -659,8 +659,13 @@ fn call(
     let invoke = format!("{}({arg_list})", op.snake);
 
     if recv_is_option {
+        // Keep the object binding distinct from names in the emitted arguments.
+        let mut obj = "o".to_string();
+        while arg_list.contains(&obj) {
+            obj.push('_');
+        }
         Ok(format!(
-            "({id_expr}.and_then(|id| res.{getter}(id)).map(|o| o.{invoke}))",
+            "({id_expr}.and_then(|id| res.{getter}(id)).map(|{obj}| {obj}.{invoke}))",
             getter = class.getter
         ))
     } else {
@@ -1264,6 +1269,31 @@ mod tests {
         assert_eq!(
             lower_expr_to_rust("books.map(b => b?.active())", &f, &arena).map_err(|e| e.to_string()),
             Ok("(self.books.clone().iter().map(|b| ((*b).clone().and_then(|id| res.get_book(id)).map(|o| o.active(res)))).collect::<Vec<_>>())".into())
+        );
+    }
+
+    #[test]
+    fn optional_lambda_operation_arguments_keep_the_parameter_binding() {
+        let (mut f, mut arena) = books_arena();
+        f.get_mut("books").unwrap().rust_type = "Vec<Option<Uuid>>".into();
+        arena.get_mut("Book").unwrap().ops.get_mut("active").unwrap().params = vec!["bool".into()];
+        assert_eq!(
+            lower_expr_to_rust("books.map(o => o?.active(o == null))", &f, &arena)
+                .map_err(|e| e.to_string()),
+            Ok("(self.books.clone().iter().map(|o| ((*o).clone().and_then(|id| res.get_book(id)).map(|o_| o_.active(res, (*o).clone().is_none())))).collect::<Vec<_>>())".into())
+        );
+    }
+
+    #[test]
+    fn nested_collection_sum_refusal_preserves_complete_element_type() {
+        let f = fields(&[("books", true, "Vec<Vec<Uuid>>")]);
+        let err = lower_expr_to_rust("books.sum()", &f, &empty_arena()).unwrap_err();
+        assert_eq!(
+            (err.kind.as_str(), err.detail.as_str()),
+            (
+                "collection algebra",
+                "`sum` over non-numeric element type `Vec<Uuid>`"
+            )
         );
     }
 
