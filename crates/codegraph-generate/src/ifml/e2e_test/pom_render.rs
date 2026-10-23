@@ -7,6 +7,9 @@ use codegraph_naming::to_pascal_case;
 use super::fixtures::js_string;
 use super::pom::{PomFieldKind, PomWorkflowMethods, ViewPom};
 
+// Fail fast: a server-side deny redirect is near-instant; five seconds is generous.
+const DENIAL_REDIRECT_TIMEOUT_MS: u32 = 5_000;
+
 // ── Page-class rendering ─────────────────────────────────────────────────────
 
 /// The `tests/pages/{view-kebab}-page.ts` content for one view.
@@ -93,10 +96,12 @@ pub(super) fn render_pom_page(pom: &ViewPom) -> String {
         ));
     }
     if let Some(denial) = &pom.denial_target {
-        s.push_str("  /** Denied personas redirect to the denial target. */\n");
+        s.push_str(&format!(
+            "  /** Denied personas redirect within {DENIAL_REDIRECT_TIMEOUT_MS} ms to fail fast: a server-side deny redirect is near-instant. */\n"
+        ));
         s.push_str("  async expectDenied(): Promise<void> {\n");
         s.push_str(&format!(
-            "    await this.page.waitForURL('{}');\n  }}\n\n",
+            "    await this.page.waitForURL('{}', {{ timeout: {DENIAL_REDIRECT_TIMEOUT_MS} }});\n  }}\n\n",
             js_string(denial)
         ));
     }

@@ -627,6 +627,34 @@ fn stale_cleanup_removes_ux_specs_by_suffix() {
 }
 
 #[test]
+fn pom_denied_redirect_has_explicit_timeout() {
+    let pom = super::pom::ViewPom {
+        view_name: "CustomerList".to_string(),
+        class_name: "CustomerListPage".to_string(),
+        route: "/customerlist".to_string(),
+        denial_target: Some("/access-denied".to_string()),
+        ..Default::default()
+    };
+    let rendered = super::pom_render::render_pom_page(&pom);
+    let body = rendered
+        .split_once("  async expectDenied(): Promise<void> {\n")
+        .expect("denial helper must be emitted")
+        .1
+        .split_once("\n  }\n")
+        .expect("denial helper must end")
+        .0;
+    let waits: Vec<_> = body
+        .lines()
+        .filter(|line| line.contains("waitForURL("))
+        .collect();
+    assert_eq!(
+        waits,
+        ["    await this.page.waitForURL('/access-denied', { timeout: 5000 });"],
+        "{rendered}"
+    );
+}
+
+#[test]
 fn pom_page_imports_resolve_to_emitted_kernel_files() {
     // The gate caught this class of bug (#318): a page class importing
     // `./support/pom` while the kernel emits `base-page.ts`/`ux-table.ts`

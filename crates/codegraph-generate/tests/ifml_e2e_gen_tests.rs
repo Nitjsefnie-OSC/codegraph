@@ -1197,7 +1197,7 @@ async fn persona_tests_emitted_per_human_actor_with_policy() {
     assert!(spec.contains("await ui.expectDenied();"), "{spec}");
     let page = content_of(&files, "tests/pages/admin-console-page.ts");
     assert!(
-        page.contains("waitForURL('/customerlist')"),
+        page.contains("waitForURL('/customerlist', { timeout: 5000 })"),
         "the denial target lives in the page class: {page}"
     );
 
