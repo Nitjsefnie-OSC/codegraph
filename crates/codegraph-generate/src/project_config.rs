@@ -177,9 +177,9 @@ impl Default for CodegenConfig {
 /// Cargo manifest emission: rev pins, patch section, extra dependencies.
 #[derive(Debug, Clone, serde::Serialize, Default)]
 pub struct CargoConfig {
-    /// Git revision SHA used for fallback path dependencies in generated Cargo.toml.
-    /// When domain_types_base is empty, the domain types Cargo.toml uses this rev
-    /// to reference codegraph-type-contracts as a git dependency.
+    /// Git revision SHA used for git dependencies in generated Cargo.toml.
+    /// In `Rev` mode with no explicit `type_contracts_base`, the domain-types
+    /// Cargo.toml references codegraph-type-contracts as a git dependency at this rev.
     #[serde(default)]
     pub codegraph_rev: String,
     /// How the generated app's Cargo.toml references codegraph crates
