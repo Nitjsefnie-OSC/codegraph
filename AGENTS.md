@@ -50,6 +50,16 @@ byte-identity between equivalent JSON Schema and `.mox` models.
 `docs/mox-simplification-ledger.md` is the deletion roadmap for the
 JSON-Schema inference machinery.
 
+**Identity mapping (the `id` modifier, issue #522)**: counted per class
+over its bridged (stored) feature set. Exactly **one** `id` feature ⇒
+surrogate identity — its declared datatype is overridden to Uuid so every
+layer agrees on the identity type. **Multiple** `id` features ⇒ composite
+natural key (the Sculptor convention) — every part keeps its declared
+mapping (String→TEXT, wraps-String→TEXT, `format "uuid"`→UUID, dates→DATE,
+…) and the generated surrogate `id UUID` column stays the storage key
+(natural-key parts are plain columns; no UNIQUE). Gates:
+`cargo test -p codegraph --test mox_identity_tests`.
+
 ### `import schema` (JSON Schema types from .mox)
 
 ```mox
