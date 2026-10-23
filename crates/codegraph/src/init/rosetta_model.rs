@@ -310,7 +310,9 @@ mod tests {
     fn unmatched_namespaces_accepts_description_colon() {
         let check = verify_rosetta_sources(&[RosettaFileCheck {
             name: "model/x.rosetta".to_string(),
-            text: "namespace demo.x: <\"docs\">\nversion \"1.0.0\"\n\ntype X:\n\tname string (1..1)\n".to_string(),
+            text:
+                "namespace demo.x: <\"docs\">\nversion \"1.0.0\"\n\ntype X:\n\tname string (1..1)\n"
+                    .to_string(),
         }]);
         assert!(check.hard_errors.is_empty(), "{:?}", check.hard_errors);
         assert_eq!(check.namespaces.len(), 1);
