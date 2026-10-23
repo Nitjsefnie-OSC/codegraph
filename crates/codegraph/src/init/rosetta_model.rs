@@ -93,10 +93,13 @@ pub fn verify_rosetta_sources(files: &[RosettaFileCheck]) -> RosettaVerification
 /// Scan the `namespace <dotted.name>` declaration of a `.rosetta` source
 /// (line-scan contract, mirroring the mox `scan_package_name`; the grammar
 /// allows one namespace declaration per file).
+/// Trailing `:` characters on the scanned name token are stripped before
+/// checking for an empty name.
 pub fn scan_rosetta_namespace(source: &str) -> Option<String> {
     source.lines().find_map(|line| {
         let rest = line.trim().strip_prefix("namespace ")?;
         let name: String = rest.chars().take_while(|c| !c.is_whitespace()).collect();
+        let name = name.trim_end_matches(':').to_string();
         if name.is_empty() { None } else { Some(name) }
     })
 }
@@ -208,6 +211,48 @@ mod tests {
     }
 
     #[test]
+    fn scan_namespace_strips_description_colon() {
+        assert_eq!(
+            scan_rosetta_namespace("namespace demo.x: <\"docs\">\nversion \"1.0.0\"\n"),
+            Some("demo.x".to_string())
+        );
+    }
+
+    #[test]
+    fn scan_namespace_preserves_plain_name() {
+        assert_eq!(
+            scan_rosetta_namespace("namespace demo.x\nversion \"1.0.0\"\n"),
+            Some("demo.x".to_string())
+        );
+        assert_eq!(
+            scan_rosetta_namespace("namespace demo.x\n: <\"docs\">\n"),
+            Some("demo.x".to_string())
+        );
+    }
+
+    #[test]
+    fn scan_namespace_ignores_empty_name() {
+        assert_eq!(scan_rosetta_namespace("namespace :\n"), None);
+        assert_eq!(scan_rosetta_namespace("namespace  <\"docs\">\n"), None);
+    }
+
+    #[test]
+    fn scan_namespace_preserves_internal_colons() {
+        assert_eq!(
+            scan_rosetta_namespace("namespace a::b\n"),
+            Some("a::b".to_string())
+        );
+    }
+
+    #[test]
+    fn scan_namespace_strips_trailing_colon_run() {
+        assert_eq!(
+            scan_rosetta_namespace("namespace demo.x::: <\"docs\">\n"),
+            Some("demo.x".to_string())
+        );
+    }
+
+    #[test]
     fn scan_imports_strips_wildcard_and_alias() {
         let source = "namespace res.main\n\nimport res.base.*\nimport com.rosetta.model.metafields.* as meta\n\ntype Trade:\n\tparty Party (1..1)\n";
         assert_eq!(
@@ -235,5 +280,18 @@ mod tests {
         let unmatched = unmatched_namespaces(&check, &keys);
         assert_eq!(unmatched.len(), 1);
         assert_eq!(unmatched[0].2, "billing");
+    }
+
+    #[test]
+    fn unmatched_namespaces_accepts_description_colon() {
+        let check = verify_rosetta_sources(&[RosettaFileCheck {
+            name: "model/x.rosetta".to_string(),
+            text: "namespace demo.x: <\"docs\">\nversion \"1.0.0\"\n\ntype X:\n\tname string (1..1)\n".to_string(),
+        }]);
+        assert!(check.hard_errors.is_empty(), "{:?}", check.hard_errors);
+        assert_eq!(check.namespaces.len(), 1);
+        let keys: HashSet<String> = ["x".to_string()].into_iter().collect();
+        let unmatched = unmatched_namespaces(&check, &keys);
+        assert!(unmatched.is_empty(), "{:?}", unmatched);
     }
 }
