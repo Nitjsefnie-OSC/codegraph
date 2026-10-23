@@ -1,0 +1,144 @@
+name: Codegraph fork CI
+
+# Fork-only exact-ref validation. This file is intentionally not sent upstream.
+on:
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: Git branch, tag, or 40-character commit SHA to validate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codegraph-osc-manual-${{ github.repository }}-${{ inputs.target_ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Mirrors upstream ci.yml's `lint` job on any target ref.
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout candidate ref
+        uses: actions/checkout@v4
+        with:
+          repository: Nitjsefnie-OSC/codegraph
+          ref: ${{ inputs.target_ref }}
+          # The provenance echo below needs history beyond the candidate ref.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Report checked-out SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          checked_out_sha="$(git rev-parse HEAD)"
+          if [[ ! "$checked_out_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::git rev-parse HEAD did not produce a 40-character commit SHA: $checked_out_sha"
+            exit 1
+          fi
+          printf 'checked-out SHA: %s\n' "$checked_out_sha"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # Mirrors upstream ci.yml's `test` job on any target ref.
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      # Debug info dominates the target dir for a full-workspace test
+      # build; CI doesn't consume backtraces. Halves disk usage and keeps
+      # lld under the runner's disk ceiling (SIGBUS-on-link when ENOSPC).
+      RUSTFLAGS: -C debuginfo=0
+    steps:
+      - name: Checkout candidate ref
+        uses: actions/checkout@v4
+        with:
+          repository: Nitjsefnie-OSC/codegraph
+          ref: ${{ inputs.target_ref }}
+          persist-credentials: false
+
+      # ubuntu-latest ships ~25 GB of preinstalled tooling the build never
+      # touches. `cargo test --workspace` on this workspace produces tens
+      # of GB under target/, and an ENOSPC mid-link surfaces as
+      # `collect2: fatal error: ld terminated with signal 7 [Bus error]`.
+      # Swap is kept: rustc/lld OOM without it shows up as SIGKILL instead.
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # The mox-plane compile pin (issue #517) cargo-checks the emitted
+          # plane on wasm32-unknown-unknown as well as native.
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+
+  # Mirrors upstream ci.yml's `audit` job on any target ref.
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout candidate ref
+        uses: actions/checkout@v4
+        with:
+          repository: Nitjsefnie-OSC/codegraph
+          ref: ${{ inputs.target_ref }}
+          persist-credentials: false
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit
+
+  # Mirrors upstream ci.yml's `test-ops-integration` job on any target ref.
+  test-ops-integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout candidate ref
+        uses: actions/checkout@v4
+        with:
+          repository: Nitjsefnie-OSC/codegraph
+          ref: ${{ inputs.target_ref }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install psql
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Run ops DB integration tests
+        run: cargo test -p codegraph-ops --test db_integration -- --ignored --nocapture
+      - name: Run ops generator tests
+        run: cargo test -p codegraph --test ops_generator_tests -- --ignored --nocapture
