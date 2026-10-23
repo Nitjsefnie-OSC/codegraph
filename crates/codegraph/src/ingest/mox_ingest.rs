@@ -715,12 +715,29 @@ pub async fn ingest_mox_files(
             // declaration that was dropped.
             continue;
         }
-        for feature in ordered_bridge_features(class, &class_map, &bridged) {
+        // Identity mapping rule (issue #522): a class with exactly one `id`
+        // feature treats it as the surrogate identity (forced Uuid below);
+        // multiple `id` features are a composite natural key whose parts
+        // keep their declared type mappings. Counted over the same stored
+        // feature set the loop below ingests (derived/container features
+        // produce no column).
+        let features = ordered_bridge_features(class, &class_map, &bridged);
+        let sole_identity = features
+            .iter()
+            .filter(|f| f.is_id && !f.is_derived && f.kind != FeatureKind::Container)
+            .count()
+            == 1;
+        for feature in features {
             if feature.is_derived || feature.kind == FeatureKind::Container {
                 continue;
             }
-            let Some(prop) = feature_property(feature, &class.name, &datatype_formats, &mut stats)
-            else {
+            let Some(prop) = feature_property(
+                feature,
+                &class.name,
+                &datatype_formats,
+                sole_identity,
+                &mut stats,
+            ) else {
                 continue;
             };
             ingestor
@@ -1183,6 +1200,7 @@ fn feature_property(
     feature: &rex_ir::Feature,
     schema_title: &str,
     datatype_formats: &HashMap<(String, String), String>,
+    sole_identity: bool,
     stats: &mut MoxIngestStats,
 ) -> Option<PropertyNode> {
     let is_array = feature.multiplicity.is_many();
@@ -1293,12 +1311,16 @@ fn feature_property(
         },
     };
 
-    // Identity features (the `id` modifier) are entity identifiers: every
-    // layer must agree on Uuid. The declared datatype is overridden — the
-    // DDL and entity generators already emit Uuid for these columns, and a
-    // TEXT/String projection over a Uuid column breaks generated hydration
-    // (E0308: expected `String`, found `Uuid`).
-    let mapped = if feature.is_id {
+    // Identity mapping rule (issue #522). A class with exactly ONE `id`
+    // feature treats it as the surrogate identity: every layer must agree on
+    // Uuid, so the declared datatype is overridden — the DDL and entity
+    // generators already emit Uuid for these columns, and a TEXT/String
+    // projection over a Uuid column breaks generated hydration (E0308:
+    // expected `String`, found `Uuid`). Multiple `id` features are a
+    // Sculptor composite natural key: every part keeps its declared mapping
+    // (String→TEXT, wraps-String→TEXT, `format "uuid"`→UUID, …) and the
+    // generated surrogate `id UUID` column stays the storage key.
+    let mapped = if feature.is_id && sole_identity {
         match mapped {
             Mapped::Primitive { .. } => Mapped::Primitive {
                 pg: PgType::Uuid,
