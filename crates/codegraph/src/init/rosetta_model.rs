@@ -245,6 +245,30 @@ mod tests {
     }
 
     #[test]
+    fn scan_namespace_preserves_trailing_dot() {
+        assert_eq!(
+            scan_rosetta_namespace("namespace demo.x.\n"),
+            Some("demo.x.".to_string())
+        );
+    }
+
+    #[test]
+    fn scan_namespace_preserves_leading_colon() {
+        assert_eq!(
+            scan_rosetta_namespace("namespace :demo.x\n"),
+            Some(":demo.x".to_string())
+        );
+    }
+
+    #[test]
+    fn scan_namespace_strips_colons_after_trailing_dot() {
+        assert_eq!(
+            scan_rosetta_namespace("namespace demo.x.:::\n"),
+            Some("demo.x.".to_string())
+        );
+    }
+
+    #[test]
     fn scan_namespace_strips_trailing_colon_run() {
         assert_eq!(
             scan_rosetta_namespace("namespace demo.x::: <\"docs\">\n"),
